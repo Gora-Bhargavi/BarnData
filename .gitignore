@@ -1,0 +1,35 @@
+## Ignore Visual Studio / VSCode temporary files
+**/.vs/
+**/bin/
+**/obj/
+**/.vscode/
+**/packages/
+*.user
+*.userosscache
+*.sln.docstates
+**/.dotnet/
+**/*.csproj.user
+
+## Ignore appsettings secrets
+appsettings.*.json
+
+## Logs
+*.log
+build-diag.log
+
+## OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+## .NET Core
+project.lock.json
+project.fragment.lock.json
+
+## Dependency directories
+node_modules/
+
+## Logs
+logs/
+*.log
