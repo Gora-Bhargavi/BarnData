@@ -1,4 +1,5 @@
 @model BarnData.Web.Models.AnimalViewModel
+
 @* Shared form used by both Create.cshtml and Edit.cshtml *@
 
 @if (Model.ShowWeightWarning)
@@ -12,7 +13,7 @@
 
 <div asp-validation-summary="ModelOnly" class="alert alert-error"></div>
 
-<!-- SECTION A: VENDOR & PURCHASE  -->
+<!-- SECTION A: VENDOR & PURCHASE -->
 <div class="form-section">
     <div class="form-section-title">Vendor &amp; purchase</div>
     <div class="field-grid fg-4">
@@ -20,10 +21,12 @@
         <div class="field" style="position:relative">
             <label class="field-label">Vendor <span class="req">*</span></label>
             <input type="hidden" asp-for="VendorID" id="vendorIdHidden" />
-            <input asp-for="VendorNameFreeText" type="text" id="vendorSearch" class="form-control"
+            <input asp-for="VendorNameFreeText" type="hidden" id="vendorNameFreeText" />
+            <input type="text" id="vendorSearch" class="form-control"
+                   value="@Model.VendorNameFreeText"
                    placeholder="Type to search or enter new vendor..."
                    autocomplete="off" />
-            <div id="vendorDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--color-background-primary);border:1px solid var(--color-border-secondary);border-top:none;border-radius:0 0 var(--border-radius-md) var(--border-radius-md);max-height:220px;overflow-y:auto;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
+            <div id="vendorDropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--color-border-secondary);border-radius:12px;max-height:220px;overflow:hidden auto;z-index:999;box-shadow:0 10px 24px rgba(15,23,42,.14)"></div>
             <div class="field-hint" id="vendorHint">Search existing or type new vendor name</div>
             <span asp-validation-for="VendorID" class="field-error"></span>
         </div>
@@ -102,7 +105,7 @@
     </div>
 </div>
 
-<!--  SECTION C: ANIMAL DETAIL -->
+<!--  SECTION C: ANIMAL DETAILS -->
 <div class="form-section">
     <div class="form-section-title">Animal details</div>
     <div class="field-grid fg-4">
@@ -195,7 +198,7 @@
     }
 </div>
 
-<!--  SECTION E: GRADING  -->
+<!--  SECTION E: GRADING -->
 <div class="form-section">
     <div class="form-section-title">Grading</div>
     <div class="field-grid fg-4">
@@ -233,7 +236,7 @@
     </div>
 </div>
 
-<!--  SECTION F: OFFICE / NOTES -->
+<!--  SECTION F: OFFICE / NOTES  -->
 <div class="form-section">
     <div class="form-section-title">Office &amp; notes</div>
     <div class="field-grid fg-2">
@@ -243,7 +246,8 @@
                 Comment
             </label>
             <input asp-for="Comment" type="text" class="form-control"
-                   placeholder="Notes on this animal" />
+                   placeholder="Notes — e.g. 1.01FB, rt, HT" />
+            <div class="field-hint">FB = fetal blood, rt = retag, HT = heavy hind, COND = condemned</div>
             <span asp-validation-for="Comment" class="field-error"></span>
         </div>
 
@@ -251,6 +255,13 @@
             <label asp-for="VetName" class="field-label">Vet name</label>
             <input asp-for="VetName" type="text" class="form-control"
                    placeholder="Required for condemned / non-ambulatory" />
+        </div>
+
+        <div class="field">
+            <label asp-for="Origin" class="field-label">Origin</label>
+            <select asp-for="Origin" asp-items="Model.OriginList" class="form-control">
+            </select>
+            <div class="field-hint">Consignment animals only — Farmer or Canada</div>
         </div>
 
         <div class="field">
@@ -263,6 +274,15 @@
             <label asp-for="BuyerName" class="field-label">Buyer name</label>
             <input asp-for="BuyerName" type="text" class="form-control"
                    placeholder="Office use" />
+        </div>
+
+        <div class="field">
+            <label class="field-label">Condemned</label>
+            <label class="checkbox-label" style="margin-top:6px">
+                <input asp-for="IsCondemned" type="checkbox" />
+                Mark this animal as condemned
+            </label>
+            <div class="field-hint">Condemned animals are excluded from weight and cost totals</div>
         </div>
 
     </div>

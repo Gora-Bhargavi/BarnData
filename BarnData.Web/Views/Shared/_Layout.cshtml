@@ -29,9 +29,13 @@
         </a>
 
         <div class="nav-section">Reports</div>
-        <a asp-controller="Report" asp-action="Tally"
-           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Report" ? "active" : "")">
-            <span class="nav-dot"></span> Nightly tally
+        <a asp-controller="Report" asp-action="TallyToday"
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Report" && ViewContext.RouteData.Values["action"]?.ToString() == "TallyToday" ? "active" : "")">
+            <span class="nav-dot"></span> Today's tally
+        </a>
+        <a asp-controller="Report" asp-action="VendorAnimals"
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Report" && ViewContext.RouteData.Values["action"]?.ToString() == "VendorAnimals" ? "active" : "")">
+            <span class="nav-dot"></span> Vendor search
         </a>
 
         <div class="sidebar-footer">

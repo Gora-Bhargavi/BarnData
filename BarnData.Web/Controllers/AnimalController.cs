@@ -3,11 +3,33 @@ using BarnData.Data.Entities;
 using BarnData.Web.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using System.Text.Json;
 
 namespace BarnData.Web.Controllers
 {
     public class AnimalController : Controller
     {
+        private const string CreateCarryForwardKey = "CreateCarryForward";
+
+        private sealed class CreateCarryForwardState
+        {
+            public int VendorID { get; set; }
+            public string? VendorNameFreeText { get; set; }
+            public string PurchaseType { get; set; } = string.Empty;
+            public DateTime PurchaseDate { get; set; }
+            public string AnimalType { get; set; } = string.Empty;
+            public string? AnimalType2 { get; set; }
+            public string ProgramCode { get; set; } = string.Empty;
+            public DateTime KillDate { get; set; }
+            public string Grade { get; set; } = string.Empty;
+            public string? Grade2 { get; set; }
+            public int HealthScore { get; set; }
+            public string? Origin { get; set; }
+            public string? State { get; set; }
+            public string? BuyerName { get; set; }
+            public string? VetName { get; set; }
+            public string? OfficeUse2 { get; set; }
+        }
         private readonly IAnimalService _animalService;
         private readonly IVendorService _vendorService;
 
@@ -37,7 +59,7 @@ namespace BarnData.Web.Controllers
         // ── CREATE GET — blank entry form ─────────────────────────────────
         public async Task<IActionResult> Create()
         {
-            var vm = new AnimalViewModel
+            var vm = BuildViewModelFromCarryForward() ?? new AnimalViewModel
             {
                 KillDate     = DateTime.Today,
                 PurchaseDate = DateTime.Today,
@@ -50,7 +72,7 @@ namespace BarnData.Web.Controllers
         // ── CREATE POST — save new animal record ──────────────────────────
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(AnimalViewModel vm)
+        public async Task<IActionResult> Create(AnimalViewModel vm, string? submitMode)
         {
             // Handle vendor — either selected from list (VendorID > 0)
             // or typed as free text (VendorID = 0, VendorNameFreeText has value)
@@ -75,7 +97,8 @@ namespace BarnData.Web.Controllers
             }
 
             // Check weight warning — does not block, just flags
-            vm.ShowWeightWarning = _animalService.IsWeightOutOfRange(vm.LiveWeight);
+            vm.ShowWeightWarning = vm.LiveWeight.HasValue &&
+                _animalService.IsWeightOutOfRange(vm.LiveWeight.Value);
 
             // If weight is out of range AND user hasn't confirmed yet — show warning
             if (vm.ShowWeightWarning && !vm.WeightWarningConfirmed)
@@ -95,6 +118,13 @@ namespace BarnData.Web.Controllers
                 ModelState.AddModelError("TagNumber1", error);
                 await PopulateVendorDropdown(vm);
                 return View(vm);
+            }
+
+            if (string.Equals(submitMode, "save-add-another", StringComparison.OrdinalIgnoreCase))
+            {
+                TempData["SuccessMessage"] = $"Animal record saved. Control No: {animal.ControlNo}. Ready for the next animal.";
+                TempData[CreateCarryForwardKey] = JsonSerializer.Serialize(BuildCarryForwardModel(vm));
+                return RedirectToAction(nameof(Create));
             }
 
             TempData["SuccessMessage"] = $"Animal record saved. Control No: {animal.ControlNo}";
@@ -134,7 +164,8 @@ namespace BarnData.Web.Controllers
                 return View(vm);
             }
 
-            vm.ShowWeightWarning = _animalService.IsWeightOutOfRange(vm.LiveWeight);
+            vm.ShowWeightWarning = vm.LiveWeight.HasValue &&
+                _animalService.IsWeightOutOfRange(vm.LiveWeight.Value);
             if (vm.ShowWeightWarning && !vm.WeightWarningConfirmed)
             {
                 await PopulateVendorDropdown(vm);
@@ -224,33 +255,110 @@ namespace BarnData.Web.Controllers
             }
         }
 
+        private AnimalViewModel? BuildViewModelFromCarryForward()
+        {
+            if (!TempData.TryGetValue(CreateCarryForwardKey, out var raw) || raw is not string json)
+            {
+                return null;
+            }
+
+            try
+            {
+                var state = JsonSerializer.Deserialize<CreateCarryForwardState>(json);
+                if (state == null)
+                {
+                    TempData.Remove(CreateCarryForwardKey);
+                    return null;
+                }
+
+                return new AnimalViewModel
+                {
+                    VendorID = state.VendorID,
+                    VendorNameFreeText = state.VendorNameFreeText,
+                    PurchaseType = state.PurchaseType,
+                    PurchaseDate = state.PurchaseDate,
+                    LiveRate = null,
+                    AnimalType = state.AnimalType,
+                    AnimalType2 = state.AnimalType2,
+                    ProgramCode = state.ProgramCode,
+                    KillDate = state.KillDate,
+                    Grade = state.Grade,
+                    Grade2 = state.Grade2,
+                    HealthScore = state.HealthScore,
+                    Origin = state.Origin,
+                    State = state.State,
+                    BuyerName = state.BuyerName,
+                    VetName = state.VetName,
+                    OfficeUse2 = state.OfficeUse2,
+                    TagNumber1 = string.Empty,
+                    TagNumber2 = null,
+                    Tag3 = null,
+                    AnimalControlNumber = string.Empty,
+                    LiveWeight = null,
+                    HotWeight = null,
+                    FetalBlood = null,
+                    Comment = null,
+                    IsCondemned = false,
+                    ShowWeightWarning = false,
+                    WeightWarningConfirmed = false
+                };
+            }
+            catch (JsonException)
+            {
+                TempData.Remove(CreateCarryForwardKey);
+                return null;
+            }
+        }
+
+        private static CreateCarryForwardState BuildCarryForwardModel(AnimalViewModel vm) => new()
+        {
+            VendorID             = vm.VendorID,
+            VendorNameFreeText   = vm.VendorNameFreeText,
+            PurchaseType         = vm.PurchaseType,
+            PurchaseDate         = vm.PurchaseDate,
+            AnimalType           = vm.AnimalType,
+            AnimalType2          = vm.AnimalType2,
+            ProgramCode          = vm.ProgramCode,
+            KillDate             = vm.KillDate,
+            Grade                = vm.Grade,
+            Grade2               = vm.Grade2,
+            HealthScore          = vm.HealthScore,
+            Origin               = vm.Origin,
+            State                = vm.State,
+            BuyerName            = vm.BuyerName,
+            VetName              = vm.VetName,
+            OfficeUse2           = vm.OfficeUse2
+        };
+
         private static Animal MapToEntity(AnimalViewModel vm) => new()
         {
             ControlNo            = vm.ControlNo,
             VendorID             = vm.VendorID,
             TagNumber1           = vm.TagNumber1,
-            TagNumber2           = vm.TagNumber2,
+            TagNumber2           = vm.TagNumber2 ?? string.Empty,
             Tag3                 = vm.Tag3,
             AnimalType           = vm.AnimalType,
             AnimalType2          = vm.AnimalType2,
             ProgramCode          = vm.ProgramCode,
             PurchaseDate         = vm.PurchaseDate,
             PurchaseType         = vm.PurchaseType,
-            LiveWeight           = vm.LiveWeight,
-            LiveRate             = vm.LiveRate,
+            LiveWeight           = vm.LiveWeight!.Value,
+            LiveRate             = vm.LiveRate!.Value,
             KillDate             = vm.KillDate,
             HotWeight            = vm.HotWeight,
             Grade                = vm.Grade,
             Grade2               = vm.Grade2,
             HealthScore          = vm.HealthScore,
             FetalBlood           = vm.FetalBlood,
-            Comment              = vm.Comment,
+            Comment              = vm.Comment ?? string.Empty,
             AnimalControlNumber  = vm.AnimalControlNumber,
             State                = vm.State,
             BuyerName            = vm.BuyerName,
             VetName              = vm.VetName,
             OfficeUse2           = vm.OfficeUse2,
             KillStatus           = vm.KillStatus,
+            Origin               = vm.Origin,
+            IsCondemned          = vm.IsCondemned,
         };
 
         private static AnimalViewModel MapToViewModel(Animal a) => new()
@@ -280,6 +388,8 @@ namespace BarnData.Web.Controllers
             VetName              = a.VetName,
             OfficeUse2           = a.OfficeUse2,
             KillStatus           = a.KillStatus,
+            Origin               = a.Origin,
+            IsCondemned          = a.IsCondemned,
         };
     }
 }

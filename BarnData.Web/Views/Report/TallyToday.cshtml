@@ -1,0 +1,130 @@
+@model BarnData.Web.Models.TallyViewModel
+@{
+    ViewData["Title"] = "Today's killed animals";
+    ViewData["Subtitle"] = $"Kill date: {Model.KillDate:dddd, MMMM d, yyyy}";
+}
+
+<div class="filter-bar">
+    <div class="filter-actions">
+        <a asp-action="ExportTodayExcel" class="btn btn-secondary">Export Excel</a>
+        <a asp-action="ExportTodayPdf" class="btn btn-secondary">Export PDF</a>
+        <a asp-action="VendorAnimals" class="btn btn-secondary">Search by vendor</a>
+        <a asp-controller="Animal"
+           asp-action="Index"
+           asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
+           class="btn btn-ghost">Back to list</a>
+    </div>
+</div>
+
+<div class="summary-strip" style="margin-bottom:14px">
+    <div class="summary-stat">
+        <div class="summary-val">@Model.Summary.TotalAnimals</div>
+        <div class="summary-lbl">Killed</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">@Model.Summary.TotalCondemned</div>
+        <div class="summary-lbl">Condemned</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">@Model.Summary.TotalPassed</div>
+        <div class="summary-lbl">Passed</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">@Model.Summary.TotalHotWeight.ToString("N0")</div>
+        <div class="summary-lbl">Dressed Wt (lbs)</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">$@Model.Summary.TotalSaleCost.ToString("N2")</div>
+        <div class="summary-lbl">Total Cost</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">@Model.Summary.AverageYieldPct.ToString("N1")%</div>
+        <div class="summary-lbl">Avg Yield</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">$@Model.Summary.AverageDressRate.ToString("N3")</div>
+        <div class="summary-lbl">Avg Dress Rate</div>
+    </div>
+</div>
+
+@if (!Model.Summary.ByVendor.Any())
+{
+    <div class="empty-state">
+        <div class="empty-title">No killed animals for today</div>
+        <div class="empty-sub">Add or update today's animal records to see the tally here.</div>
+        <a asp-controller="Animal" asp-action="Create" class="btn btn-primary" style="margin-top:12px">
+            + Add animal record
+        </a>
+    </div>
+}
+else
+{
+    @foreach (var group in Model.Summary.ByVendor)
+    {
+        <div class="vendor-group-header">
+            <div class="vendor-group-name">@group.VendorName</div>
+            <div class="vendor-group-stats">
+                <span class="vstat">
+                    <span class="vstat-val">@group.Count</span>
+                    <span class="vstat-lbl">killed</span>
+                </span>
+                <span class="vstat-div"></span>
+                <span class="vstat">
+                    <span class="vstat-val">@group.TotalHotWeight.ToString("N0")</span>
+                    <span class="vstat-lbl">dressed wt</span>
+                </span>
+                <span class="vstat-div"></span>
+                <span class="vstat">
+                    <span class="vstat-val">$@group.TotalSaleCost.ToString("N2")</span>
+                    <span class="vstat-lbl">cost</span>
+                </span>
+            </div>
+        </div>
+
+        <div class="table-card" style="margin-bottom:20px;border-radius:0 0 10px 10px">
+            <table class="data-table tally-table">
+                <thead>
+                    <tr>
+                        <th>Ctrl No.</th>
+                        <th>Tag 1</th>
+                        <th>Tag 2</th>
+                        <th>Type</th>
+                        <th>Program</th>
+                        <th>Kill Date</th>
+                        <th class="text-right">Live Wt</th>
+                        <th class="text-right">Hot Wt</th>
+                        <th>Grade</th>
+                        <th class="text-center">HS</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in group.Animals)
+                    {
+                        <tr class="@(a.IsCondemned ? "row-condemned" : "")">
+                            <td class="mono">@a.ControlNo</td>
+                            <td class="mono">@a.TagNumber1</td>
+                            <td class="mono">@(a.TagNumber2 ?? "—")</td>
+                            <td>@a.AnimalType</td>
+                            <td><span class="badge badge-prog">@a.ProgramCode</span></td>
+                            <td>@a.KillDate.ToString("MM/dd/yyyy")</td>
+                            <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
+                            <td class="text-right mono">@(a.HotWeight?.ToString("N1") ?? "—")</td>
+                            <td><span class="badge badge-grade">@a.Grade</span></td>
+                            <td class="text-center">@a.HealthScore</td>
+                            <td>
+                                <span class="badge badge-status-@a.KillStatus.ToLower()">@a.KillStatus</span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}

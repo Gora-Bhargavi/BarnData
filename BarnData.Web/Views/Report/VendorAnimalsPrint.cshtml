@@ -1,0 +1,92 @@
+@model BarnData.Web.Models.VendorAnimalsViewModel
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 9pt; color: #0f172a; }
+  .report-header { background: #0f1b2d; color: #fff; padding: 10px 14px;
+                   display: flex; justify-content: space-between; align-items: center;
+                   margin-bottom: 10px; }
+  .report-title  { font-size: 13pt; font-weight: bold; }
+  .report-meta   { font-size: 9pt; opacity: .75; text-align: right; }
+  .summary-bar   { background: #1e2f47; color: #fff; padding: 8px 14px; margin-bottom: 10px; }
+  .summary-bar strong { font-size: 11pt; }
+  table          { width: 100%; border-collapse: collapse; }
+  th             { background: #e2e8f0; padding: 4px 6px; font-size: 8pt;
+                   font-weight: bold; color: #334155; border: 1px solid #cbd5e1;
+                   text-align: left; white-space: nowrap; }
+  td             { padding: 3px 6px; font-size: 8pt; border: 1px solid #e2e8f0;
+                   color: #334155; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  .tr { text-align: right; }
+  .mono { font-family: 'Courier New', monospace; }
+  .page-footer  { margin-top: 10px; padding-top: 6px;
+                  border-top: 1px solid #e2e8f0; font-size: 7pt;
+                  color: #94a3b8; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<div class="report-header">
+    <div class="report-title">Vendor Animal Search Report</div>
+    <div class="report-meta">
+        Vendor: @(string.IsNullOrWhiteSpace(Model.VendorName) ? "All" : Model.VendorName)<br/>
+        Generated: @DateTime.Now.ToString("MM/dd/yyyy h:mm tt")
+    </div>
+</div>
+
+<div class="summary-bar">
+    <strong>@Model.Animals.Count()</strong> records found
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Ctrl No.</th>
+            <th>Vendor</th>
+            <th>Tag 1</th>
+            <th>Tag 2</th>
+            <th>Type</th>
+            <th>Program</th>
+            <th>Kill Date</th>
+            <th>Status</th>
+            <th>Grade</th>
+            <th class="tr">Live Wt</th>
+            <th class="tr">Hot Wt</th>
+            <th>Comment</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var a in Model.Animals)
+        {
+            <tr>
+                <td class="mono">@a.ControlNo</td>
+                <td>@(a.Vendor?.VendorName ?? "")</td>
+                <td class="mono">@a.TagNumber1</td>
+                <td class="mono">@(a.TagNumber2 ?? "")</td>
+                <td>@a.AnimalType</td>
+                <td>@a.ProgramCode</td>
+                <td>@a.KillDate.ToString("MM/dd/yyyy")</td>
+                <td>@a.KillStatus</td>
+                <td>@a.Grade</td>
+                <td class="tr mono">@a.LiveWeight.ToString("N1")</td>
+                <td class="tr mono">@(a.HotWeight?.ToString("N1") ?? "")</td>
+                <td>@a.Comment</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<div class="page-footer">
+    <span>Trax-IT Slaughter - Barn Data System</span>
+    <span>Confidential - Internal use only</span>
+    <span>@DateTime.Now.ToString("MM/dd/yyyy h:mm tt")</span>
+</div>
+
+</body>
+</html>

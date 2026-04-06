@@ -26,7 +26,7 @@ namespace BarnData.Web.Models
         [Required(ErrorMessage = "Live rate is required")]
         [Range(0.0001, 9999.9999, ErrorMessage = "Live rate must be greater than 0")]
         [Display(Name = "Live rate ($/head)")]
-        public decimal LiveRate { get; set; }
+        public decimal? LiveRate { get; set; }
 
         // ── Tags ──────────────────────────────────────────────────────────
         [Required(ErrorMessage = "Tag Number 1 is required")]
@@ -64,7 +64,7 @@ namespace BarnData.Web.Models
         [Required(ErrorMessage = "Live weight is required")]
         [Range(0.1, 9999.9, ErrorMessage = "Live weight must be greater than 0")]
         [Display(Name = "Live weight (lbs)")]
-        public decimal LiveWeight { get; set; }
+        public decimal? LiveWeight { get; set; }
 
         [Required(ErrorMessage = "Kill date is required")]
         [DataType(DataType.Date)]
@@ -114,6 +114,13 @@ namespace BarnData.Web.Models
         [Display(Name = "Office use 2")]
         public string? OfficeUse2 { get; set; }
 
+        [MaxLength(20)]
+        [Display(Name = "Origin")]
+        public string? Origin { get; set; }
+
+        [Display(Name = "Condemned")]
+        public bool IsCondemned { get; set; } = false;
+
         public string KillStatus { get; set; } = "Pending";
 
         // ── Free-text vendor name (used when vendor is new / not in list) ───
@@ -159,6 +166,14 @@ namespace BarnData.Web.Models
             {
                 new("Sale bill",    "Sale bill"),
                 new("Consignment",  "Consignment"),
+            };
+
+        public IEnumerable<SelectListItem> OriginList { get; set; }
+            = new List<SelectListItem>
+            {
+                new("",        "— Not applicable —"),
+                new("Farmer",  "Farmer"),
+                new("Canada",  "Canada"),
             };
 
         // ── Weight warning flags ───────────────────────────────────────────

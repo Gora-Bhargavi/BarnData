@@ -15,204 +15,268 @@
         </div>
         <div class="filter-field">
             <label>Vendor</label>
-            <select name="vendorId" class="form-control-sm">
-                <option value="">All vendors</option>
-                @foreach (var item in Model.VendorList)
-                {
-                    <option value="@item.Value"
-                            selected="@(item.Value == Model.VendorId?.ToString() ? "selected" : null)">
-                        @item.Text
-                    </option>
-                }
-            </select>
+            <select asp-for="VendorId" asp-items="Model.VendorList" class="form-control-sm">
+    <option value="">All vendors</option>
+</select>
         </div>
         <button type="submit" class="btn btn-primary btn-sm">Filter</button>
         <a asp-action="Tally" class="btn btn-secondary btn-sm">Today</a>
     </form>
-
     <div class="filter-actions">
         <a asp-action="ExportExcel"
            asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
            asp-route-vendorId="@Model.VendorId"
-           class="btn btn-secondary">
-            Export Excel
-        </a>
+           class="btn btn-secondary">Export Excel</a>
         <a asp-action="ExportPdf"
            asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
            asp-route-vendorId="@Model.VendorId"
-           class="btn btn-secondary">
-            Export PDF
-        </a>
+           class="btn btn-secondary">Export PDF</a>
         <a asp-controller="Animal"
            asp-action="Index"
            asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
-           class="btn btn-ghost">
-            Back to list
-        </a>
+           class="btn btn-ghost">Back to list</a>
     </div>
 </div>
 
 <!--  Grand summary strip  -->
-<div class="summary-strip" style="margin-bottom:16px">
+<div class="summary-strip" style="margin-bottom:14px">
     <div class="summary-stat">
         <div class="summary-val">@Model.Summary.TotalAnimals</div>
-        <div class="summary-lbl">Total animals</div>
+        <div class="summary-lbl">Killed</div>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val">@Model.Summary.TotalLiveWeight.ToString("N1")</div>
-        <div class="summary-lbl">Total live wt (lbs)</div>
+        <div class="summary-val">@Model.Summary.TotalCondemned</div>
+        <div class="summary-lbl">Condemned</div>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val">@Model.Summary.TotalHotWeight.ToString("N1")</div>
-        <div class="summary-lbl">Total hot wt (lbs)</div>
+        <div class="summary-val">@Model.Summary.TotalPassed</div>
+        <div class="summary-lbl">Passed</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">@Model.Summary.TotalHotWeight.ToString("N0")</div>
+        <div class="summary-lbl">Dressed Wt (lbs)</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">$@Model.Summary.TotalSaleCost.ToString("N2")</div>
+        <div class="summary-lbl">Total Cost</div>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
         <div class="summary-val">@Model.Summary.AverageYieldPct.ToString("N1")%</div>
-        <div class="summary-lbl">Avg yield</div>
+        <div class="summary-lbl">Avg Yield</div>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val">@Model.Summary.ByVendor.Count()</div>
-        <div class="summary-lbl">Vendors</div>
+        <div class="summary-val">$@Model.Summary.AverageDressRate.ToString("N3")</div>
+        <div class="summary-lbl">Avg Dress Rate</div>
     </div>
 </div>
 
 @if (!Model.Summary.ByVendor.Any())
 {
-        <div class="empty-state">
-            <div class="empty-title">No records for @Model.KillDate.ToString("MM/dd/yyyy")</div>
-        <div class="empty-sub">No animal records found for this kill date.</div>
+    <div class="empty-state">
+        <div class="empty-title">No records for @Model.KillDate.ToString("MM/dd/yyyy")</div>
+        <div class="empty-sub">Enter animal records for this kill date first.</div>
         <a asp-controller="Animal" asp-action="Index"
            asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
-           class="btn btn-primary" style="margin-top:12px">
-            Go to animal list
-        </a>
+           class="btn btn-primary" style="margin-top:12px">Go to animal list</a>
     </div>
 }
 else
 {
-    <!-- Per-vendor groups  -->
+    <!-- SHEET 1 EQUIVALENT: Summary by animal type -->
+    <div class="form-section" style="margin-bottom:16px">
+        <div class="form-section-title">Summary by animal type</div>
+        <div class="table-card" style="border-radius:var(--radius)">
+            <table class="data-table" style="font-size:12px">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th class="text-right">Killed</th>
+                        <th class="text-right">Condemned</th>
+                        <th class="text-right">Passed</th>
+                        <th class="text-right">Dressed Wt (lbs)</th>
+                        <th class="text-right">Cost</th>
+                        <th class="text-right">Avg Cost ($/lb hw)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in Model.Summary.ByType.Where(r => r.Killed > 0))
+                    {
+                        <tr>
+                            <td style="font-weight:500">@row.Category</td>
+                            <td class="text-right mono">@row.Killed</td>
+                            <td class="text-right mono @(row.Condemned > 0 ? "text-danger" : "")">
+                                @(row.Condemned > 0 ? row.Condemned.ToString() : "—")
+                            </td>
+                            <td class="text-right mono">@row.Passed</td>
+                            <td class="text-right mono">@row.DressedWt.ToString("N1")</td>
+                            <td class="text-right mono">$@row.Cost.ToString("N2")</td>
+                            <td class="text-right mono">$@row.AvgCost.ToString("N4")</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="table-total-row">
+                        <td class="total-label">Grand total</td>
+                        <td class="text-right mono">@Model.Summary.TotalAnimals</td>
+                        <td class="text-right mono @(Model.Summary.TotalCondemned > 0 ? "text-danger" : "")">
+                            @(Model.Summary.TotalCondemned > 0 ? Model.Summary.TotalCondemned.ToString() : "—")
+                        </td>
+                        <td class="text-right mono">@Model.Summary.TotalPassed</td>
+                        <td class="text-right mono">@Model.Summary.TotalHotWeight.ToString("N1")</td>
+                        <td class="text-right mono">$@Model.Summary.TotalSaleCost.ToString("N2")</td>
+                        <td class="text-right mono">$@Model.Summary.AverageDressRate.ToString("N4")</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    <!--  Per-vendor detail groups  -->
     @foreach (var group in Model.Summary.ByVendor)
     {
-        <!-- Vendor group header -->
         <div class="vendor-group-header">
             <div class="vendor-group-name">@group.VendorName</div>
             <div class="vendor-group-stats">
                 <span class="vstat">
                     <span class="vstat-val">@group.Count</span>
-                    <span class="vstat-lbl">animals</span>
+                    <span class="vstat-lbl">killed</span>
                 </span>
-                <span class="vstat-div"></span>
-                <span class="vstat">
-                    <span class="vstat-val">@group.TotalLiveWeight.ToString("N1")</span>
-                    <span class="vstat-lbl">live wt</span>
-                </span>
-                <span class="vstat-div"></span>
-                <span class="vstat">
-                    <span class="vstat-val">@group.TotalHotWeight.ToString("N1")</span>
-                    <span class="vstat-lbl">hot wt</span>
-                </span>
-                @if (group.TotalLiveWeight > 0)
+                @if (group.Condemned > 0)
                 {
                     <span class="vstat-div"></span>
                     <span class="vstat">
-                        <span class="vstat-val">
-                            @((group.TotalHotWeight / group.TotalLiveWeight * 100).ToString("N1"))%
-                        </span>
-                        <span class="vstat-lbl">yield</span>
+                        <span class="vstat-val" style="color:#fca5a5">@group.Condemned</span>
+                        <span class="vstat-lbl">cond</span>
                     </span>
                 }
+                <span class="vstat-div"></span>
+                <span class="vstat">
+                    <span class="vstat-val">@group.TotalHotWeight.ToString("N0")</span>
+                    <span class="vstat-lbl">dressed wt</span>
+                </span>
+                <span class="vstat-div"></span>
+                <span class="vstat">
+                    <span class="vstat-val">$@group.TotalSaleCost.ToString("N2")</span>
+                    <span class="vstat-lbl">cost</span>
+                </span>
+                <span class="vstat-div"></span>
+                <span class="vstat">
+                    <span class="vstat-val">@group.YieldPct.ToString("N1")%</span>
+                    <span class="vstat-lbl">yield</span>
+                </span>
+                <span class="vstat-div"></span>
+                <span class="vstat">
+                    <span class="vstat-val">$@group.DressRate.ToString("N3")</span>
+                    <span class="vstat-lbl">dress rate</span>
+                </span>
             </div>
         </div>
 
-        <!-- Animal rows for this vendor -->
-        <div class="table-card" style="margin-bottom:6px;border-radius:0 0 10px 10px;">
+        <div class="table-card" style="margin-bottom:6px;border-radius:0 0 10px 10px">
             <table class="data-table tally-table">
                 <thead>
                     <tr>
-                        <th>Control No.</th>
+                        <th>Ctrl No.</th>
                         <th>Tag 1</th>
                         <th>Tag 2</th>
-                        <th>Tag 3</th>
                         <th>Type</th>
                         <th>Program</th>
-                        <th>Purchase date</th>
-                        <th>Kill date</th>
-                        <th class="text-right">Live wt</th>
-                        <th class="text-right">Live rate</th>
-                        <th class="text-right">Hot wt</th>
+                        <th>Origin</th>
+                        <th>Purch. Date</th>
+                        <th>Kill Date</th>
+                        <th class="text-right">Live Wt</th>
+                        <th class="text-right">Live Rate</th>
+                        <th class="text-right">Sale Cost</th>
+                        <th class="text-right">Hot Wt</th>
                         <th class="text-right">Yield %</th>
+                        <th class="text-right">Dress Rate</th>
                         <th>Grade</th>
-                        <th>Grade 2</th>
-                        <th>HS</th>
+                        <th>Gr.2</th>
+                        <th class="text-center">HS</th>
                         <th>Comment</th>
+                        <th>Cond</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var a in group.Animals)
                     {
-                        decimal yieldPct = (a.HotWeight.HasValue && a.LiveWeight > 0)
-                            ? Math.Round(a.HotWeight.Value / a.LiveWeight * 100, 1)
-                            : 0;
+                        decimal saleCost  = a.LiveWeight * a.LiveRate;
+                        decimal yieldPct  = (a.HotWeight.HasValue && a.LiveWeight > 0)
+                            ? Math.Round(a.HotWeight.Value / a.LiveWeight * 100, 2) : 0;
+                        decimal dressRate = (a.HotWeight.HasValue && a.HotWeight.Value > 0)
+                            ? Math.Round(saleCost / a.HotWeight.Value, 3) : 0;
 
-                        <tr>
+                        <tr class="@(a.IsCondemned ? "row-condemned" : "")">
                             <td class="mono">@a.ControlNo</td>
                             <td class="mono">@a.TagNumber1</td>
                             <td class="mono">@(a.TagNumber2 ?? "—")</td>
-                            <td class="mono">@(a.Tag3 ?? "—")</td>
                             <td>@a.AnimalType</td>
                             <td><span class="badge badge-prog">@a.ProgramCode</span></td>
+                            <td>@(a.Origin ?? "—")</td>
                             <td>@a.PurchaseDate.ToString("MM/dd/yy")</td>
                             <td>@a.KillDate.ToString("MM/dd/yy")</td>
                             <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
                             <td class="text-right mono">$@a.LiveRate.ToString("N4")</td>
+                            <td class="text-right mono">$@saleCost.ToString("N2")</td>
                             <td class="text-right mono">
                                 @(a.HotWeight.HasValue ? a.HotWeight.Value.ToString("N1") : "—")
                             </td>
                             <td class="text-right mono">
-                                @(yieldPct > 0 ? yieldPct.ToString("N1") + "%" : "—")
+                                @(yieldPct > 0 ? yieldPct.ToString("N2") + "%" : "—")
+                            </td>
+                            <td class="text-right mono">
+                                @(dressRate > 0 ? "$" + dressRate.ToString("N3") : "—")
                             </td>
                             <td><span class="badge badge-grade">@a.Grade</span></td>
                             <td>@(a.Grade2 ?? "—")</td>
                             <td class="text-center">@a.HealthScore</td>
                             <td class="comment-cell">@a.Comment</td>
+                            <td class="text-center">
+                                @if (a.IsCondemned)
+                                {
+                                    <span class="badge badge-status-flagged">cond</span>
+                                }
+                            </td>
                         </tr>
                     }
                 </tbody>
                 <tfoot>
                     <tr class="vendor-total-row">
                         <td colspan="8" class="text-right total-label">
-                            @group.VendorName subtotal
+                            @group.VendorName subtotal (@group.Passed passed, @group.Condemned cond)
                         </td>
                         <td class="text-right mono">@group.TotalLiveWeight.ToString("N1")</td>
                         <td></td>
+                        <td class="text-right mono">$@group.TotalSaleCost.ToString("N2")</td>
                         <td class="text-right mono">@group.TotalHotWeight.ToString("N1")</td>
-                        <td class="text-right mono">
-                            @if (group.TotalLiveWeight > 0)
-                            {
-                                @((group.TotalHotWeight / group.TotalLiveWeight * 100).ToString("N1"))
-                                <text>%</text>
-                            }
-                        </td>
-                        <td colspan="4"></td>
+                        <td class="text-right mono">@group.YieldPct.ToString("N1")%</td>
+                        <td class="text-right mono">$@group.DressRate.ToString("N3")</td>
+                        <td colspan="5"></td>
                     </tr>
                 </tfoot>
             </table>
         </div>
-
         <div style="margin-bottom:20px"></div>
     }
 
-    <!--  Grand total row  -->
+    <!--  Grand total bar  -->
     <div class="grand-total-bar">
-        <div class="grand-total-label">Grand total — @Model.Summary.TotalAnimals animals</div>
+        <div class="grand-total-label">
+            Grand Total — @Model.Summary.TotalAnimals killed,
+            @Model.Summary.TotalCondemned condemned,
+            @Model.Summary.TotalPassed passed
+        </div>
         <div class="grand-total-stats">
-            <span>Live wt: <strong>@Model.Summary.TotalLiveWeight.ToString("N1") lbs</strong></span>
-            <span>Hot wt: <strong>@Model.Summary.TotalHotWeight.ToString("N1") lbs</strong></span>
-            <span>Avg yield: <strong>@Model.Summary.AverageYieldPct.ToString("N1")%</strong></span>
+            <span>Dressed Wt: <strong>@Model.Summary.TotalHotWeight.ToString("N1") lbs</strong></span>
+            <span>Total Cost: <strong>$@Model.Summary.TotalSaleCost.ToString("N2")</strong></span>
+            <span>Avg Yield: <strong>@Model.Summary.AverageYieldPct.ToString("N1")%</strong></span>
+            <span>Avg Dress Rate: <strong>$@Model.Summary.AverageDressRate.ToString("N3")</strong></span>
         </div>
     </div>
 }

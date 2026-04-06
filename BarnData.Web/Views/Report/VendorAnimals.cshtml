@@ -1,0 +1,86 @@
+@model BarnData.Web.Models.VendorAnimalsViewModel
+@{
+    ViewData["Title"] = "Vendor animal search";
+    ViewData["Subtitle"] = "Search animal records by vendor name";
+}
+
+<div class="filter-bar">
+    <form method="get" asp-action="VendorAnimals" class="filter-form">
+        <div class="filter-field">
+            <label>Vendor name</label>
+            <input type="text"
+                   name="vendorName"
+                   value="@Model.VendorName"
+                   class="form-control-sm"
+                   placeholder="Enter vendor name" />
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Search</button>
+        <a asp-action="TallyToday" class="btn btn-secondary btn-sm">Today's tally</a>
+    </form>
+
+    <div class="filter-actions">
+        <a asp-action="ExportVendorAnimalsExcel"
+           asp-route-vendorName="@Model.VendorName"
+           class="btn btn-secondary">Export Excel</a>
+        <a asp-action="ExportVendorAnimalsPdf"
+           asp-route-vendorName="@Model.VendorName"
+           class="btn btn-secondary">Export PDF</a>
+    </div>
+</div>
+
+@if (string.IsNullOrWhiteSpace(Model.VendorName))
+{
+    <div class="empty-state">
+        <div class="empty-title">Search by vendor</div>
+        <div class="empty-sub">Enter a vendor name to see all animal records for that vendor.</div>
+    </div>
+}
+else if (!Model.Animals.Any())
+{
+    <div class="empty-state">
+        <div class="empty-title">No animal records found</div>
+        <div class="empty-sub">No records matched vendor name "@Model.VendorName".</div>
+    </div>
+}
+else
+{
+    <div class="table-card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Ctrl No.</th>
+                    <th>Vendor</th>
+                    <th>Tag 1</th>
+                    <th>Tag 2</th>
+                    <th>Type</th>
+                    <th>Program</th>
+                    <th>Kill Date</th>
+                    <th>Status</th>
+                    <th>Grade</th>
+                    <th class="text-right">Live Wt</th>
+                    <th class="text-right">Hot Wt</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in Model.Animals)
+                {
+                    <tr class="@(a.IsCondemned ? "row-condemned" : "")">
+                        <td class="mono">@a.ControlNo</td>
+                        <td>@(a.Vendor?.VendorName ?? "—")</td>
+                        <td class="mono">@a.TagNumber1</td>
+                        <td class="mono">@(a.TagNumber2 ?? "—")</td>
+                        <td>@a.AnimalType</td>
+                        <td><span class="badge badge-prog">@a.ProgramCode</span></td>
+                        <td>@a.KillDate.ToString("MM/dd/yyyy")</td>
+                        <td>
+                            <span class="badge badge-status-@a.KillStatus.ToLower()">@a.KillStatus</span>
+                        </td>
+                        <td><span class="badge badge-grade">@a.Grade</span></td>
+                        <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
+                        <td class="text-right mono">@(a.HotWeight?.ToString("N1") ?? "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

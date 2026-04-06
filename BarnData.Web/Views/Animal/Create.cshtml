@@ -10,8 +10,11 @@
     @await Html.PartialAsync("_AnimalForm", Model)
 
     <div class="form-actions">
-        <button type="submit" class="btn btn-primary">
+        <button type="submit" name="submitMode" value="save" class="btn btn-primary">
             Save animal record
+        </button>
+        <button type="submit" name="submitMode" value="save-add-another" class="btn btn-secondary">
+            Save &amp; add another
         </button>
         
         <a asp-action="Index" class="btn btn-secondary">Cancel</a>

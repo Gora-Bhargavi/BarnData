@@ -32,7 +32,7 @@ builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
 
-// ── 4. Middleware pipeline 
+//  4. Middleware pipeline 
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");

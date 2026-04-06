@@ -284,3 +284,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .grand-total-label { font-size: 14px; font-weight: 600; color: #fff; }
 .grand-total-stats { display: flex; gap: 24px; font-size: 13px; color: rgba(255,255,255,.7); }
 .grand-total-stats strong { color: #fff; }
+
+/* ── Condemned row style ────────────────────────────────────────────────── */
+.row-condemned td { background: #fee2e2 !important; color: #b91c1c; }
+.text-danger { color: var(--red) !important; }
+

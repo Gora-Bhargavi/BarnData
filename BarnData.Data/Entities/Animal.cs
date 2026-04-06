@@ -99,7 +99,14 @@ namespace BarnData.Data.Entities
         [MaxLength(200)]
         public string? OfficeUse2 { get; set; }
 
-        // System fields 
+        // Origin — Farmer, Canada, or blank (consignment animals)
+        [MaxLength(20)]
+        public string? Origin { get; set; }
+
+        // Condemned flag — excluded from weight/cost totals
+        public bool IsCondemned { get; set; } = false;
+
+        //  System fields 
         [Required]
         [MaxLength(20)]
         public string KillStatus { get; set; } = "Pending";
@@ -111,7 +118,7 @@ namespace BarnData.Data.Entities
         [MaxLength(50)]
         public string? CreatedBy { get; set; }
 
-        // Navigation property 
+        //  Navigation property 
         [ForeignKey("VendorID")]
         public Vendor? Vendor { get; set; }
     }

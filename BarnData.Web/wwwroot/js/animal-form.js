@@ -15,6 +15,19 @@
     if (vendorSearch) {
         let vendorTimer;
 
+        if (vendorFreeText && vendorFreeText.value && !vendorSearch.value) {
+            vendorSearch.value = vendorFreeText.value;
+        }
+
+        if (vendorSearch.value.trim()) {
+            vendorHint.textContent = vendorIdHidden.value && vendorIdHidden.value !== '0'
+                ? 'Existing vendor selected'
+                : 'Vendor name carried forward';
+            vendorHint.style.color = vendorIdHidden.value && vendorIdHidden.value !== '0'
+                ? 'var(--color-text-success)'
+                : 'var(--color-text-info)';
+        }
+
         vendorSearch.addEventListener('input', function () {
             clearTimeout(vendorTimer);
             const term = this.value.trim();
@@ -40,7 +53,7 @@
                     data.forEach(v => {
                         const row = document.createElement('div');
                         row.textContent  = v.name;
-                        row.style.cssText = 'padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--color-border-tertiary)';
+                        row.style.cssText = 'display:block;width:100%;padding:12px 14px;cursor:pointer;font-size:14px;line-height:1.35;border-bottom:1px solid var(--color-border-tertiary);background:#fff;white-space:normal';
                         row.addEventListener('mouseenter', () => row.style.background = 'var(--color-background-secondary)');
                         row.addEventListener('mouseleave', () => row.style.background = '');
                         row.addEventListener('mousedown', (e) => {
@@ -60,7 +73,7 @@
                     if (term.length > 1) {
                         const newRow = document.createElement('div');
                         newRow.textContent  = `+ Add new vendor: "${term}"`;
-                        newRow.style.cssText = 'padding:9px 14px;cursor:pointer;font-size:13px;color:var(--color-text-info);font-weight:500;background:var(--color-background-info)';
+                        newRow.style.cssText = 'display:block;width:100%;padding:12px 14px;cursor:pointer;font-size:14px;line-height:1.35;color:var(--color-text-info);font-weight:600;background:#eef6ff;border-top:1px solid var(--color-border-secondary);white-space:normal';
                         newRow.addEventListener('mousedown', (e) => {
                             e.preventDefault();
                             vendorSearch.value   = term;
@@ -107,7 +120,7 @@
         const killDate = killDateInput?.value;
         const vendorId = vendorIdInput?.value;
 
-        if (!tag1 || !killDate || !vendorId) return;
+        if (!tag1 || !killDate || !vendorId || vendorId === '0') return;
 
         tag1Feedback.textContent = 'Checking…';
         tag1Feedback.className   = 'field-hint';
