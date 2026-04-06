@@ -1,0 +1,83 @@
+@model BarnData.Data.Entities.Animal
+@{
+    ViewData["Title"]    = $"Record — Control No. {Model.ControlNo}";
+    ViewData["Subtitle"] = $"Tag: {Model.TagNumber1}  ·  {Model.KillDate:MM/dd/yyyy}";
+}
+
+<div class="detail-actions">
+    <a asp-action="Edit" asp-route-id="@Model.ControlNo" class="btn btn-primary">Edit record</a>
+    <a asp-action="Index" asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
+       class="btn btn-secondary">Back to list</a>
+</div>
+
+<div class="detail-grid">
+
+    <div class="detail-card">
+        <div class="detail-card-title">Vendor &amp; purchase</div>
+        <div class="detail-row"><div class="dl">Vendor</div><div class="dv">@(Model.Vendor?.VendorName ?? "—")</div></div>
+        <div class="detail-row"><div class="dl">Purchase type</div><div class="dv">@Model.PurchaseType</div></div>
+        <div class="detail-row"><div class="dl">Purchase date</div><div class="dv">@Model.PurchaseDate.ToString("MM/dd/yyyy")</div></div>
+        <div class="detail-row"><div class="dl">Live rate</div><div class="dv">$@Model.LiveRate.ToString("N4")</div></div>
+        <div class="detail-row"><div class="dl">Kill date</div><div class="dv">@Model.KillDate.ToString("MM/dd/yyyy")</div></div>
+    </div>
+
+    <div class="detail-card">
+        <div class="detail-card-title">Tag identification</div>
+        <div class="detail-row"><div class="dl">Tag Number 1</div><div class="dv mono">@Model.TagNumber1</div></div>
+        <div class="detail-row"><div class="dl">Tag Number 2</div><div class="dv mono">@(Model.TagNumber2 ?? "—")</div></div>
+        <div class="detail-row"><div class="dl">Tag 3</div><div class="dv mono">@(Model.Tag3 ?? "—")</div></div>
+        <div class="detail-row"><div class="dl">Control No.</div><div class="dv mono">@Model.ControlNo</div></div>
+        <div class="detail-row"><div class="dl">Animal control no.</div><div class="dv mono">@Model.AnimalControlNumber</div></div>
+    </div>
+
+    <div class="detail-card">
+        <div class="detail-card-title">Animal details</div>
+        <div class="detail-row"><div class="dl">Animal type</div><div class="dv">@Model.AnimalType</div></div>
+        <div class="detail-row"><div class="dl">Animal type 2</div><div class="dv">@(Model.AnimalType2 ?? "—")</div></div>
+        <div class="detail-row"><div class="dl">Program code</div><div class="dv">@Model.ProgramCode</div></div>
+        <div class="detail-row"><div class="dl">Status</div>
+            <div class="dv">
+                <span class="badge badge-status-@Model.KillStatus.ToLower()">@Model.KillStatus</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="detail-card">
+        <div class="detail-card-title">Weight</div>
+        <div class="detail-row"><div class="dl">Live weight</div><div class="dv mono">@Model.LiveWeight.ToString("N1") lbs</div></div>
+        <div class="detail-row"><div class="dl">Hot weight</div><div class="dv mono">@(Model.HotWeight.HasValue ? Model.HotWeight.Value.ToString("N1") + " lbs" : "—")</div></div>
+        @if (Model.HotWeight.HasValue && Model.LiveWeight > 0)
+        {
+            <div class="detail-row">
+                <div class="dl">Yield %</div>
+                <div class="dv mono">@((Model.HotWeight.Value / Model.LiveWeight * 100).ToString("N1"))%</div>
+            </div>
+        }
+        <div class="detail-row"><div class="dl">Fetal blood</div><div class="dv">@(Model.FetalBlood.HasValue ? Model.FetalBlood.Value.ToString("N2") : "—")</div></div>
+    </div>
+
+    <div class="detail-card">
+        <div class="detail-card-title">Grading</div>
+        <div class="detail-row"><div class="dl">Grade</div><div class="dv"><span class="badge badge-grade">@Model.Grade</span></div></div>
+        <div class="detail-row"><div class="dl">Grade 2</div><div class="dv">@(Model.Grade2 ?? "—")</div></div>
+        <div class="detail-row"><div class="dl">Health score</div><div class="dv">@Model.HealthScore</div></div>
+    </div>
+
+    <div class="detail-card">
+        <div class="detail-card-title">Office &amp; notes</div>
+        <div class="detail-row"><div class="dl">Comment</div><div class="dv">@Model.Comment</div></div>
+        <div class="detail-row"><div class="dl">Vet name</div><div class="dv">@(Model.VetName ?? "—")</div></div>
+        <div class="detail-row"><div class="dl">Buyer name</div><div class="dv">@(Model.BuyerName ?? "—")</div></div>
+        <div class="detail-row"><div class="dl">State</div><div class="dv">@(Model.State ?? "—")</div></div>
+        <div class="detail-row"><div class="dl">Office use 2</div><div class="dv">@(Model.OfficeUse2 ?? "—")</div></div>
+    </div>
+
+</div>
+
+<div class="detail-footer">
+    <span class="meta-item"><span class="meta-label">Created</span> <span class="meta-value">@Model.CreatedAt.ToString("MM/dd/yyyy h:mm tt")</span></span>
+    @if (Model.UpdatedAt.HasValue)
+    {
+        <span class="meta-item"><span class="meta-label">Last updated</span> <span class="meta-value">@Model.UpdatedAt.Value.ToString("MM/dd/yyyy h:mm tt")</span></span>
+    }
+</div>

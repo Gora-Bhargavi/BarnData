@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] — Barn Data System</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+
+<div class="app-shell">
+
+    <!-- ── SIDEBAR ─────────────────────────────────────────────────── -->
+    <nav class="sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-tag">trax-it</div>
+            <div class="brand-name">Slaughter</div>
+            <div class="brand-sub">Barn Data System</div>
+        </div>
+
+        <div class="nav-section">Data entry</div>
+        <a asp-controller="Animal" asp-action="Index"
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Animal" && ViewContext.RouteData.Values["action"]?.ToString() == "Index" ? "active" : "")">
+            <span class="nav-dot"></span> Animal list
+        </a>
+        <a asp-controller="Animal" asp-action="Create"
+           class="nav-item @(ViewContext.RouteData.Values["action"]?.ToString() == "Create" ? "active" : "")">
+            <span class="nav-dot"></span> New animal record
+        </a>
+
+        <div class="nav-section">Reports</div>
+        <a asp-controller="Report" asp-action="Tally"
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Report" ? "active" : "")">
+            <span class="nav-dot"></span> Nightly tally
+        </a>
+
+        <div class="sidebar-footer">
+            <div class="user-chip">
+                <div class="user-avatar">BD</div>
+                <div class="user-info">
+                    <div class="user-name">Barn office</div>
+                    <div class="user-role">Data entry</div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ── MAIN ────────────────────────────────────────────────────── -->
+    <div class="main-area">
+
+        <!-- Top bar -->
+        <div class="topbar">
+            <div class="topbar-left">
+                <div class="topbar-title">@ViewData["Title"]</div>
+                <div class="topbar-path">@ViewData["Subtitle"]</div>
+            </div>
+            <div class="topbar-right">
+                <span class="topbar-date">@DateTime.Today.ToString("dddd, MMMM d, yyyy")</span>
+            </div>
+        </div>
+
+        <!-- Flash messages -->
+        @if (TempData["SuccessMessage"] != null)
+        {
+            <div class="flash flash-success">
+                <span class="flash-icon">&#10003;</span>
+                @TempData["SuccessMessage"]
+            </div>
+        }
+        @if (TempData["ErrorMessage"] != null)
+        {
+            <div class="flash flash-error">
+                <span class="flash-icon">&#33;</span>
+                @TempData["ErrorMessage"]
+            </div>
+        }
+
+        <!-- Page content -->
+        <div class="page-content">
+            @RenderBody()
+        </div>
+
+    </div>
+</div>
+
+<script src="~/js/site.js" asp-append-version="true"></script>
+@await RenderSectionAsync("Scripts", required: false)
+
+</body>
+</html>

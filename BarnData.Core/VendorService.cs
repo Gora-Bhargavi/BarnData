@@ -25,5 +25,26 @@ namespace BarnData.Core.Services
         {
             return await _db.Vendors.FindAsync(vendorId);
         }
+
+        // Find vendor by name or create a new one — used when typing a new vendor
+        public async Task<int> GetOrCreateAsync(string vendorName)
+        {
+            var existing = await _db.Vendors
+                .FirstOrDefaultAsync(v => v.VendorName == vendorName);
+
+            if (existing != null)
+                return existing.VendorID;
+
+            var newVendor = new Vendor
+            {
+                VendorName = vendorName,
+                IsActive   = true,
+                CreatedAt  = DateTime.Now
+            };
+
+            _db.Vendors.Add(newVendor);
+            await _db.SaveChangesAsync();
+            return newVendor.VendorID;
+        }
     }
 }

@@ -1,0 +1,277 @@
+@model BarnData.Web.Models.AnimalViewModel
+@* Shared form used by both Create.cshtml and Edit.cshtml *@
+
+@if (Model.ShowWeightWarning)
+{
+    <div class="alert alert-warn">
+        <strong>Weight outside normal range.</strong>
+        The live weight entered (@Model.LiveWeight lbs) is outside the expected range of 300–2,500 lbs.
+        If this is correct, check the confirmation box below and resubmit.
+    </div>
+}
+
+<div asp-validation-summary="ModelOnly" class="alert alert-error"></div>
+
+<!-- SECTION A: VENDOR & PURCHASE  -->
+<div class="form-section">
+    <div class="form-section-title">Vendor &amp; purchase</div>
+    <div class="field-grid fg-4">
+
+        <div class="field" style="position:relative">
+            <label class="field-label">Vendor <span class="req">*</span></label>
+            <input type="hidden" asp-for="VendorID" id="vendorIdHidden" />
+            <input asp-for="VendorNameFreeText" type="text" id="vendorSearch" class="form-control"
+                   placeholder="Type to search or enter new vendor..."
+                   autocomplete="off" />
+            <div id="vendorDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--color-background-primary);border:1px solid var(--color-border-secondary);border-top:none;border-radius:0 0 var(--border-radius-md) var(--border-radius-md);max-height:220px;overflow-y:auto;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
+            <div class="field-hint" id="vendorHint">Search existing or type new vendor name</div>
+            <span asp-validation-for="VendorID" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="PurchaseType" class="field-label">
+                Purchase type <span class="req">*</span>
+            </label>
+            <select asp-for="PurchaseType" asp-items="Model.PurchaseTypeList"
+                    class="form-control">
+                <option value="">— Select —</option>
+            </select>
+            <span asp-validation-for="PurchaseType" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="PurchaseDate" class="field-label">
+                Purchase date <span class="req">*</span>
+            </label>
+            <input asp-for="PurchaseDate" type="date" class="form-control" />
+            <span asp-validation-for="PurchaseDate" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="LiveRate" class="field-label">
+                Live rate ($/head) <span class="req">*</span>
+            </label>
+            <input asp-for="LiveRate" type="number" step="0.0001" class="form-control"
+                   placeholder="e.g. 1.9500" />
+            <span asp-validation-for="LiveRate" class="field-error"></span>
+        </div>
+
+    </div>
+</div>
+
+<!-- SECTION B: TAGS  -->
+<div class="form-section">
+    <div class="form-section-title">Tag identification</div>
+    <div class="field-grid fg-4">
+
+        <div class="field">
+            <label asp-for="TagNumber1" class="field-label">
+                Tag Number 1 <span class="req">*</span>
+            </label>
+            <input asp-for="TagNumber1" type="text" class="form-control"
+                   id="tag1Input" placeholder="Primary tag"
+                   autocomplete="off" />
+            <div id="tag1Feedback" class="field-hint"></div>
+            <span asp-validation-for="TagNumber1" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="TagNumber2" class="field-label">
+                Tag Number 2
+            </label>
+            <input asp-for="TagNumber2" type="text" class="form-control"
+                   placeholder="Secondary / HotScale match key" />
+            <span asp-validation-for="TagNumber2" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="Tag3" class="field-label">Tag 3</label>
+            <input asp-for="Tag3" type="text" class="form-control"
+                   placeholder="Optional third tag" />
+        </div>
+
+        <div class="field">
+            <label asp-for="AnimalControlNumber" class="field-label">
+                Animal control no. <span class="req">*</span>
+            </label>
+            <input asp-for="AnimalControlNumber" type="text" class="form-control"
+                   placeholder="External control reference" />
+            <span asp-validation-for="AnimalControlNumber" class="field-error"></span>
+        </div>
+
+    </div>
+</div>
+
+<!--  SECTION C: ANIMAL DETAIL -->
+<div class="form-section">
+    <div class="form-section-title">Animal details</div>
+    <div class="field-grid fg-4">
+
+        <div class="field">
+            <label asp-for="AnimalType" class="field-label">
+                Animal type <span class="req">*</span>
+            </label>
+            <select asp-for="AnimalType" asp-items="Model.AnimalTypeList"
+                    class="form-control">
+                <option value="">— Select —</option>
+            </select>
+            <span asp-validation-for="AnimalType" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="AnimalType2" class="field-label">Animal type 2</label>
+            <input asp-for="AnimalType2" type="text" class="form-control"
+                   placeholder="Condemned, non-ambulatory…" />
+        </div>
+
+        <div class="field">
+            <label asp-for="ProgramCode" class="field-label">
+                Program code <span class="req">*</span>
+            </label>
+            <select asp-for="ProgramCode" asp-items="Model.ProgramCodeList"
+                    class="form-control">
+                <option value="">— Select —</option>
+            </select>
+            <span asp-validation-for="ProgramCode" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="KillDate" class="field-label">
+                Kill date <span class="req">*</span>
+            </label>
+            <input asp-for="KillDate" type="date" class="form-control" id="killDateInput" />
+            <span asp-validation-for="KillDate" class="field-error"></span>
+        </div>
+
+    </div>
+</div>
+
+<!--  SECTION D: WEIGHT  -->
+<div class="form-section">
+    <div class="form-section-title">Weight</div>
+    <div class="alert-inline alert-info-subtle">
+        Live weight is the most critical field. Errors here cause billing problems downstream.
+    </div>
+    <div class="field-grid fg-3">
+
+        <div class="field">
+            <label asp-for="LiveWeight" class="field-label">
+                Live weight (lbs) <span class="req">*</span>
+            </label>
+            <input asp-for="LiveWeight" type="number" step="0.1" class="form-control"
+                   id="liveWeightInput" placeholder="e.g. 1485.0" />
+            <div class="field-hint">Expected range: 300 – 2,500 lbs</div>
+            <span asp-validation-for="LiveWeight" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="HotWeight" class="field-label">Hot weight (lbs)</label>
+            <input asp-for="HotWeight" type="number" step="0.1" class="form-control"
+                   placeholder="Post-kill — enter from scale ticket" />
+            <div class="field-hint">Will be auto-filled from HotScale in a future phase</div>
+        </div>
+
+        <div class="field">
+            <label asp-for="FetalBlood" class="field-label">Fetal blood</label>
+            <input asp-for="FetalBlood" type="number" step="0.01" class="form-control"
+                   placeholder="Enter if applicable" />
+        </div>
+
+    </div>
+
+    @if (Model.ShowWeightWarning)
+    {
+        <div class="field" style="margin-top:10px">
+            <label class="checkbox-label">
+                <input type="checkbox" name="WeightWarningConfirmed" value="true"
+                       @(Model.WeightWarningConfirmed ? "checked" : "") />
+                I confirm this weight (@Model.LiveWeight lbs) is correct — it is outside the normal range
+            </label>
+        </div>
+    }
+    else
+    {
+        <input type="hidden" name="WeightWarningConfirmed" value="false" />
+    }
+</div>
+
+<!--  SECTION E: GRADING  -->
+<div class="form-section">
+    <div class="form-section-title">Grading</div>
+    <div class="field-grid fg-4">
+
+        <div class="field">
+            <label asp-for="Grade" class="field-label">
+                Grade <span class="req">*</span>
+            </label>
+            <select asp-for="Grade" asp-items="Model.GradeList" class="form-control">
+                <option value="">— Select grade —</option>
+            </select>
+            <span asp-validation-for="Grade" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="Grade2" class="field-label">Grade 2</label>
+            <input asp-for="Grade2" type="text" class="form-control"
+                   placeholder="Entered later by pricing staff" />
+            <div class="field-hint">No-roll, Choice, Select, Prime etc.</div>
+        </div>
+
+        <div class="field">
+            <label asp-for="HealthScore" class="field-label">
+                Health score <span class="req">*</span>
+            </label>
+            <select asp-for="HealthScore" class="form-control">
+                <option value="">— Select —</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+            </select>
+            <span asp-validation-for="HealthScore" class="field-error"></span>
+        </div>
+
+    </div>
+</div>
+
+<!--  SECTION F: OFFICE / NOTES -->
+<div class="form-section">
+    <div class="form-section-title">Office &amp; notes</div>
+    <div class="field-grid fg-2">
+
+        <div class="field">
+            <label asp-for="Comment" class="field-label">
+                Comment
+            </label>
+            <input asp-for="Comment" type="text" class="form-control"
+                   placeholder="Notes on this animal" />
+            <span asp-validation-for="Comment" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="VetName" class="field-label">Vet name</label>
+            <input asp-for="VetName" type="text" class="form-control"
+                   placeholder="Required for condemned / non-ambulatory" />
+        </div>
+
+        <div class="field">
+            <label asp-for="State" class="field-label">State</label>
+            <input asp-for="State" type="text" class="form-control" maxlength="2"
+                   placeholder="Consignment cattle only" />
+        </div>
+
+        <div class="field">
+            <label asp-for="BuyerName" class="field-label">Buyer name</label>
+            <input asp-for="BuyerName" type="text" class="form-control"
+                   placeholder="Office use" />
+        </div>
+
+    </div>
+
+    <div class="field-grid fg-1" style="margin-top:10px">
+        <div class="field">
+            <label asp-for="OfficeUse2" class="field-label">Office use 2</label>
+            <input asp-for="OfficeUse2" type="text" class="form-control"
+                   placeholder="Internal notes only" />
+        </div>
+    </div>
+</div>

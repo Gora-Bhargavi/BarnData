@@ -8,7 +8,7 @@ namespace BarnData.Data
         public BarnDataContext(DbContextOptions<BarnDataContext> options)
             : base(options) { }
 
-        // ── DbSets ────────────────────────────────────────────────────────
+        //  DbSets 
         public DbSet<Animal> Animals { get; set; } = null!;
         public DbSet<Vendor> Vendors { get; set; } = null!;
 
@@ -16,7 +16,7 @@ namespace BarnData.Data
         {
             base.OnModelCreating(modelBuilder);
 
-            // ── tbl_vendor_master ─────────────────────────────────────────
+            // tbl_vendor_master 
             modelBuilder.Entity<Vendor>(entity =>
             {
                 entity.ToTable("tbl_vendor_master");
@@ -38,10 +38,10 @@ namespace BarnData.Data
                     .HasDatabaseName("IX_vendor_master_Name");
             });
 
-            // ── tbl_animal_master ─────────────────────────────────────────
+            // tbl_animal_master 
             modelBuilder.Entity<Animal>(entity =>
             {
-                entity.ToTable("tbl_animal_master");
+                entity.ToTable("tbl_barn_animal_entry");
 
                 entity.HasKey(a => a.ControlNo);
 

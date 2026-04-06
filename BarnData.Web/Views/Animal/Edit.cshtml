@@ -1,0 +1,42 @@
+@model BarnData.Web.Models.AnimalViewModel
+@{
+    ViewData["Title"]    = $"Edit record — Control No. {Model.ControlNo}";
+    ViewData["Subtitle"] = $"Tag: {Model.TagNumber1}  ·  Vendor: {Model.VendorID}  ·  Kill date: {Model.KillDate:MM/dd/yyyy}";
+}
+
+<form method="post" asp-action="Edit" asp-route-id="@Model.ControlNo" novalidate>
+    @Html.AntiForgeryToken()
+
+    <input type="hidden" asp-for="ControlNo" />
+    <input type="hidden" asp-for="KillStatus" />
+
+    <div class="detail-meta">
+        <span class="meta-item">
+            <span class="meta-label">Control No.</span>
+            <span class="meta-value mono">@Model.ControlNo</span>
+        </span>
+        <span class="meta-item">
+            <span class="meta-label">Status</span>
+            <span class="badge badge-status-@Model.KillStatus.ToLower()">@Model.KillStatus</span>
+        </span>
+    </div>
+
+    @await Html.PartialAsync("_AnimalForm", Model)
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+        <a asp-action="Index"
+           asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
+           class="btn btn-secondary">Cancel</a>
+        <a asp-action="Detail" asp-route-id="@Model.ControlNo"
+           class="btn btn-ghost">View detail</a>
+    </div>
+</form>
+
+@section Scripts {
+    <script src="~/js/animal-form.js"></script>
+    <script>
+        const CONTROL_NO    = @Model.ControlNo;
+        const CHECK_TAG_URL = '@Url.Action("CheckTag", "Animal")';
+    </script>
+}

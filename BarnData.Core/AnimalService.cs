@@ -10,6 +10,10 @@ namespace BarnData.Core.Services
         private readonly BarnDataContext _db;
         private readonly decimal _weightMin;
         private readonly decimal _weightMax;
+        private const string PendingStatus = "Pending";
+        private const string KilledStatus = "Killed";
+        private const string VerifiedStatus = "Verified";
+        private const string FlaggedStatus = "Flagged";
 
         public AnimalService(BarnDataContext db, IConfiguration config)
         {
@@ -29,10 +33,26 @@ namespace BarnData.Core.Services
             if (vendorId.HasValue)
                 query = query.Where(a => a.VendorID == vendorId.Value);
 
-            return await query
+            var animals = await query
                 .OrderBy(a => a.Vendor!.VendorName)
                 .ThenBy(a => a.ControlNo)
                 .ToListAsync();
+
+            var statusWasUpdated = false;
+            foreach (var animal in animals)
+            {
+                if (SyncKillStatus(animal))
+                {
+                    statusWasUpdated = true;
+                }
+            }
+
+            if (statusWasUpdated)
+            {
+                await _db.SaveChangesAsync();
+            }
+
+            return animals;
         }
 
         // ── Get single animal ─────────────────────────────────────────────
@@ -78,9 +98,10 @@ namespace BarnData.Core.Services
                     $"Tag Number '{animal.TagNumber1}' already exists for this vendor on {animal.KillDate:MM/dd/yyyy}. Duplicate tags are not allowed.");
 
             animal.TagNumber1 = animal.TagNumber1.Trim();
-            animal.TagNumber2 = animal.TagNumber2.Trim();
+            animal.TagNumber2 = animal.TagNumber2?.Trim() ?? string.Empty;
+            animal.Comment = animal.Comment?.Trim() ?? string.Empty;
             animal.CreatedAt = DateTime.Now;
-            animal.KillStatus = "Pending";
+            animal.KillStatus = GetCurrentKillStatus(animal.KillDate);
 
             _db.Animals.Add(animal);
             await _db.SaveChangesAsync();
@@ -106,7 +127,7 @@ namespace BarnData.Core.Services
             // Update all editable fields
             existing.VendorID            = animal.VendorID;
             existing.TagNumber1          = animal.TagNumber1.Trim();
-            existing.TagNumber2          = animal.TagNumber2.Trim();
+            existing.TagNumber2          = animal.TagNumber2?.Trim() ?? string.Empty;
             existing.Tag3                = animal.Tag3;
             existing.AnimalType          = animal.AnimalType;
             existing.AnimalType2         = animal.AnimalType2;
@@ -121,13 +142,14 @@ namespace BarnData.Core.Services
             existing.Grade2              = animal.Grade2;
             existing.HealthScore         = animal.HealthScore;
             existing.FetalBlood          = animal.FetalBlood;
-            existing.Comment             = animal.Comment;
+            existing.Comment             = animal.Comment?.Trim() ?? string.Empty;
             existing.AnimalControlNumber = animal.AnimalControlNumber;
             existing.State               = animal.State;
             existing.BuyerName           = animal.BuyerName;
             existing.VetName             = animal.VetName;
             existing.OfficeUse2          = animal.OfficeUse2;
             existing.UpdatedAt           = DateTime.Now;
+            SyncKillStatus(existing);
 
             await _db.SaveChangesAsync();
             return (true, string.Empty);
@@ -140,7 +162,7 @@ namespace BarnData.Core.Services
             var animal = await _db.Animals.FindAsync(controlNo);
             if (animal == null) return false;
 
-            animal.KillStatus = "Flagged";
+            animal.KillStatus = FlaggedStatus;
             animal.UpdatedAt  = DateTime.Now;
 
             await _db.SaveChangesAsync();
@@ -152,7 +174,7 @@ namespace BarnData.Core.Services
             DateTime killDate, int? vendorId = null)
         {
             var animals = (await GetByKillDateAsync(killDate, vendorId))
-                .Where(a => a.KillStatus != "Flagged")
+                .Where(a => a.KillStatus != FlaggedStatus)
                 .ToList();
 
             var totalLive = animals.Sum(a => a.LiveWeight);
@@ -183,6 +205,28 @@ namespace BarnData.Core.Services
                 AverageYieldPct = yieldPct,
                 ByVendor        = byVendor
             };
+        }
+
+        private static string GetCurrentKillStatus(DateTime killDate)
+        {
+            return killDate.Date <= DateTime.Today ? KilledStatus : PendingStatus;
+        }
+
+        private static bool SyncKillStatus(Animal animal)
+        {
+            if (animal.KillStatus == FlaggedStatus || animal.KillStatus == VerifiedStatus)
+            {
+                return false;
+            }
+
+            var expectedStatus = GetCurrentKillStatus(animal.KillDate);
+            if (animal.KillStatus == expectedStatus)
+            {
+                return false;
+            }
+
+            animal.KillStatus = expectedStatus;
+            return true;
         }
     }
 }

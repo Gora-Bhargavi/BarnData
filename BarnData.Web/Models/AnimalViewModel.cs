@@ -10,7 +10,6 @@ namespace BarnData.Web.Models
         public int ControlNo { get; set; }
 
         // ── Vendor ────────────────────────────────────────────────────────
-        [Required(ErrorMessage = "Vendor is required")]
         [Display(Name = "Vendor")]
         public int VendorID { get; set; }
 
@@ -35,10 +34,9 @@ namespace BarnData.Web.Models
         [Display(Name = "Tag Number 1")]
         public string TagNumber1 { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "Tag Number 2 is required")]
         [MaxLength(50)]
         [Display(Name = "Tag Number 2")]
-        public string TagNumber2 { get; set; } = string.Empty;
+        public string? TagNumber2 { get; set; }
 
         [MaxLength(50)]
         [Display(Name = "Tag 3")]
@@ -96,10 +94,9 @@ namespace BarnData.Web.Models
         [Display(Name = "Fetal blood")]
         public decimal? FetalBlood { get; set; }
 
-        [Required(ErrorMessage = "Comment is required")]
         [MaxLength(500)]
         [Display(Name = "Comment")]
-        public string Comment { get; set; } = string.Empty;
+        public string? Comment { get; set; }
 
         [MaxLength(2)]
         [Display(Name = "State")]
@@ -119,6 +116,9 @@ namespace BarnData.Web.Models
 
         public string KillStatus { get; set; } = "Pending";
 
+        // ── Free-text vendor name (used when vendor is new / not in list) ───
+        public string? VendorNameFreeText { get; set; }
+
         // ── Dropdown source lists (populated by controller) ───────────────
         public IEnumerable<SelectListItem> VendorList { get; set; }
             = new List<SelectListItem>();
@@ -126,17 +126,16 @@ namespace BarnData.Web.Models
         public IEnumerable<SelectListItem> AnimalTypeList { get; set; }
             = new List<SelectListItem>
             {
-                new("DCOW",   "DCOW"),
-                new("BULL",   "BULL"),
-                new("HEIFER", "HEIFER"),
-                new("STEER",  "STEER"),
-                new("CALF",   "CALF"),
+                new("Bull",  "Bull"),
+                new("Cow",   "Cow"),
+                new("Steer", "Steer"),
             };
 
         public IEnumerable<SelectListItem> ProgramCodeList { get; set; }
             = new List<SelectListItem>
             {
                 new("ABF",  "ABF"),
+                new("ABNF", "ABNF"),
                 new("NYFS", "NYFS"),
                 new("REG",  "REG"),
                 new("AGF",  "AGF"),
@@ -162,8 +161,11 @@ namespace BarnData.Web.Models
                 new("Consignment",  "Consignment"),
             };
 
-        // ── Weight warning flag (set by service, shown in UI) ─────────────
+        // ── Weight warning flags ───────────────────────────────────────────
         public bool ShowWeightWarning { get; set; }
+
+        // Set to true when user checks "I confirm this weight is correct"
+        public bool WeightWarningConfirmed { get; set; }
 
         // ── Cross-field validation ─────────────────────────────────────────
         public IEnumerable<ValidationResult> Validate(ValidationContext context)

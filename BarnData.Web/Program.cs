@@ -4,7 +4,11 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ── 1. Database ───────────────────────────────────────────────────────────
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
+//  1. Database 
 builder.Services.AddDbContext<BarnDataContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("BarnData"),
@@ -19,16 +23,16 @@ builder.Services.AddDbContext<BarnDataContext>(options =>
     )
 );
 
-// ── 2. Services (business logic) ──────────────────────────────────────────
+//  2. Services (business logic) 
 builder.Services.AddScoped<IAnimalService, AnimalService>();
 builder.Services.AddScoped<IVendorService, VendorService>();
 
-// ── 3. MVC ────────────────────────────────────────────────────────────────
+// 3. MVC 
 builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
 
-// ── 4. Middleware pipeline ────────────────────────────────────────────────
+// ── 4. Middleware pipeline 
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
@@ -40,13 +44,30 @@ app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthorization();
 
-// ── 5. Routes ─────────────────────────────────────────────────────────────
+//  Rotativa PDF engine 
+var webRootPath = app.Environment.WebRootPath ?? string.Empty;
+var rotativaPath = Path.Combine(webRootPath, "Rotativa");
+var wkhtmltopdfPath = Path.Combine(rotativaPath, "wkhtmltopdf.exe");
+if (Directory.Exists(rotativaPath) && File.Exists(wkhtmltopdfPath))
+{
+    Rotativa.AspNetCore.RotativaConfiguration.Setup(
+        webRootPath,
+        wkhtmltopdfRelativePath: "Rotativa"
+    );
+}
+else
+{
+    Console.WriteLine(
+        $"[BarnData] Rotativa skipped. Expected wkhtmltopdf.exe at: {wkhtmltopdfPath}");
+}
+
+//  5. Routes 
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Animal}/{action=Index}/{id?}"
 );
 
-// ── 6. Verify DB connection on startup ────────────────────────────────────
+// 6. Verify DB connection on startup 
 using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<BarnDataContext>();

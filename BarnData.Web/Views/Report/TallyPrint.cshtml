@@ -1,0 +1,187 @@
+@model BarnData.Web.Models.TallyViewModel
+@{
+    Layout = null; // Standalone page for PDF rendering
+}
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 9pt; color: #0f172a; }
+
+  .report-header { background: #0f1b2d; color: #fff; padding: 10px 14px;
+                   display: flex; justify-content: space-between; align-items: center;
+                   margin-bottom: 8px; }
+  .report-title  { font-size: 13pt; font-weight: bold; }
+  .report-meta   { font-size: 9pt; opacity: .7; text-align: right; }
+
+  .summary-bar   { display: flex; gap: 0; background: #1e2f47;
+                   color: #fff; padding: 6px 14px; margin-bottom: 8px; }
+  .s-stat        { padding: 0 16px; text-align: center; }
+  .s-stat:first-child { padding-left: 0; }
+  .s-val         { font-size: 12pt; font-weight: bold; font-family: 'Courier New', monospace; }
+  .s-lbl         { font-size: 7pt; opacity: .6; text-transform: uppercase;
+                   letter-spacing: .05em; margin-top: 1px; }
+  .s-div         { width: 1px; background: rgba(255,255,255,.2); margin: 4px 0; }
+
+  .vendor-header { background: #1e2f47; color: #fff; padding: 5px 10px;
+                   font-size: 9pt; font-weight: bold; margin-bottom: 0; }
+
+  table          { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
+  th             { background: #e2e8f0; padding: 4px 6px; font-size: 8pt;
+                   font-weight: bold; color: #334155; border: 1px solid #cbd5e1;
+                   text-align: left; white-space: nowrap; }
+  td             { padding: 3px 6px; font-size: 8pt; border: 1px solid #e2e8f0;
+                   color: #334155; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  .tr { text-align: right; }
+  .tc { text-align: center; }
+  .mono { font-family: 'Courier New', monospace; }
+
+  tfoot td      { background: #e2e8f0 !important; font-weight: bold; }
+
+  .grand-total  { background: #0f1b2d; color: #fff; padding: 7px 14px;
+                  margin-top: 8px; display: flex; justify-content: space-between; }
+  .gt-label     { font-weight: bold; font-size: 10pt; }
+  .gt-stats     { font-size: 9pt; opacity: .85; display: flex; gap: 24px; }
+
+  .page-footer  { margin-top: 10px; padding-top: 6px;
+                  border-top: 1px solid #e2e8f0; font-size: 7pt;
+                  color: #94a3b8; display: flex; justify-content: space-between; }
+
+  .vendor-group { margin-bottom: 12px; page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<div class="report-header">
+    <div>
+        <div class="report-title">Nightly Tally Report — Trax-IT Slaughter</div>
+    </div>
+    <div class="report-meta">
+        Kill date: @Model.KillDate.ToString("dddd, MMMM d, yyyy")<br/>
+        Generated: @DateTime.Now.ToString("MM/dd/yyyy h:mm tt")
+    </div>
+</div>
+
+<div class="summary-bar">
+    <div class="s-stat">
+        <div class="s-val">@Model.Summary.TotalAnimals</div>
+        <div class="s-lbl">Total animals</div>
+    </div>
+    <div class="s-div"></div>
+    <div class="s-stat">
+        <div class="s-val">@Model.Summary.TotalLiveWeight.ToString("N1")</div>
+        <div class="s-lbl">Total live wt (lbs)</div>
+    </div>
+    <div class="s-div"></div>
+    <div class="s-stat">
+        <div class="s-val">@Model.Summary.TotalHotWeight.ToString("N1")</div>
+        <div class="s-lbl">Total hot wt (lbs)</div>
+    </div>
+    <div class="s-div"></div>
+    <div class="s-stat">
+        <div class="s-val">@Model.Summary.AverageYieldPct.ToString("N1")%</div>
+        <div class="s-lbl">Avg yield</div>
+    </div>
+</div>
+
+@foreach (var group in Model.Summary.ByVendor)
+{
+    <div class="vendor-group">
+        <div class="vendor-header">
+            @group.VendorName
+            &nbsp;—&nbsp; @group.Count animals
+            &nbsp;|&nbsp; Live: @group.TotalLiveWeight.ToString("N1") lbs
+            &nbsp;|&nbsp; Hot: @group.TotalHotWeight.ToString("N1") lbs
+            @if (group.TotalLiveWeight > 0)
+            {
+                <text>&nbsp;|&nbsp; Yield: @((group.TotalHotWeight / group.TotalLiveWeight * 100).ToString("N1"))%</text>
+            }
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Ctrl No.</th>
+                    <th>Tag 1</th>
+                    <th>Tag 2</th>
+                    <th>Type</th>
+                    <th>Program</th>
+                    <th>Purch. Date</th>
+                    <th>Kill Date</th>
+                    <th class="tr">Live wt</th>
+                    <th class="tr">Live rate</th>
+                    <th class="tr">Hot wt</th>
+                    <th class="tr">Yield%</th>
+                    <th>Grade</th>
+                    <th>Gr.2</th>
+                    <th class="tc">HS</th>
+                    <th>Comment</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in group.Animals)
+                {
+                    decimal yieldPct = (a.HotWeight.HasValue && a.LiveWeight > 0)
+                        ? Math.Round(a.HotWeight.Value / a.LiveWeight * 100, 1)
+                        : 0;
+                    <tr>
+                        <td class="mono">@a.ControlNo</td>
+                        <td class="mono">@a.TagNumber1</td>
+                        <td class="mono">@(a.TagNumber2 ?? "")</td>
+                        <td>@a.AnimalType</td>
+                        <td>@a.ProgramCode</td>
+                        <td>@a.PurchaseDate.ToString("MM/dd/yy")</td>
+                        <td>@a.KillDate.ToString("MM/dd/yy")</td>
+                        <td class="tr mono">@a.LiveWeight.ToString("N1")</td>
+                        <td class="tr mono">$@a.LiveRate.ToString("N4")</td>
+                        <td class="tr mono">@(a.HotWeight.HasValue ? a.HotWeight.Value.ToString("N1") : "—")</td>
+                        <td class="tr mono">@(yieldPct > 0 ? yieldPct.ToString("N1") + "%" : "—")</td>
+                        <td>@a.Grade</td>
+                        <td>@(a.Grade2 ?? "")</td>
+                        <td class="tc">@a.HealthScore</td>
+                        <td>@a.Comment</td>
+                    </tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="7" style="text-align:right">
+                        @group.VendorName subtotal
+                    </td>
+                    <td class="tr mono">@group.TotalLiveWeight.ToString("N1")</td>
+                    <td></td>
+                    <td class="tr mono">@group.TotalHotWeight.ToString("N1")</td>
+                    <td class="tr mono">
+                        @if (group.TotalLiveWeight > 0)
+                        {
+                            @((group.TotalHotWeight / group.TotalLiveWeight * 100).ToString("N1"))
+                            <text>%</text>
+                        }
+                    </td>
+                    <td colspan="4"></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+}
+
+<div class="grand-total">
+    <div class="gt-label">Grand Total — @Model.Summary.TotalAnimals animals</div>
+    <div class="gt-stats">
+        <span>Live wt: @Model.Summary.TotalLiveWeight.ToString("N1") lbs</span>
+        <span>Hot wt: @Model.Summary.TotalHotWeight.ToString("N1") lbs</span>
+        <span>Avg yield: @Model.Summary.AverageYieldPct.ToString("N1")%</span>
+    </div>
+</div>
+
+<div class="page-footer">
+    <span>Trax-IT Slaughter — Barn Data System</span>
+    <span>Confidential — Internal use only</span>
+    <span>@DateTime.Now.ToString("MM/dd/yyyy h:mm tt")</span>
+</div>
+
+</body>
+</html>

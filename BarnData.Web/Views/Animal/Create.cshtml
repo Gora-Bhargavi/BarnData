@@ -1,0 +1,31 @@
+@model BarnData.Web.Models.AnimalViewModel
+@{
+    ViewData["Title"]    = "New animal record";
+    ViewData["Subtitle"] = "Enter all required fields to save the record";
+}
+
+<form method="post" asp-action="Create" novalidate>
+    @Html.AntiForgeryToken()
+
+    @await Html.PartialAsync("_AnimalForm", Model)
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+            Save animal record
+        </button>
+        
+        <a asp-action="Index" class="btn btn-secondary">Cancel</a>
+        <span class="form-actions-note">
+            Control No. is assigned automatically on save
+        </span>
+    </div>
+</form>
+
+@section Scripts {
+    <script src="~/js/animal-form.js"></script>
+    <script>
+        // Pass server values to JS
+        const CONTROL_NO  = 0;   // new record
+        const CHECK_TAG_URL = '@Url.Action("CheckTag", "Animal")';
+    </script>
+}

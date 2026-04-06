@@ -4,10 +4,10 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace BarnData.Data.Entities
 {
-    [Table("tbl_animal_master")]
+    [Table("tbl_barn_animal_entry")]
     public class Animal
     {
-        // ── Identity ──────────────────────────────────────────────────────
+        //  Identity 
         [Key]
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         public int ControlNo { get; set; }
@@ -15,7 +15,7 @@ namespace BarnData.Data.Entities
         [Required]
         public int VendorID { get; set; }
 
-        // ── Tags ─────────────────────────────────────────────────────────
+        //  Tags 
         [Required]
         [MaxLength(50)]
         public string TagNumber1 { get; set; } = string.Empty;
@@ -27,7 +27,7 @@ namespace BarnData.Data.Entities
         [MaxLength(50)]
         public string? Tag3 { get; set; }
 
-        // ── Animal classification ─────────────────────────────────────────
+        //  Animal classification 
         [Required]
         [MaxLength(50)]
         public string AnimalType { get; set; } = string.Empty;
@@ -39,7 +39,7 @@ namespace BarnData.Data.Entities
         [MaxLength(20)]
         public string ProgramCode { get; set; } = string.Empty;
 
-        // ── Purchase info ─────────────────────────────────────────────────
+        //  Purchase info 
         [Required]
         public DateTime PurchaseDate { get; set; }
 
@@ -55,14 +55,14 @@ namespace BarnData.Data.Entities
         [Column(TypeName = "decimal(10,4)")]
         public decimal LiveRate { get; set; }
 
-        // ── Kill data ─────────────────────────────────────────────────────
+        //  Kill data 
         [Required]
         public DateTime KillDate { get; set; }
 
         [Column(TypeName = "decimal(8,1)")]
         public decimal? HotWeight { get; set; }
 
-        // ── Grading ───────────────────────────────────────────────────────
+        //  Grading 
         [Required]
         [MaxLength(10)]
         public string Grade { get; set; } = string.Empty;
@@ -74,7 +74,7 @@ namespace BarnData.Data.Entities
         [Required]
         public int HealthScore { get; set; }
 
-        // ── Additional fields ─────────────────────────────────────────────
+        //  Additional fields 
         [Column(TypeName = "decimal(6,2)")]
         public decimal? FetalBlood { get; set; }
 
@@ -86,7 +86,7 @@ namespace BarnData.Data.Entities
         [MaxLength(50)]
         public string AnimalControlNumber { get; set; } = string.Empty;
 
-        // ── Office / consignment fields ───────────────────────────────────
+        //  Office / consignment fields 
         [MaxLength(2)]
         public string? State { get; set; }
 
@@ -99,7 +99,7 @@ namespace BarnData.Data.Entities
         [MaxLength(200)]
         public string? OfficeUse2 { get; set; }
 
-        // ── System fields ─────────────────────────────────────────────────
+        // System fields 
         [Required]
         [MaxLength(20)]
         public string KillStatus { get; set; } = "Pending";
@@ -111,7 +111,7 @@ namespace BarnData.Data.Entities
         [MaxLength(50)]
         public string? CreatedBy { get; set; }
 
-        // ── Navigation property ───────────────────────────────────────────
+        // Navigation property 
         [ForeignKey("VendorID")]
         public Vendor? Vendor { get; set; }
     }

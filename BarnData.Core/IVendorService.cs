@@ -6,5 +6,6 @@ namespace BarnData.Core.Services
     {
         Task<IEnumerable<Vendor>> GetAllActiveAsync();
         Task<Vendor?> GetByIdAsync(int vendorId);
+        Task<int> GetOrCreateAsync(string vendorName);
     }
 }
