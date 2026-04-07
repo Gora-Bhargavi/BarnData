@@ -10,14 +10,13 @@
     @await Html.PartialAsync("_AnimalForm", Model)
 
     <div class="form-actions">
-        <button type="submit" name="submitMode" value="save" class="btn btn-primary">
-            Save animal record
-        </button>
-        <button type="submit" name="submitMode" value="save-add-another" class="btn btn-secondary">
+        <button type="submit" name="saveAndAdd" value="1" class="btn btn-secondary">
             Save &amp; add another
         </button>
-        
-        <a asp-action="Index" class="btn btn-secondary">Cancel</a>
+        <button type="submit" class="btn btn-primary">
+            Save and go to list
+        </button>
+        <a asp-action="Index" asp-route-status="pending" class="btn btn-ghost">Cancel</a>
         <span class="form-actions-note">
             Control No. is assigned automatically on save
         </span>
@@ -27,8 +26,7 @@
 @section Scripts {
     <script src="~/js/animal-form.js"></script>
     <script>
-        // Pass server values to JS
-        const CONTROL_NO  = 0;   // new record
+        const CONTROL_NO    = 0;
         const CHECK_TAG_URL = '@Url.Action("CheckTag", "Animal")';
     </script>
 }

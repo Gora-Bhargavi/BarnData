@@ -17,133 +17,23 @@ namespace BarnData.Web.Controllers
             _vendorService = vendorService;
         }
 
-        // ── Legacy route kept for compatibility ───────────────────────────
-        public IActionResult Tally(DateTime? killDate, int? vendorId)
+        // ── TALLY PAGE ────────────────────────────────────────────────────
+        public async Task<IActionResult> Tally(DateTime? killDate, int? vendorId)
         {
-            return RedirectToAction(nameof(TallyToday));
-        }
-
-        // ── Today tally page ──────────────────────────────────────────────
-        public async Task<IActionResult> TallyToday()
-        {
-            var summary = await _animalService.GetTodayKilledSummaryAsync();
+            var date    = killDate ?? DateTime.Today;
+            var vendors = await _vendorService.GetAllActiveAsync();
+            var summary = await _animalService.GetTallySummaryAsync(date, vendorId);
 
             var vm = new TallyViewModel
             {
-                Summary  = summary,
-                KillDate = DateTime.Today
+                Summary    = summary,
+                KillDate   = date,
+                VendorId   = vendorId,
+                VendorList = vendors.Select(v =>
+                    new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem(
+                        v.VendorName, v.VendorID.ToString()))
             };
-
             return View(vm);
-        }
-
-        // ── Vendor search page ────────────────────────────────────────────
-        public async Task<IActionResult> VendorAnimals(string? vendorName)
-        {
-            var vm = new VendorAnimalsViewModel
-            {
-                VendorName = vendorName ?? string.Empty,
-                Animals = string.IsNullOrWhiteSpace(vendorName)
-                    ? Enumerable.Empty<BarnData.Data.Entities.Animal>()
-                    : await _animalService.SearchAnimalsByVendorNameAsync(vendorName)
-            };
-
-            return View(vm);
-        }
-
-        public Task<IActionResult> ExportTodayPdf()
-        {
-            return ExportPdf(DateTime.Today, null);
-        }
-
-        public Task<IActionResult> ExportTodayExcel()
-        {
-            return ExportExcel(DateTime.Today, null);
-        }
-
-        public async Task<IActionResult> ExportVendorAnimalsPdf(string? vendorName)
-        {
-            var normalizedVendorName = vendorName ?? string.Empty;
-            var vm = new VendorAnimalsViewModel
-            {
-                VendorName = normalizedVendorName,
-                Animals = string.IsNullOrWhiteSpace(normalizedVendorName)
-                    ? Enumerable.Empty<BarnData.Data.Entities.Animal>()
-                    : await _animalService.SearchAnimalsByVendorNameAsync(normalizedVendorName)
-            };
-
-            return new ViewAsPdf("VendorAnimalsPrint", vm)
-            {
-                FileName = $"VendorAnimals_{SanitizeFileName(normalizedVendorName)}_{DateTime.Today:yyyyMMdd}.pdf",
-                PageSize = Rotativa.AspNetCore.Options.Size.Letter,
-                PageOrientation = Rotativa.AspNetCore.Options.Orientation.Landscape,
-                PageMargins = new Rotativa.AspNetCore.Options.Margins(8, 8, 8, 8),
-                CustomSwitches = "--print-media-type"
-            };
-        }
-
-        public async Task<IActionResult> ExportVendorAnimalsExcel(string? vendorName)
-        {
-            var normalizedVendorName = vendorName ?? string.Empty;
-            var animals = string.IsNullOrWhiteSpace(normalizedVendorName)
-                ? Enumerable.Empty<BarnData.Data.Entities.Animal>()
-                : await _animalService.SearchAnimalsByVendorNameAsync(normalizedVendorName);
-
-            using var wb = new XLWorkbook();
-            var ws = wb.Worksheets.Add("Vendor Animals");
-
-            ws.Cell("A1").Value = $"Vendor Animal Search: {normalizedVendorName}";
-            ws.Cell("A1").Style.Font.Bold = true;
-            ws.Cell("A1").Style.Font.FontSize = 13;
-            ws.Range("A1:L1").Merge();
-
-            ws.Cell("A2").Value = $"Generated: {DateTime.Now:MM/dd/yyyy h:mm tt}";
-            ws.Range("A2:L2").Merge();
-
-            var headers = new[]
-            {
-                "Control No.", "Vendor", "Tag 1", "Tag 2", "Type", "Program",
-                "Kill Date", "Status", "Grade", "Live Wt", "Hot Wt", "Comment"
-            };
-
-            for (int i = 0; i < headers.Length; i++)
-            {
-                var cell = ws.Cell(4, i + 1);
-                cell.Value = headers[i];
-                cell.Style.Font.Bold = true;
-                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#0f1b2d");
-                cell.Style.Font.FontColor = XLColor.White;
-            }
-
-            int row = 5;
-            foreach (var animal in animals)
-            {
-                ws.Cell(row, 1).Value = animal.ControlNo;
-                ws.Cell(row, 2).Value = animal.Vendor?.VendorName ?? string.Empty;
-                ws.Cell(row, 3).Value = animal.TagNumber1;
-                ws.Cell(row, 4).Value = animal.TagNumber2 ?? string.Empty;
-                ws.Cell(row, 5).Value = animal.AnimalType;
-                ws.Cell(row, 6).Value = animal.ProgramCode;
-                ws.Cell(row, 7).Value = animal.KillDate.ToString("MM/dd/yyyy");
-                ws.Cell(row, 8).Value = animal.KillStatus;
-                ws.Cell(row, 9).Value = animal.Grade;
-                ws.Cell(row, 10).Value = animal.LiveWeight;
-                ws.Cell(row, 11).Value = animal.HotWeight?.ToString("N1") ?? string.Empty;
-                ws.Cell(row, 12).Value = animal.Comment ?? string.Empty;
-                row++;
-            }
-
-            ws.Columns().AdjustToContents();
-
-            using var stream = new MemoryStream();
-            wb.SaveAs(stream);
-            stream.Position = 0;
-
-            return File(
-                stream.ToArray(),
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"VendorAnimals_{SanitizeFileName(normalizedVendorName)}_{DateTime.Today:yyyyMMdd}.xlsx"
-            );
         }
 
         // ── PDF EXPORT ────────────────────────────────────────────────────
@@ -385,15 +275,188 @@ namespace BarnData.Web.Controllers
             );
         }
 
-        private static string SanitizeFileName(string value)
+        // ── INTERIM TALLY EXCEL — killed today, blank post-kill columns ───
+        public async Task<IActionResult> ExportInterimTally(DateTime? killDate)
         {
-            var fallback = string.IsNullOrWhiteSpace(value) ? "AllVendors" : value.Trim();
-            foreach (var invalidChar in Path.GetInvalidFileNameChars())
+            var date    = killDate ?? DateTime.Today;
+            var summary = await _animalService.GetTallySummaryAsync(date);
+
+            using var wb = new XLWorkbook();
+
+            // ── SHEET 1: Summary ──────────────────────────────────────────
+            var s1 = wb.Worksheets.Add("Summary");
+            var navy = XLColor.FromHtml("#0f1b2d");
+
+            s1.Cell("A1").Value = $"NIGHTLY KILL SUMMARY — {date:MMMM d, yyyy}";
+            s1.Cell("A1").Style.Font.Bold = true;
+            s1.Cell("A1").Style.Font.FontSize = 14;
+            s1.Range("A1:G1").Merge();
+
+            s1.Cell("A2").Value = $"Generated: {DateTime.Now:MM/dd/yyyy h:mm tt}  |  Status: Interim (HotScale not yet connected)";
+            s1.Cell("A2").Style.Font.Italic = true;
+            s1.Cell("A2").Style.Font.FontColor = XLColor.Gray;
+            s1.Range("A2:G2").Merge();
+
+            var s1H = new[] { "Category", "Killed", "Condemned", "Passed", "Total Live Wt", "Total Sale Cost", "Avg Rate" };
+            for (int i = 0; i < s1H.Length; i++)
             {
-                fallback = fallback.Replace(invalidChar, '_');
+                var c = s1.Cell(4, i + 1);
+                c.Value = s1H[i];
+                c.Style.Font.Bold = c.Style.Font.Bold;
+                c.Style.Font.Bold = true;
+                c.Style.Fill.BackgroundColor = navy;
+                c.Style.Font.FontColor = XLColor.White;
             }
 
-            return fallback.Replace(' ', '_');
+            int r = 5;
+            foreach (var row in summary.ByType.Where(t => t.Killed > 0))
+            {
+                s1.Cell(r, 1).Value = row.Category;
+                s1.Cell(r, 2).Value = row.Killed;
+                s1.Cell(r, 3).Value = row.Condemned;
+                s1.Cell(r, 4).Value = row.Passed;
+                if (row.DressedWt > 0) s1.Cell(r, 5).Value = row.DressedWt;
+                else s1.Cell(r, 5).Value = "(no hot wt yet)";
+                s1.Cell(r, 6).Value = row.Cost;
+                if (row.AvgCost > 0) s1.Cell(r, 7).Value = row.AvgCost;
+                r++;
+            }
+
+            // Grand total
+            s1.Cell(r, 1).Value = "TOTAL";
+            s1.Cell(r, 2).Value = summary.TotalAnimals;
+            s1.Cell(r, 3).Value = summary.TotalCondemned;
+            s1.Cell(r, 4).Value = summary.TotalPassed;
+            s1.Cell(r, 5).Value = summary.TotalLiveWeight;
+            s1.Cell(r, 6).Value = summary.TotalSaleCost;
+            s1.Row(r).Style.Font.Bold = true;
+            s1.Row(r).Style.Fill.BackgroundColor = XLColor.FromHtml("#e2e8f0");
+            s1.Columns().AdjustToContents();
+
+            // ── SHEET 2: Animal list with blank post-kill columns ──────────
+            var s2 = wb.Worksheets.Add("Kill List");
+
+            var headers = new[]
+            {
+                "Ctrl No.", "Vendor", "Tag 1", "Tag 2", "Animal Type", "Program",
+                "Purchase Type", "Origin", "Live Wt", "Live Rate", "Sale Cost",
+                "Kill Date",
+                // Blank columns for scale ticket data
+                "Hot Wt (from scale)", "Yield %", "Dress Rate",
+                "Grade", "Grade 2", "Health Score",
+                "Condemned", "Comment"
+            };
+
+            for (int i = 0; i < headers.Length; i++)
+            {
+                var c = s2.Cell(1, i + 1);
+                c.Value = headers[i];
+                c.Style.Font.Bold = true;
+                c.Style.Font.FontSize = 10;
+                // Blank post-kill columns in amber to show they need filling
+                bool isPostKill = i >= 12 && i <= 17;
+                c.Style.Fill.BackgroundColor = isPostKill
+                    ? XLColor.FromHtml("#fef3c7")
+                    : navy;
+                c.Style.Font.FontColor = isPostKill ? XLColor.FromHtml("#92400e") : XLColor.White;
+                c.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            }
+
+            int dataRow = 2;
+            foreach (var group in summary.ByVendor)
+            {
+                foreach (var a in group.Animals)
+                {
+                    bool isAlt = dataRow % 2 == 0;
+                    var rowFill = a.IsCondemned
+                        ? XLColor.FromHtml("#fee2e2")
+                        : isAlt ? XLColor.FromHtml("#f8fafc") : XLColor.White;
+
+                    void Set(int col, object? val, bool postKill = false)
+                    {
+                        var cell = s2.Cell(dataRow, col);
+                        if (val != null) cell.Value = val.ToString();
+                        cell.Style.Fill.BackgroundColor = postKill
+                            ? XLColor.FromHtml("#fffbeb")
+                            : rowFill;
+                        cell.Style.Font.FontSize = 10;
+                        cell.Style.Border.OutsideBorder = XLBorderStyleValues.Hair;
+                    }
+
+                    decimal saleCost = a.LiveWeight * a.LiveRate;
+
+                    Set(1,  a.ControlNo);
+                    Set(2,  group.VendorName);
+                    Set(3,  a.TagNumber1);
+                    Set(4,  a.TagNumber2 ?? "");
+                    Set(5,  a.AnimalType);
+                    Set(6,  a.ProgramCode);
+                    Set(7,  a.PurchaseType);
+                    Set(8,  a.Origin ?? "");
+                    Set(9,  a.LiveWeight.ToString("N1"));
+                    Set(10, a.LiveRate > 0 ? "$" + a.LiveRate.ToString("N4") : "");
+                    Set(11, saleCost > 0 ? "$" + saleCost.ToString("N2") : "");
+                    Set(12, a.KillDate.HasValue ? a.KillDate.Value.ToString("MM/dd/yyyy") : "");
+                    // Post-kill columns — blank, amber background
+                    Set(13, a.HotWeight.HasValue ? a.HotWeight.Value.ToString("N1") : "", true);
+                    Set(14, "", true);  // Yield — calculated after hot weight entered
+                    Set(15, "", true);  // Dress rate
+                    Set(16, a.Grade ?? "", true);
+                    Set(17, a.Grade2 ?? "", true);
+                    Set(18, a.HealthScore.HasValue ? a.HealthScore.Value.ToString() : "", true);
+                    Set(19, a.IsCondemned ? "COND" : "");
+                    Set(20, a.Comment ?? "");
+
+                    dataRow++;
+                }
+
+                // Vendor subtotal
+                s2.Cell(dataRow, 1).Value = $"Subtotal — {group.VendorName}  |  {group.Count} animals, {group.Condemned} condemned";
+                s2.Range(dataRow, 1, dataRow, 20).Merge();
+                s2.Row(dataRow).Style.Fill.BackgroundColor = XLColor.FromHtml("#1e2f47");
+                s2.Row(dataRow).Style.Font.FontColor = XLColor.White;
+                s2.Row(dataRow).Style.Font.Bold = true;
+                dataRow += 2;
+            }
+
+            s2.SheetView.FreezeRows(1);
+            s2.Columns().AdjustToContents();
+            s2.Column(2).Width = Math.Min(s2.Column(2).Width, 28);
+
+            // ── SHEET 3: Instructions ──────────────────────────────────────
+            var s3 = wb.Worksheets.Add("Instructions");
+            s3.Cell("A1").Value = "How to complete this tally sheet";
+            s3.Cell("A1").Style.Font.Bold = true;
+            s3.Cell("A1").Style.Font.FontSize = 13;
+
+            var steps = new[]
+            {
+                "1. Go to the Kill List tab.",
+                "2. Columns highlighted in YELLOW must be filled from the scale tickets: Hot Wt, Yield, Dress Rate, Grade, Grade 2, Health Score.",
+                "3. For each animal, enter the Hot Weight from the scale ticket.",
+                "4. Yield % = Hot Wt ÷ Live Wt × 100  (or 100% for consignment animals).",
+                "5. Dress Rate = Sale Cost ÷ Hot Wt.",
+                "6. Enter Grade (CT, B1, B2, CN, LB, BB etc.) from scale ticket.",
+                "7. Enter Health Score (1–5) from scale ticket.",
+                "8. If an animal is condemned, column S already shows COND from the import.",
+                "9. When HotScale is connected (Phase 5), all yellow columns will auto-fill. This manual step will be eliminated.",
+            };
+            for (int i = 0; i < steps.Length; i++)
+            {
+                s3.Cell(i + 3, 1).Value = steps[i];
+                s3.Cell(i + 3, 1).Style.Font.FontSize = 11;
+            }
+            s3.Column(1).Width = 90;
+
+            using var stream = new MemoryStream();
+            wb.SaveAs(stream);
+            stream.Position = 0;
+
+            return File(
+                stream.ToArray(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                $"KillList_{date:yyyyMMdd}.xlsx"
+            );
         }
     }
 }

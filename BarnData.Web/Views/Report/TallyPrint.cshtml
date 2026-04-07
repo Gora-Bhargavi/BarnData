@@ -134,7 +134,7 @@
                         <td>@a.AnimalType</td>
                         <td>@a.ProgramCode</td>
                         <td>@a.PurchaseDate.ToString("MM/dd/yy")</td>
-                        <td>@a.KillDate.ToString("MM/dd/yy")</td>
+                        <td>@a.KillDate?.ToString("MM/dd/yy")</td>
                         <td class="tr mono">@a.LiveWeight.ToString("N1")</td>
                         <td class="tr mono">$@a.LiveRate.ToString("N4")</td>
                         <td class="tr mono">@(a.HotWeight.HasValue ? a.HotWeight.Value.ToString("N1") : "—")</td>

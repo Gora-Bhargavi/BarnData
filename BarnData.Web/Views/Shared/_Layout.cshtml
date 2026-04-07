@@ -18,10 +18,20 @@
             <div class="brand-sub">Barn Data System</div>
         </div>
 
-        <div class="nav-section">Data entry</div>
-        <a asp-controller="Animal" asp-action="Index"
+        <div class="nav-section">Import &amp; intake</div>
+        <a asp-controller="Import" asp-action="SaleBill"
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" && ViewContext.RouteData.Values["action"]?.ToString() == "SaleBill" ? "active" : "")">
+            <span class="nav-dot"></span> Import sale / cons. bill
+        </a>
+        <a asp-controller="Import" asp-action="MarkKilled"
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" && ViewContext.RouteData.Values["action"]?.ToString() == "MarkKilled" ? "active" : "")">
+            <span class="nav-dot"></span> Mark as killed
+        </a>
+
+        <div class="nav-section">Manual entry</div>
+        <a asp-controller="Animal" asp-action="Index" asp-route-status="pending"
            class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Animal" && ViewContext.RouteData.Values["action"]?.ToString() == "Index" ? "active" : "")">
-            <span class="nav-dot"></span> Animal list
+            <span class="nav-dot"></span> Animal list (pending)
         </a>
         <a asp-controller="Animal" asp-action="Create"
            class="nav-item @(ViewContext.RouteData.Values["action"]?.ToString() == "Create" ? "active" : "")">
@@ -29,13 +39,9 @@
         </a>
 
         <div class="nav-section">Reports</div>
-        <a asp-controller="Report" asp-action="TallyToday"
-           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Report" && ViewContext.RouteData.Values["action"]?.ToString() == "TallyToday" ? "active" : "")">
-            <span class="nav-dot"></span> Today's tally
-        </a>
-        <a asp-controller="Report" asp-action="VendorAnimals"
-           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Report" && ViewContext.RouteData.Values["action"]?.ToString() == "VendorAnimals" ? "active" : "")">
-            <span class="nav-dot"></span> Vendor search
+        <a asp-controller="Report" asp-action="Tally"
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Report" ? "active" : "")">
+            <span class="nav-dot"></span> Nightly tally
         </a>
 
         <div class="sidebar-footer">

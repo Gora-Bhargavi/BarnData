@@ -71,7 +71,7 @@ else
                         <td class="mono">@(a.TagNumber2 ?? "—")</td>
                         <td>@a.AnimalType</td>
                         <td><span class="badge badge-prog">@a.ProgramCode</span></td>
-                        <td>@a.KillDate.ToString("MM/dd/yyyy")</td>
+                        <td>@a.KillDate?.ToString("MM/dd/yyyy")</td>
                         <td>
                             <span class="badge badge-status-@a.KillStatus.ToLower()">@a.KillStatus</span>
                         </td>

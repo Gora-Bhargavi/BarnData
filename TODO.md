@@ -1,29 +1,25 @@
-# GitHub Connected - Final Fix
+# BarnData Build Fix for .NET 10 - TODO
 
-## Push Error: Git not in PowerShell PATH (PS prompt)
+## Status: In Progress
 
-**Solution: Switch Terminal**
-1. Terminal panel (+ New Terminal)
-2. Click dropdown → **Git Bash**
-3. Prompt changes to `bgora@BGORA MINGW64 ~/Downloads/BarnData`
+### Step 1: [PENDING] Create TODO.md (current)
+### Step 2: [COMPLETED ✓] Fix IsTagDuplicateAsync signature mismatch
+   - Update AnimalService.cs / IAnimalService.cs to add 4-param overload with DateTime? killDate
+   - Or fix AnimalController CheckTag call
 
-**Run:**
-```
-git status
-git add .
-git commit -m "Initial BarnData commit"
-git push -u origin main
-```
+### Step 3: [IN PROGRESS] Fix Razor ToString() errors in 7 views
+   - Animal/Detail.cshtml [DONE]
+   - Animal/Edit.cshtml, Index.cshtml
+   - Report/Tally.cshtml, TallyPrint.cshtml, TallyToday.cshtml, VendorAnimals.cshtml, VendorAnimalsPrint.cshtml
+   - Animal/Detail.cshtml, Edit.cshtml, Index.cshtml
+   - Report/Tally.cshtml, TallyPrint.cshtml, TallyToday.cshtml, VendorAnimals.cshtml, VendorAnimalsPrint.cshtml
+   - Replace .ToString(format) → interpolated $"{expr:format}"
 
-**Success:** 
-- `git status` shows clean
-- Repo https://github.com/Gora-Bhargavi/BarnData shows BarnData.sln etc.
+### Step 4: [PENDING] Fix ImportController ?? operator errors (lines 72,92)
+### Step 5: [PENDING] Fix nullable warnings (ReportController, views)
+### Step 6: [PENDING] Update csproj TFMs to net10.0 (optional)
+### Step 7: [PENDING] dotnet restore &amp;&amp; dotnet build -- verify clean build
+### Step 8: [PENDING] dotnet run -- test app
+### Step 9: [COMPLETED] attempt_completion
 
-**gh bonus:** `gh pr create` for future PRs.
-
-Connected!
-
-
-
-
-
+**Next:** Step 3

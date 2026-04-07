@@ -8,7 +8,7 @@ namespace BarnData.Data
         public BarnDataContext(DbContextOptions<BarnDataContext> options)
             : base(options) { }
 
-        //  DbSets 
+        // ── DbSets ────────────────────────────────────────────────────────
         public DbSet<Animal> Animals { get; set; } = null!;
         public DbSet<Vendor> Vendors { get; set; } = null!;
 
@@ -16,7 +16,7 @@ namespace BarnData.Data
         {
             base.OnModelCreating(modelBuilder);
 
-            // tbl_vendor_master 
+            // ── tbl_vendor_master ─────────────────────────────────────────
             modelBuilder.Entity<Vendor>(entity =>
             {
                 entity.ToTable("tbl_vendor_master");
@@ -38,7 +38,7 @@ namespace BarnData.Data
                     .HasDatabaseName("IX_vendor_master_Name");
             });
 
-            // tbl_animal_master 
+            // ── tbl_animal_master ─────────────────────────────────────────
             modelBuilder.Entity<Animal>(entity =>
             {
                 entity.ToTable("tbl_barn_animal_entry");
@@ -63,10 +63,10 @@ namespace BarnData.Data
                 entity.Property(a => a.CreatedAt)
                     .HasDefaultValueSql("GETDATE()");
 
-                // Unique index: one Tag1 per vendor per kill date
-                entity.HasIndex(a => new { a.TagNumber1, a.KillDate, a.VendorID })
+                // Unique index: one Tag1 per vendor (KillDate removed — nullable)
+                entity.HasIndex(a => new { a.TagNumber1, a.VendorID })
                     .IsUnique()
-                    .HasDatabaseName("UIX_animal_Tag1_KillDate_Vendor");
+                    .HasDatabaseName("UIX_animal_Tag1_Vendor");
 
                 // Index: fast tally report queries by kill date
                 entity.HasIndex(a => new { a.KillDate, a.VendorID })
@@ -81,12 +81,6 @@ namespace BarnData.Data
                     .WithMany(v => v.Animals)
                     .HasForeignKey(a => a.VendorID)
                     .OnDelete(DeleteBehavior.Restrict);
-
-                // DB-level check: kill date cannot be before purchase date
-                entity.ToTable(t => t.HasCheckConstraint(
-                    "CHK_animal_KillDate",
-                    "[KillDate] >= [PurchaseDate]"
-                ));
 
                 // DB-level check: valid KillStatus values
                 entity.ToTable(t => t.HasCheckConstraint(

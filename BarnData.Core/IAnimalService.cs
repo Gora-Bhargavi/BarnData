@@ -5,15 +5,17 @@ namespace BarnData.Core.Services
     public interface IAnimalService
     {
         Task<IEnumerable<Animal>> GetByKillDateAsync(DateTime killDate, int? vendorId = null);
+        Task<IEnumerable<Animal>> GetPendingAsync(int? vendorId = null);
+        Task<IEnumerable<Animal>> GetAllAsync(int? vendorId = null);
         Task<Animal?> GetByControlNoAsync(int controlNo);
-        Task<bool> IsTagDuplicateAsync(string tag1, DateTime killDate, int vendorId, int? excludeControlNo = null);
+        Task<bool> IsTagDuplicateAsync(string tag1, int vendorId, int? excludeControlNo = null);
         bool IsWeightOutOfRange(decimal liveWeight);
         Task<(bool Success, string ErrorMessage)> CreateAsync(Animal animal);
+        Task<(int Imported, int Skipped, List<string> Errors)> BulkImportAsync(IEnumerable<Animal> animals);
+        Task<int> MarkKilledAsync(IEnumerable<int> controlNos, DateTime killDate);
         Task<(bool Success, string ErrorMessage)> UpdateAsync(Animal animal);
         Task<bool> DeleteAsync(int controlNo);
         Task<TallySummary> GetTallySummaryAsync(DateTime killDate, int? vendorId = null);
-        Task<TallySummary> GetTodayKilledSummaryAsync();
-        Task<IEnumerable<Animal>> SearchAnimalsByVendorNameAsync(string vendorName);
     }
 
     public class TallySummary

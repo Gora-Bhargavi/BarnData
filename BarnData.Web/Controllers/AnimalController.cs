@@ -3,33 +3,11 @@ using BarnData.Data.Entities;
 using BarnData.Web.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using System.Text.Json;
 
 namespace BarnData.Web.Controllers
 {
     public class AnimalController : Controller
     {
-        private const string CreateCarryForwardKey = "CreateCarryForward";
-
-        private sealed class CreateCarryForwardState
-        {
-            public int VendorID { get; set; }
-            public string? VendorNameFreeText { get; set; }
-            public string PurchaseType { get; set; } = string.Empty;
-            public DateTime PurchaseDate { get; set; }
-            public string AnimalType { get; set; } = string.Empty;
-            public string? AnimalType2 { get; set; }
-            public string ProgramCode { get; set; } = string.Empty;
-            public DateTime KillDate { get; set; }
-            public string Grade { get; set; } = string.Empty;
-            public string? Grade2 { get; set; }
-            public int HealthScore { get; set; }
-            public string? Origin { get; set; }
-            public string? State { get; set; }
-            public string? BuyerName { get; set; }
-            public string? VetName { get; set; }
-            public string? OfficeUse2 { get; set; }
-        }
         private readonly IAnimalService _animalService;
         private readonly IVendorService _vendorService;
 
@@ -39,14 +17,39 @@ namespace BarnData.Web.Controllers
             _vendorService = vendorService;
         }
 
-        // ── INDEX — animal list filtered by kill date ─────────────────────
-        public async Task<IActionResult> Index(DateTime? killDate, int? vendorId)
+        // ── INDEX — show ALL animals with status filter ──────────────────
+        public async Task<IActionResult> Index(DateTime? killDate, int? vendorId, string? status)
         {
-            var date = killDate ?? DateTime.Today;
             var vendors = await _vendorService.GetAllActiveAsync();
-            var animals = await _animalService.GetByKillDateAsync(date, vendorId);
+            IEnumerable<BarnData.Data.Entities.Animal> animals;
 
-            ViewBag.KillDate   = date.ToString("yyyy-MM-dd");
+            // Default: show all pending animals (most useful daily view)
+            if (status == "killed" && killDate.HasValue)
+            {
+                animals = await _animalService.GetByKillDateAsync(killDate.Value, vendorId);
+                ViewBag.StatusFilter = "killed";
+                ViewBag.KillDate = killDate.Value.ToString("yyyy-MM-dd");
+            }
+            else if (status == "killed")
+            {
+                animals = await _animalService.GetByKillDateAsync(DateTime.Today, vendorId);
+                ViewBag.StatusFilter = "killed";
+                ViewBag.KillDate = DateTime.Today.ToString("yyyy-MM-dd");
+            }
+            else if (status == "all")
+            {
+                animals = await _animalService.GetAllAsync(vendorId);
+                ViewBag.StatusFilter = "all";
+                ViewBag.KillDate = DateTime.Today.ToString("yyyy-MM-dd");
+            }
+            else
+            {
+                // Default: pending animals
+                animals = await _animalService.GetPendingAsync(vendorId);
+                ViewBag.StatusFilter = "pending";
+                ViewBag.KillDate = DateTime.Today.ToString("yyyy-MM-dd");
+            }
+
             ViewBag.VendorId   = vendorId;
             ViewBag.VendorList = new SelectList(vendors, "VendorID", "VendorName", vendorId);
             ViewBag.TotalCount = animals.Count();
@@ -59,7 +62,7 @@ namespace BarnData.Web.Controllers
         // ── CREATE GET — blank entry form ─────────────────────────────────
         public async Task<IActionResult> Create()
         {
-            var vm = BuildViewModelFromCarryForward() ?? new AnimalViewModel
+            var vm = new AnimalViewModel
             {
                 KillDate     = DateTime.Today,
                 PurchaseDate = DateTime.Today,
@@ -72,7 +75,7 @@ namespace BarnData.Web.Controllers
         // ── CREATE POST — save new animal record ──────────────────────────
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(AnimalViewModel vm, string? submitMode)
+        public async Task<IActionResult> Create(AnimalViewModel vm)
         {
             // Handle vendor — either selected from list (VendorID > 0)
             // or typed as free text (VendorID = 0, VendorNameFreeText has value)
@@ -97,8 +100,7 @@ namespace BarnData.Web.Controllers
             }
 
             // Check weight warning — does not block, just flags
-            vm.ShowWeightWarning = vm.LiveWeight.HasValue &&
-                _animalService.IsWeightOutOfRange(vm.LiveWeight.Value);
+            vm.ShowWeightWarning = _animalService.IsWeightOutOfRange(vm.LiveWeight);
 
             // If weight is out of range AND user hasn't confirmed yet — show warning
             if (vm.ShowWeightWarning && !vm.WeightWarningConfirmed)
@@ -120,16 +122,13 @@ namespace BarnData.Web.Controllers
                 return View(vm);
             }
 
-            if (string.Equals(submitMode, "save-add-another", StringComparison.OrdinalIgnoreCase))
-            {
-                TempData["SuccessMessage"] = $"Animal record saved. Control No: {animal.ControlNo}. Ready for the next animal.";
-                TempData[CreateCarryForwardKey] = JsonSerializer.Serialize(BuildCarryForwardModel(vm));
-                return RedirectToAction(nameof(Create));
-            }
-
             TempData["SuccessMessage"] = $"Animal record saved. Control No: {animal.ControlNo}";
-            return RedirectToAction(nameof(Index),
-                new { killDate = vm.KillDate.ToString("yyyy-MM-dd") });
+
+            // If Save & Add Another was clicked — go back to blank Create form
+            if (Request.Form.ContainsKey("saveAndAdd"))
+                return RedirectToAction(nameof(Create));
+
+            return RedirectToAction(nameof(Index), new { status = "pending" });
         }
 
         // ── EDIT GET — pre-filled form ────────────────────────────────────
@@ -164,8 +163,7 @@ namespace BarnData.Web.Controllers
                 return View(vm);
             }
 
-            vm.ShowWeightWarning = vm.LiveWeight.HasValue &&
-                _animalService.IsWeightOutOfRange(vm.LiveWeight.Value);
+            vm.ShowWeightWarning = _animalService.IsWeightOutOfRange(vm.LiveWeight);
             if (vm.ShowWeightWarning && !vm.WeightWarningConfirmed)
             {
                 await PopulateVendorDropdown(vm);
@@ -187,7 +185,7 @@ namespace BarnData.Web.Controllers
 
             TempData["SuccessMessage"] = $"Animal record #{id} updated successfully.";
             return RedirectToAction(nameof(Index),
-                new { killDate = vm.KillDate.ToString("yyyy-MM-dd") });
+                new { killDate = vm.KillDate.HasValue ? vm.KillDate.Value.ToString("yyyy-MM-dd") : DateTime.Today.ToString("yyyy-MM-dd") });
         }
 
         // ── DETAIL — read-only view ───────────────────────────────────────
@@ -226,16 +224,13 @@ namespace BarnData.Web.Controllers
         // ── TAG DUPLICATE CHECK — called via AJAX on blur ─────────────────
         [HttpGet]
         public async Task<IActionResult> CheckTag(
-            string tag1, string killDate, int vendorId, int? controlNo = null)
+            string tag1, int vendorId, int? controlNo = null)
         {
             if (string.IsNullOrWhiteSpace(tag1) || vendorId == 0)
                 return Json(new { isDuplicate = false });
 
-            if (!DateTime.TryParse(killDate, out var date))
-                date = DateTime.Today;
-
             bool isDuplicate = await _animalService.IsTagDuplicateAsync(
-                tag1, date, vendorId, controlNo);
+                tag1, vendorId, controlNo);
 
             return Json(new { isDuplicate });
         }
@@ -246,111 +241,30 @@ namespace BarnData.Web.Controllers
             var vendors = await _vendorService.GetAllActiveAsync();
             vm.VendorList = vendors.Select(v =>
                 new SelectListItem(v.VendorName, v.VendorID.ToString()));
-
-            if (vm.VendorID > 0 && string.IsNullOrWhiteSpace(vm.VendorNameFreeText))
-            {
-                vm.VendorNameFreeText = vendors
-                    .FirstOrDefault(v => v.VendorID == vm.VendorID)
-                    ?.VendorName;
-            }
         }
-
-        private AnimalViewModel? BuildViewModelFromCarryForward()
-        {
-            if (!TempData.TryGetValue(CreateCarryForwardKey, out var raw) || raw is not string json)
-            {
-                return null;
-            }
-
-            try
-            {
-                var state = JsonSerializer.Deserialize<CreateCarryForwardState>(json);
-                if (state == null)
-                {
-                    TempData.Remove(CreateCarryForwardKey);
-                    return null;
-                }
-
-                return new AnimalViewModel
-                {
-                    VendorID = state.VendorID,
-                    VendorNameFreeText = state.VendorNameFreeText,
-                    PurchaseType = state.PurchaseType,
-                    PurchaseDate = state.PurchaseDate,
-                    LiveRate = null,
-                    AnimalType = state.AnimalType,
-                    AnimalType2 = state.AnimalType2,
-                    ProgramCode = state.ProgramCode,
-                    KillDate = state.KillDate,
-                    Grade = state.Grade,
-                    Grade2 = state.Grade2,
-                    HealthScore = state.HealthScore,
-                    Origin = state.Origin,
-                    State = state.State,
-                    BuyerName = state.BuyerName,
-                    VetName = state.VetName,
-                    OfficeUse2 = state.OfficeUse2,
-                    TagNumber1 = string.Empty,
-                    TagNumber2 = null,
-                    Tag3 = null,
-                    AnimalControlNumber = string.Empty,
-                    LiveWeight = null,
-                    HotWeight = null,
-                    FetalBlood = null,
-                    Comment = null,
-                    IsCondemned = false,
-                    ShowWeightWarning = false,
-                    WeightWarningConfirmed = false
-                };
-            }
-            catch (JsonException)
-            {
-                TempData.Remove(CreateCarryForwardKey);
-                return null;
-            }
-        }
-
-        private static CreateCarryForwardState BuildCarryForwardModel(AnimalViewModel vm) => new()
-        {
-            VendorID             = vm.VendorID,
-            VendorNameFreeText   = vm.VendorNameFreeText,
-            PurchaseType         = vm.PurchaseType,
-            PurchaseDate         = vm.PurchaseDate,
-            AnimalType           = vm.AnimalType,
-            AnimalType2          = vm.AnimalType2,
-            ProgramCode          = vm.ProgramCode,
-            KillDate             = vm.KillDate,
-            Grade                = vm.Grade,
-            Grade2               = vm.Grade2,
-            HealthScore          = vm.HealthScore,
-            Origin               = vm.Origin,
-            State                = vm.State,
-            BuyerName            = vm.BuyerName,
-            VetName              = vm.VetName,
-            OfficeUse2           = vm.OfficeUse2
-        };
 
         private static Animal MapToEntity(AnimalViewModel vm) => new()
         {
             ControlNo            = vm.ControlNo,
             VendorID             = vm.VendorID,
             TagNumber1           = vm.TagNumber1,
-            TagNumber2           = vm.TagNumber2 ?? string.Empty,
+            TagNumber2           = string.IsNullOrEmpty(vm.TagNumber2) ? null : vm.TagNumber2,
             Tag3                 = vm.Tag3,
             AnimalType           = vm.AnimalType,
             AnimalType2          = vm.AnimalType2,
             ProgramCode          = vm.ProgramCode,
             PurchaseDate         = vm.PurchaseDate,
             PurchaseType         = vm.PurchaseType,
-            LiveWeight           = vm.LiveWeight!.Value,
-            LiveRate             = vm.LiveRate!.Value,
+            LiveWeight           = vm.LiveWeight,
+            LiveRate             = vm.LiveRate,
+            ConsignmentRate      = vm.ConsignmentRate,
             KillDate             = vm.KillDate,
             HotWeight            = vm.HotWeight,
-            Grade                = vm.Grade,
+            Grade                = string.IsNullOrEmpty(vm.Grade) ? null : vm.Grade,
             Grade2               = vm.Grade2,
             HealthScore          = vm.HealthScore,
             FetalBlood           = vm.FetalBlood,
-            Comment              = vm.Comment ?? string.Empty,
+            Comment              = vm.Comment,
             AnimalControlNumber  = vm.AnimalControlNumber,
             State                = vm.State,
             BuyerName            = vm.BuyerName,
@@ -375,6 +289,7 @@ namespace BarnData.Web.Controllers
             PurchaseType         = a.PurchaseType,
             LiveWeight           = a.LiveWeight,
             LiveRate             = a.LiveRate,
+            ConsignmentRate      = a.ConsignmentRate,
             KillDate             = a.KillDate,
             HotWeight            = a.HotWeight,
             Grade                = a.Grade,

@@ -1,12 +1,12 @@
 @model BarnData.Data.Entities.Animal
 @{
     ViewData["Title"]    = $"Record — Control No. {Model.ControlNo}";
-    ViewData["Subtitle"] = $"Tag: {Model.TagNumber1}  ·  {Model.KillDate:MM/dd/yyyy}";
+    ViewData["Subtitle"] = $"Tag: {Model.TagNumber1}  ·  {(Model.KillDate.HasValue ? Model.KillDate.Value.ToString("MM/dd/yyyy") : "Not yet killed")}";
 }
 
 <div class="detail-actions">
     <a asp-action="Edit" asp-route-id="@Model.ControlNo" class="btn btn-primary">Edit record</a>
-    <a asp-action="Index" asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
+    <a asp-action="Index" asp-route-killDate="@(Model.KillDate.HasValue ? Model.KillDate.Value.ToString("yyyy-MM-dd") : DateTime.Today.ToString("yyyy-MM-dd"))"
        class="btn btn-secondary">Back to list</a>
 </div>
 
@@ -18,7 +18,7 @@
         <div class="detail-row"><div class="dl">Purchase type</div><div class="dv">@Model.PurchaseType</div></div>
         <div class="detail-row"><div class="dl">Purchase date</div><div class="dv">@Model.PurchaseDate.ToString("MM/dd/yyyy")</div></div>
         <div class="detail-row"><div class="dl">Live rate</div><div class="dv">$@Model.LiveRate.ToString("N4")</div></div>
-        <div class="detail-row"><div class="dl">Kill date</div><div class="dv">@Model.KillDate.ToString("MM/dd/yyyy")</div></div>
+        <div class="detail-row"><div class="dl">Kill date</div><div class="dv">@(Model.KillDate.HasValue ? Model.KillDate.Value.ToString("MM/dd/yyyy") : "Pending kill")</div></div>
     </div>
 
     <div class="detail-card">

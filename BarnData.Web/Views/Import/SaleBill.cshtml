@@ -1,0 +1,43 @@
+@{
+    ViewData["Title"]    = "Import sale / consignment bill";
+    ViewData["Subtitle"] = "Upload the Cattle Report by Vendor Excel from the auction house";
+}
+
+<div class="form-section">
+    <div class="form-section-title">How this works</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:4px">
+        <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 14px;font-size:12px;color:var(--color-text-secondary);line-height:1.7">
+            <div style="font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:6px">Step 1 — Upload</div>
+            Upload the Excel from the auction house. All vendors, tags, live weights, and rates are read automatically. Kill date is left blank — animals are stored as Pending.
+        </div>
+        <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 14px;font-size:12px;color:var(--color-text-secondary);line-height:1.7">
+            <div style="font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:6px">Step 2 — Mark as killed</div>
+            On kill day, go to "Mark as killed", select the animals killed today, set today's kill date, and save. Status changes from Pending → Killed.
+        </div>
+        <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 14px;font-size:12px;color:var(--color-text-secondary);line-height:1.7">
+            <div style="font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:6px">Step 3 — Tally</div>
+            The nightly tally report shows all animals killed today. Export Excel — hot weight and grade columns are blank for you to fill from scale tickets until HotScale connects.
+        </div>
+    </div>
+</div>
+
+<div class="form-section">
+    <div class="form-section-title">Upload sale bill or consignment bill Excel</div>
+    <div class="alert alert-info" style="margin-bottom:14px">
+        Supported format: <strong>Cattle Report by Vendor</strong> (.xlsx or .xls). Both Sale Bills and Consignment Bills are supported in the same file.
+    </div>
+    <form method="post" asp-action="SaleBill" enctype="multipart/form-data">
+        @Html.AntiForgeryToken()
+        <div asp-validation-summary="All" class="alert alert-error"></div>
+        <div class="field" style="max-width:500px;margin-bottom:16px">
+            <label class="field-label">Excel file <span class="req">*</span></label>
+            <input type="file" name="file" accept=".xlsx,.xls"
+                   class="form-control" style="padding:6px 10px" />
+            <div class="field-hint">The "Cattle Report by Vendor" Excel from the auction house</div>
+        </div>
+        <button type="submit" class="btn btn-primary">Upload and import</button>
+        <a asp-controller="Import" asp-action="MarkKilled" class="btn btn-secondary">
+            Go to Mark as killed
+        </a>
+    </form>
+</div>

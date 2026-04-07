@@ -71,7 +71,7 @@
                 <td class="mono">@(a.TagNumber2 ?? "")</td>
                 <td>@a.AnimalType</td>
                 <td>@a.ProgramCode</td>
-                <td>@a.KillDate.ToString("MM/dd/yyyy")</td>
+                <td>@a.KillDate?.ToString("MM/dd/yyyy")</td>
                 <td>@a.KillStatus</td>
                 <td>@a.Grade</td>
                 <td class="tr mono">@a.LiveWeight.ToString("N1")</td>

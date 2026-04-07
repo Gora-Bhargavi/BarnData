@@ -1,0 +1,200 @@
+@model BarnData.Web.Models.SaleBillImportViewModel
+@{
+    ViewData["Title"]    = "Import result";
+    ViewData["Subtitle"] = "File: " + Model.ImportedFile;
+}
+
+<!-- Summary strip -->
+<div class="summary-strip" style="margin-bottom:16px">
+    <div class="summary-stat">
+        <div class="summary-val">@Model.TotalRows</div>
+        <div class="summary-lbl">Total rows</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val" style="color:#4ade80">@Model.Imported</div>
+        <div class="summary-lbl">Imported</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val" style="color:#fbbf24">@Model.Skipped</div>
+        <div class="summary-lbl">Skipped (duplicates)</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val" style="color:@(Model.Errors.Any() ? "#f87171" : "#4ade80")">
+            @Model.Errors.Count
+        </div>
+        <div class="summary-lbl">Errors</div>
+    </div>
+</div>
+
+@if (Model.Errors.Any())
+{
+    <div class="alert alert-warn" style="margin-bottom:12px">
+        <strong>Some rows were skipped:</strong>
+        @foreach (var e in Model.Errors.Take(10))
+        {
+            <div style="margin-top:4px;font-size:12px">— @e</div>
+        }
+        @if (Model.Errors.Count > 10)
+        {
+            <div style="margin-top:4px;font-size:12px;color:var(--color-text-tertiary)">
+                ... and @(Model.Errors.Count - 10) more
+            </div>
+        }
+    </div>
+}
+
+@if (Model.Imported > 0)
+{
+    <div class="alert alert-success" style="margin-bottom:14px">
+        <strong>@Model.Imported animals imported successfully.</strong>
+        Animals with a kill date are marked as <strong>Killed</strong> and appear in the tally.
+        Animals without a kill date are <strong>Pending</strong> — go to Mark as killed to set their kill date.
+    </div>
+}
+
+<!-- Action buttons -->
+<div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+    <a asp-controller="Import" asp-action="MarkKilled" class="btn btn-primary">
+        Mark as killed →
+    </a>
+    <a asp-controller="Report" asp-action="Tally" class="btn btn-secondary">
+        View tally report
+    </a>
+    <a asp-controller="Animal" asp-action="Index" class="btn btn-secondary">
+        View animal list
+    </a>
+    <a asp-controller="Import" asp-action="SaleBill" class="btn btn-ghost">
+        Import another file
+    </a>
+</div>
+
+@if (Model.Preview.Any())
+{
+    <!-- Quick summary by vendor -->
+    <div class="form-section" style="margin-bottom:16px">
+        <div class="form-section-title">Summary by vendor</div>
+        <div class="table-card">
+            <table class="data-table" style="font-size:12px">
+                <thead>
+                    <tr>
+                        <th>Vendor</th>
+                        <th class="text-right">Animals</th>
+                        <th class="text-right">Total Live Wt</th>
+                        <th>Purchase Types</th>
+                        <th class="text-right">Condemned</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var grp in Model.Preview.GroupBy(r => r.VendorName).OrderBy(g => g.Key))
+                    {
+                        var totalLiveWt = grp.Sum(r => r.LiveWeight);
+                        var condemned   = grp.Count(r => r.IsCondemned);
+                        var types       = string.Join(", ", grp.Select(r => r.PurchaseType).Distinct());
+                        <tr>
+                            <td style="font-weight:500">@grp.Key</td>
+                            <td class="text-right mono">@grp.Count()</td>
+                            <td class="text-right mono">@totalLiveWt.ToString("N1")</td>
+                            <td><span class="badge badge-prog">@types</span></td>
+                            <td class="text-right mono @(condemned > 0 ? "text-danger" : "")">
+                                @(condemned > 0 ? condemned.ToString() : "—")
+                            </td>
+                            <td>
+                                <span class="badge badge-status-verified">Imported</span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="table-total-row">
+                        <td class="total-label">Total</td>
+                        <td class="text-right mono">@Model.Preview.Count</td>
+                        <td class="text-right mono">@Model.Preview.Sum(r => r.LiveWeight).ToString("N1")</td>
+                        <td></td>
+                        <td class="text-right mono">@Model.Preview.Count(r => r.IsCondemned)</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    <!-- Full animal list -->
+    <div class="form-section">
+        <div class="form-section-title">
+            All imported animals (@Model.Preview.Count)
+            <span style="font-size:11px;font-weight:400;color:var(--color-text-tertiary);margin-left:8px">
+                Yellow rows = condemned &nbsp;|&nbsp; Scroll right for all columns
+            </span>
+        </div>
+        <div style="overflow-x:auto">
+            <table class="data-table" style="font-size:11.5px;min-width:1100px">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Vendor</th>
+                        <th>Tag 1</th>
+                        <th>Tag 2</th>
+                        <th>Type</th>
+                        <th>Program</th>
+                        <th>Purchase Type</th>
+                        <th class="text-right">Live Wt</th>
+                        <th class="text-right">Live Rate</th>
+                        <th class="text-right">Est. Cost</th>
+                        <th>Comment</th>
+                        <th>Cond</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{ int rowNum = 0; }
+                    @foreach (var r in Model.Preview)
+                    {
+                        rowNum++;
+                        var estCost = r.LiveWeight * r.LiveRate;
+                        var progCode = r.VendorName.ToUpper().Contains("ABF") ? "ABF" : "REG";
+                        <tr style="@(r.IsCondemned ? "background:#fef9c3" : "")">
+                            <td style="color:var(--color-text-tertiary);font-size:11px">@rowNum</td>
+                            <td style="font-weight:500;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@r.VendorName</td>
+                            <td class="mono">@r.Tag1</td>
+                            <td class="mono">@(r.Tag2 ?? "—")</td>
+                            <td>@r.AnimalType</td>
+                            <td>
+                                <span class="badge @(progCode == "ABF" ? "badge-status-verified" : "badge-prog")">
+                                    @progCode
+                                </span>
+                            </td>
+                            <td>
+                                <span class="badge @(r.PurchaseType == "Sale Bill" ? "badge-prog" : "badge-grade")">
+                                    @(r.PurchaseType == "Sale Bill" ? "Sale" : "Cons.")
+                                </span>
+                            </td>
+                            <td class="text-right mono">@r.LiveWeight.ToString("N1")</td>
+                            <td class="text-right mono">$@r.LiveRate.ToString("N4")</td>
+                            <td class="text-right mono">
+                                @(estCost > 0 ? "$" + estCost.ToString("N2") : "—")
+                            </td>
+                            <td style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                @(r.Comment ?? "—")
+                            </td>
+                            <td class="text-center">
+                                @if (r.IsCondemned)
+                                {
+                                    <span class="badge badge-status-flagged">cond</span>
+                                }
+                            </td>
+                            <td>
+                                <span class="badge badge-status-@(r.Status == "OK" ? "verified" : "flagged")">
+                                    @r.Status
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}

@@ -1,0 +1,140 @@
+@model BarnData.Web.Models.MarkKilledViewModel
+@{
+    ViewData["Title"]    = "Mark animals as killed";
+    ViewData["Subtitle"] = "Select animals killed today and set the kill date";
+}
+
+<div class="alert alert-info" style="margin-bottom:14px">
+    <strong>How this works:</strong>
+    Animals imported from sale bills start as <strong>Pending</strong> — kill date is unknown at purchase.
+    When animals are killed, select them here and click <strong>Mark selected as killed</strong>.
+    They will then appear in the Nightly Tally report for that kill date.
+</div>
+
+<form method="post" asp-action="MarkKilled">
+    @Html.AntiForgeryToken()
+
+    <!-- Header controls -->
+    <div class="form-section" style="margin-bottom:12px">
+        <div class="form-section-title">Kill date &amp; filter</div>
+        <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+            <div class="field">
+                <label class="field-label">Kill date <span class="req">*</span></label>
+                <input name="killDate" type="date"
+                       value="@DateTime.Today.ToString("yyyy-MM-dd")"
+                       class="form-control" style="width:180px" />
+                <div class="field-hint">Date the animals were killed on the floor</div>
+            </div>
+            <div class="field">
+                <label class="field-label">Filter by vendor</label>
+                <select asp-for="VendorId" asp-items="Model.VendorList"
+                        class="form-control" style="width:220px"
+                        onchange="window.location='/Import/MarkKilled?vendorId='+this.value">
+                    <option value="">All vendors (@Model.Animals.Count pending)</option>
+                </select>
+            </div>
+            <div style="display:flex;gap:8px;padding-bottom:2px">
+                <button type="button" onclick="selectAll(true)"  class="btn btn-secondary btn-sm">Select all</button>
+                <button type="button" onclick="selectAll(false)" class="btn btn-secondary btn-sm">Deselect all</button>
+                <button type="submit" class="btn btn-primary">Mark selected as killed</button>
+            </div>
+        </div>
+    </div>
+
+    @if (!Model.Animals.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-title">No pending animals</div>
+            <div class="empty-sub">All animals have a kill date, or no bills have been imported yet.</div>
+            <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+                <a asp-controller="Import" asp-action="SaleBill" class="btn btn-primary">Import a sale bill</a>
+                <a asp-controller="Report" asp-action="Tally" class="btn btn-secondary">View tally report</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="table-card">
+            <div style="padding:10px 14px;background:var(--color-background-secondary);border-bottom:1px solid var(--color-border-tertiary);display:flex;justify-content:space-between;align-items:center;font-size:12.5px">
+                <span><strong>@Model.Animals.Count</strong> pending animals waiting for a kill date</span>
+                <span id="selectedCount" style="font-size:11.5px;color:var(--color-text-info);font-weight:500">0 selected</span>
+            </div>
+            <table class="data-table" style="font-size:12px">
+                <thead>
+                    <tr>
+                        <th style="width:36px">
+                            <input type="checkbox" id="selectAllChk"
+                                   onchange="selectAll(this.checked)" title="Select all" />
+                        </th>
+                        <th>Vendor</th>
+                        <th>Tag 1</th>
+                        <th>Tag 2</th>
+                        <th>Type</th>
+                        <th class="text-right">Live Wt</th>
+                        <th>Purchase Type</th>
+                        <th>Purchase Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in Model.Animals)
+                    {
+                        <tr class="animal-row" id="row-@a.ControlNo">
+                            <td>
+                                <input type="checkbox"
+                                       name="selectedIds"
+                                       value="@a.ControlNo"
+                                       class="animal-chk"
+                                       onchange="highlightRow(this); updateCount()" />
+                            </td>
+                            <td style="font-weight:500">@a.VendorName</td>
+                            <td class="mono">@a.Tag1</td>
+                            <td class="mono">@(a.Tag2 ?? "—")</td>
+                            <td>@a.AnimalType</td>
+                            <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
+                            <td>
+                                <span class="badge @(a.PurchaseType == "Sale Bill" ? "badge-prog" : "badge-grade")">
+                                    @a.PurchaseType
+                                </span>
+                            </td>
+                            <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="form-actions" style="margin-top:12px">
+            <button type="submit" class="btn btn-primary">Mark selected as killed</button>
+            <a asp-controller="Animal" asp-action="Index" class="btn btn-secondary">View animal list</a>
+            <span class="form-actions-note" id="footerCount">0 selected</span>
+        </div>
+    }
+</form>
+
+@section Scripts {
+<script>
+function selectAll(val) {
+    document.querySelectorAll('.animal-chk').forEach(c => {
+        c.checked = val;
+        highlightRow(c);
+    });
+    const chk = document.getElementById('selectAllChk');
+    if (chk) chk.checked = val;
+    updateCount();
+}
+
+function highlightRow(chk) {
+    const row = chk.closest('tr');
+    if (row) row.style.background = chk.checked ? 'var(--color-background-info)' : '';
+}
+
+function updateCount() {
+    const n = document.querySelectorAll('.animal-chk:checked').length;
+    const txt = n + ' animal' + (n !== 1 ? 's' : '') + ' selected';
+    const el1 = document.getElementById('selectedCount');
+    const el2 = document.getElementById('footerCount');
+    if (el1) el1.textContent = txt;
+    if (el2) el2.textContent = txt;
+}
+</script>
+}

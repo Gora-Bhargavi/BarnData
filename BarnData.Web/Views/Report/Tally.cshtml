@@ -1,44 +1,53 @@
 @model BarnData.Web.Models.TallyViewModel
 @{
     ViewData["Title"]    = "Nightly tally report";
-    ViewData["Subtitle"] = $"Kill date: {Model.KillDate:dddd, MMMM d, yyyy}";
+    ViewData["Subtitle"] = "Kill date: " + Model.KillDate.ToString("dddd, MMMM d, yyyy");
+    var killDateStr = Model.KillDate.ToString("yyyy-MM-dd");
 }
 
-<!--  Filter bar  -->
+<!-- ── Filter bar ───────────────────────────────────────────────────── -->
 <div class="filter-bar">
     <form method="get" asp-action="Tally" class="filter-form">
         <div class="filter-field">
             <label>Kill date</label>
-            <input type="date" name="killDate"
-                   value="@Model.KillDate.ToString("yyyy-MM-dd")"
-                   class="form-control-sm" />
+            <input type="date" name="killDate" value="@killDateStr" class="form-control-sm" />
         </div>
         <div class="filter-field">
             <label>Vendor</label>
-            <select asp-for="VendorId" asp-items="Model.VendorList" class="form-control-sm">
-    <option value="">All vendors</option>
-</select>
+            <select name="vendorId" class="form-control-sm">
+                <option value="">All vendors</option>
+                @foreach (var item in Model.VendorList)
+                {
+                    if (item.Value == Model.VendorId?.ToString())
+                    {
+                        <option value="@item.Value" selected>@item.Text</option>
+                    }
+                    else
+                    {
+                        <option value="@item.Value">@item.Text</option>
+                    }
+                }
+            </select>
         </div>
         <button type="submit" class="btn btn-primary btn-sm">Filter</button>
         <a asp-action="Tally" class="btn btn-secondary btn-sm">Today</a>
     </form>
     <div class="filter-actions">
-        <a asp-action="ExportExcel"
-           asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
+        <a asp-action="ExportInterimTally" asp-route-killDate="@killDateStr"
+           class="btn btn-primary">Export kill list (interim tally)</a>
+        <a asp-action="ExportExcel" asp-route-killDate="@killDateStr"
            asp-route-vendorId="@Model.VendorId"
            class="btn btn-secondary">Export Excel</a>
-        <a asp-action="ExportPdf"
-           asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
+        <a asp-action="ExportPdf" asp-route-killDate="@killDateStr"
            asp-route-vendorId="@Model.VendorId"
            class="btn btn-secondary">Export PDF</a>
-        <a asp-controller="Animal"
-           asp-action="Index"
-           asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
+        <a asp-controller="Animal" asp-action="Index"
+           asp-route-killDate="@killDateStr"
            class="btn btn-ghost">Back to list</a>
     </div>
 </div>
 
-<!--  Grand summary strip  -->
+<!-- ── Grand summary strip ──────────────────────────────────────────── -->
 <div class="summary-strip" style="margin-bottom:14px">
     <div class="summary-stat">
         <div class="summary-val">@Model.Summary.TotalAnimals</div>
@@ -80,15 +89,18 @@
 {
     <div class="empty-state">
         <div class="empty-title">No records for @Model.KillDate.ToString("MM/dd/yyyy")</div>
-        <div class="empty-sub">Enter animal records for this kill date first.</div>
-        <a asp-controller="Animal" asp-action="Index"
-           asp-route-killDate="@Model.KillDate.ToString("yyyy-MM-dd")"
-           class="btn btn-primary" style="margin-top:12px">Go to animal list</a>
+        <div class="empty-sub">Enter animal records for this kill date first, or mark pending animals as killed.</div>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+            <a asp-controller="Animal" asp-action="Index" asp-route-killDate="@killDateStr"
+               class="btn btn-secondary">Animal list</a>
+            <a asp-controller="Import" asp-action="MarkKilled"
+               class="btn btn-primary">Mark as killed</a>
+        </div>
     </div>
 }
 else
 {
-    <!-- SHEET 1 EQUIVALENT: Summary by animal type -->
+    <!-- ── SHEET 1 EQUIVALENT: Summary by animal type ────────────────── -->
     <div class="form-section" style="margin-bottom:16px">
         <div class="form-section-title">Summary by animal type</div>
         <div class="table-card" style="border-radius:var(--radius)">
@@ -137,7 +149,7 @@ else
         </div>
     </div>
 
-    <!--  Per-vendor detail groups  -->
+    <!-- ── Per-vendor detail groups ──────────────────────────────────── -->
     @foreach (var group in Model.Summary.ByVendor)
     {
         <div class="vendor-group-header">
@@ -206,12 +218,7 @@ else
                 <tbody>
                     @foreach (var a in group.Animals)
                     {
-                        decimal saleCost  = a.LiveWeight * a.LiveRate;
-                        decimal yieldPct  = (a.HotWeight.HasValue && a.LiveWeight > 0)
-                            ? Math.Round(a.HotWeight.Value / a.LiveWeight * 100, 2) : 0;
-                        decimal dressRate = (a.HotWeight.HasValue && a.HotWeight.Value > 0)
-                            ? Math.Round(saleCost / a.HotWeight.Value, 3) : 0;
-
+                        var killDateCell = a.KillDate.HasValue ? a.KillDate.Value.ToString("MM/dd/yy") : "—";
                         <tr class="@(a.IsCondemned ? "row-condemned" : "")">
                             <td class="mono">@a.ControlNo</td>
                             <td class="mono">@a.TagNumber1</td>
@@ -220,22 +227,22 @@ else
                             <td><span class="badge badge-prog">@a.ProgramCode</span></td>
                             <td>@(a.Origin ?? "—")</td>
                             <td>@a.PurchaseDate.ToString("MM/dd/yy")</td>
-                            <td>@a.KillDate.ToString("MM/dd/yy")</td>
+                            <td>@killDateCell</td>
                             <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
                             <td class="text-right mono">$@a.LiveRate.ToString("N4")</td>
-                            <td class="text-right mono">$@saleCost.ToString("N2")</td>
+                            <td class="text-right mono">$@a.SaleCost.ToString("N2")</td>
                             <td class="text-right mono">
                                 @(a.HotWeight.HasValue ? a.HotWeight.Value.ToString("N1") : "—")
                             </td>
                             <td class="text-right mono">
-                                @(yieldPct > 0 ? yieldPct.ToString("N2") + "%" : "—")
+                                @(a.YieldPct > 0 ? a.YieldPct.ToString("N1") + "%" : "—")
                             </td>
                             <td class="text-right mono">
-                                @(dressRate > 0 ? "$" + dressRate.ToString("N3") : "—")
+                                @(a.DressRate > 0 ? "$" + a.DressRate.ToString("N3") : "—")
                             </td>
-                            <td><span class="badge badge-grade">@a.Grade</span></td>
+                            <td><span class="badge badge-grade">@(a.Grade ?? "—")</span></td>
                             <td>@(a.Grade2 ?? "—")</td>
-                            <td class="text-center">@a.HealthScore</td>
+                            <td class="text-center">@(a.HealthScore.HasValue ? a.HealthScore.Value.ToString() : "—")</td>
                             <td class="comment-cell">@a.Comment</td>
                             <td class="text-center">
                                 @if (a.IsCondemned)
@@ -265,7 +272,7 @@ else
         <div style="margin-bottom:20px"></div>
     }
 
-    <!--  Grand total bar  -->
+    <!-- ── Grand total bar ───────────────────────────────────────────── -->
     <div class="grand-total-bar">
         <div class="grand-total-label">
             Grand Total — @Model.Summary.TotalAnimals killed,

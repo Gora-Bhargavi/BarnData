@@ -1,19 +1,16 @@
 @model BarnData.Web.Models.AnimalViewModel
 
-@* Shared form used by both Create.cshtml and Edit.cshtml *@
-
 @if (Model.ShowWeightWarning)
 {
     <div class="alert alert-warn">
         <strong>Weight outside normal range.</strong>
-        The live weight entered (@Model.LiveWeight lbs) is outside the expected range of 300–2,500 lbs.
-        If this is correct, check the confirmation box below and resubmit.
+        Live weight @Model.LiveWeight lbs is outside 300–2,500 lbs. Confirm below to save.
     </div>
 }
 
 <div asp-validation-summary="ModelOnly" class="alert alert-error"></div>
 
-<!-- SECTION A: VENDOR & PURCHASE -->
+<!-- ── SECTION A: VENDOR & PURCHASE ─────────────────────────────────── -->
 <div class="form-section">
     <div class="form-section-title">Vendor &amp; purchase</div>
     <div class="field-grid fg-4">
@@ -21,12 +18,11 @@
         <div class="field" style="position:relative">
             <label class="field-label">Vendor <span class="req">*</span></label>
             <input type="hidden" asp-for="VendorID" id="vendorIdHidden" />
-            <input asp-for="VendorNameFreeText" type="hidden" id="vendorNameFreeText" />
+            <input type="hidden" name="VendorNameFreeText" id="vendorNameFreeText" />
             <input type="text" id="vendorSearch" class="form-control"
-                   value="@Model.VendorNameFreeText"
                    placeholder="Type to search or enter new vendor..."
                    autocomplete="off" />
-            <div id="vendorDropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--color-border-secondary);border-radius:12px;max-height:220px;overflow:hidden auto;z-index:999;box-shadow:0 10px 24px rgba(15,23,42,.14)"></div>
+            <div id="vendorDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--color-background-primary);border:1px solid var(--color-border-secondary);border-top:none;border-radius:0 0 var(--border-radius-md) var(--border-radius-md);max-height:220px;overflow-y:auto;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
             <div class="field-hint" id="vendorHint">Search existing or type new vendor name</div>
             <span asp-validation-for="VendorID" class="field-error"></span>
         </div>
@@ -36,7 +32,7 @@
                 Purchase type <span class="req">*</span>
             </label>
             <select asp-for="PurchaseType" asp-items="Model.PurchaseTypeList"
-                    class="form-control">
+                    class="form-control" id="purchaseTypeSelect">
                 <option value="">— Select —</option>
             </select>
             <span asp-validation-for="PurchaseType" class="field-error"></span>
@@ -50,19 +46,46 @@
             <span asp-validation-for="PurchaseDate" class="field-error"></span>
         </div>
 
-        <div class="field">
+        <!-- Sale Bill: Live Rate | Consignment: Consignment Rate -->
+        <div class="field" id="liveRateField">
             <label asp-for="LiveRate" class="field-label">
-                Live rate ($/head) <span class="req">*</span>
+                Live rate ($/lb) <span class="req sale-req">*</span>
             </label>
             <input asp-for="LiveRate" type="number" step="0.0001" class="form-control"
                    placeholder="e.g. 1.9500" />
+            <div class="field-hint">Sale Bill — price per lb of live weight</div>
             <span asp-validation-for="LiveRate" class="field-error"></span>
         </div>
 
+        <div class="field" id="consRateField" style="display:none">
+            <label asp-for="ConsignmentRate" class="field-label">
+                Consignment rate ($/lb hot wt)
+            </label>
+            <input asp-for="ConsignmentRate" type="number" step="0.0001" class="form-control"
+                   placeholder="e.g. 3.0000" />
+            <div class="field-hint">Enter when known — comes from HotScale report in Phase 5</div>
+            <span asp-validation-for="ConsignmentRate" class="field-error"></span>
+        </div>
+
+    </div>
+
+    <!-- Consignment-only: Origin -->
+    <div class="field-grid fg-4" id="consignmentFields" style="display:none;margin-top:10px">
+        <div class="field">
+            <label asp-for="Origin" class="field-label">Origin</label>
+            <select asp-for="Origin" asp-items="Model.OriginList" class="form-control"></select>
+            <div class="field-hint">Farmer or Canada — enter when known</div>
+        </div>
+    </div>
+
+    <!-- Live calculated cost preview -->
+    <div id="costPreview" style="margin-top:10px;padding:8px 12px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);font-size:12.5px;display:none">
+        <span style="color:var(--color-text-secondary)">Estimated cost: </span>
+        <strong id="costPreviewVal" style="font-family:var(--font-mono)">$0.00</strong>
     </div>
 </div>
 
-<!-- SECTION B: TAGS  -->
+<!-- ── SECTION B: TAGS ───────────────────────────────────────────────── -->
 <div class="form-section">
     <div class="form-section-title">Tag identification</div>
     <div class="field-grid fg-4">
@@ -72,40 +95,32 @@
                 Tag Number 1 <span class="req">*</span>
             </label>
             <input asp-for="TagNumber1" type="text" class="form-control"
-                   id="tag1Input" placeholder="Primary tag"
-                   autocomplete="off" />
+                   id="tag1Input" placeholder="Primary tag" autocomplete="off" />
             <div id="tag1Feedback" class="field-hint"></div>
             <span asp-validation-for="TagNumber1" class="field-error"></span>
         </div>
 
         <div class="field">
-            <label asp-for="TagNumber2" class="field-label">
-                Tag Number 2
-            </label>
+            <label asp-for="TagNumber2" class="field-label">Tag Number 2</label>
             <input asp-for="TagNumber2" type="text" class="form-control"
                    placeholder="Secondary / HotScale match key" />
-            <span asp-validation-for="TagNumber2" class="field-error"></span>
         </div>
 
         <div class="field">
             <label asp-for="Tag3" class="field-label">Tag 3</label>
-            <input asp-for="Tag3" type="text" class="form-control"
-                   placeholder="Optional third tag" />
+            <input asp-for="Tag3" type="text" class="form-control" placeholder="Optional" />
         </div>
 
         <div class="field">
-            <label asp-for="AnimalControlNumber" class="field-label">
-                Animal control no. <span class="req">*</span>
-            </label>
+            <label asp-for="AnimalControlNumber" class="field-label">Animal control no.</label>
             <input asp-for="AnimalControlNumber" type="text" class="form-control"
-                   placeholder="External control reference" />
-            <span asp-validation-for="AnimalControlNumber" class="field-error"></span>
+                   placeholder="External reference" />
         </div>
 
     </div>
 </div>
 
-<!--  SECTION C: ANIMAL DETAILS -->
+<!-- ── SECTION C: ANIMAL DETAILS ────────────────────────────────────── -->
 <div class="form-section">
     <div class="form-section-title">Animal details</div>
     <div class="field-grid fg-4">
@@ -114,10 +129,10 @@
             <label asp-for="AnimalType" class="field-label">
                 Animal type <span class="req">*</span>
             </label>
-            <select asp-for="AnimalType" asp-items="Model.AnimalTypeList"
-                    class="form-control">
+            <select asp-for="AnimalType" asp-items="Model.AnimalTypeList" class="form-control">
                 <option value="">— Select —</option>
             </select>
+            <div class="field-hint">Steers are counted as Bulls in the tally</div>
             <span asp-validation-for="AnimalType" class="field-error"></span>
         </div>
 
@@ -131,47 +146,47 @@
             <label asp-for="ProgramCode" class="field-label">
                 Program code <span class="req">*</span>
             </label>
-            <select asp-for="ProgramCode" asp-items="Model.ProgramCodeList"
-                    class="form-control">
-                <option value="">— Select —</option>
-            </select>
+            <select asp-for="ProgramCode" asp-items="Model.ProgramCodeList" class="form-control"></select>
             <span asp-validation-for="ProgramCode" class="field-error"></span>
         </div>
 
         <div class="field">
-            <label asp-for="KillDate" class="field-label">
-                Kill date <span class="req">*</span>
-            </label>
+            <label asp-for="KillDate" class="field-label">Kill date</label>
             <input asp-for="KillDate" type="date" class="form-control" id="killDateInput" />
-            <span asp-validation-for="KillDate" class="field-error"></span>
+            <div class="field-hint">Leave blank if animal has not been killed yet</div>
         </div>
 
     </div>
 </div>
 
-<!--  SECTION D: WEIGHT  -->
+<!-- ── SECTION D: WEIGHT ─────────────────────────────────────────────── -->
 <div class="form-section">
     <div class="form-section-title">Weight</div>
-    <div class="alert-inline alert-info-subtle">
-        Live weight is the most critical field. Errors here cause billing problems downstream.
+    <div class="alert-inline alert-info-subtle" id="saleBillWeightHint">
+        Live weight — most critical field. Errors here cause billing problems.
     </div>
-    <div class="field-grid fg-3">
+    <div class="alert-inline alert-info-subtle" id="consWeightHint" style="display:none">
+        Consignment — live weight for records only. Pricing is based on hot weight.
+    </div>
+
+    <div class="field-grid fg-3" style="margin-top:10px">
 
         <div class="field">
-            <label asp-for="LiveWeight" class="field-label">
-                Live weight (lbs) <span class="req">*</span>
-            </label>
+            <label asp-for="LiveWeight" class="field-label">Live weight (lbs)</label>
             <input asp-for="LiveWeight" type="number" step="0.1" class="form-control"
                    id="liveWeightInput" placeholder="e.g. 1485.0" />
-            <div class="field-hint">Expected range: 300 – 2,500 lbs</div>
+            <div class="field-hint" id="liveWtHint">Expected range: 300–2,500 lbs</div>
             <span asp-validation-for="LiveWeight" class="field-error"></span>
         </div>
 
         <div class="field">
-            <label asp-for="HotWeight" class="field-label">Hot weight (lbs)</label>
+            <label asp-for="HotWeight" class="field-label">
+                Hot weight (lbs)
+                <span id="hotWtReq" class="cons-req" style="display:none"> <span class="req">*</span> required for pricing</span>
+            </label>
             <input asp-for="HotWeight" type="number" step="0.1" class="form-control"
-                   placeholder="Post-kill — enter from scale ticket" />
-            <div class="field-hint">Will be auto-filled from HotScale in a future phase</div>
+                   id="hotWeightInput" placeholder="From scale ticket" />
+            <div class="field-hint" id="hotWtHint">Phase 5: auto-filled from HotScale</div>
         </div>
 
         <div class="field">
@@ -188,7 +203,7 @@
             <label class="checkbox-label">
                 <input type="checkbox" name="WeightWarningConfirmed" value="true"
                        @(Model.WeightWarningConfirmed ? "checked" : "") />
-                I confirm this weight (@Model.LiveWeight lbs) is correct — it is outside the normal range
+                I confirm this weight (@Model.LiveWeight lbs) is correct
             </label>
         </div>
     }
@@ -198,57 +213,49 @@
     }
 </div>
 
-<!--  SECTION E: GRADING -->
+<!-- ── SECTION E: GRADING (POST-KILL) ───────────────────────────────── -->
 <div class="form-section">
-    <div class="form-section-title">Grading</div>
+    <div class="form-section-title">Grading <span style="font-size:11px;color:var(--color-text-tertiary);font-weight:400">— filled from scale ticket after kill</span></div>
     <div class="field-grid fg-4">
 
         <div class="field">
-            <label asp-for="Grade" class="field-label">
-                Grade <span class="req">*</span>
-            </label>
+            <label asp-for="Grade" class="field-label">Grade</label>
             <select asp-for="Grade" asp-items="Model.GradeList" class="form-control">
                 <option value="">— Select grade —</option>
             </select>
-            <span asp-validation-for="Grade" class="field-error"></span>
         </div>
 
         <div class="field">
             <label asp-for="Grade2" class="field-label">Grade 2</label>
             <input asp-for="Grade2" type="text" class="form-control"
                    placeholder="Entered later by pricing staff" />
-            <div class="field-hint">No-roll, Choice, Select, Prime etc.</div>
+            <div class="field-hint">No-roll, Choice, Select, Prime</div>
         </div>
 
         <div class="field">
-            <label asp-for="HealthScore" class="field-label">
-                Health score <span class="req">*</span>
-            </label>
+            <label asp-for="HealthScore" class="field-label">Health score</label>
             <select asp-for="HealthScore" class="form-control">
                 <option value="">— Select —</option>
                 <option value="1">1</option>
                 <option value="2">2</option>
                 <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
             </select>
-            <span asp-validation-for="HealthScore" class="field-error"></span>
         </div>
 
     </div>
 </div>
 
-<!--  SECTION F: OFFICE / NOTES  -->
+<!-- ── SECTION F: OFFICE ─────────────────────────────────────────────── -->
 <div class="form-section">
     <div class="form-section-title">Office &amp; notes</div>
     <div class="field-grid fg-2">
 
         <div class="field">
-            <label asp-for="Comment" class="field-label">
-                Comment
-            </label>
+            <label asp-for="Comment" class="field-label">Comment</label>
             <input asp-for="Comment" type="text" class="form-control"
-                   placeholder="Notes — e.g. 1.01FB, rt, HT" />
-            <div class="field-hint">FB = fetal blood, rt = retag, HT = heavy hind, COND = condemned</div>
-            <span asp-validation-for="Comment" class="field-error"></span>
+                   placeholder="FB=fetal blood, rt=retag, HT=heavy hind, COND=condemned" />
         </div>
 
         <div class="field">
@@ -258,22 +265,14 @@
         </div>
 
         <div class="field">
-            <label asp-for="Origin" class="field-label">Origin</label>
-            <select asp-for="Origin" asp-items="Model.OriginList" class="form-control">
-            </select>
-            <div class="field-hint">Consignment animals only — Farmer or Canada</div>
-        </div>
-
-        <div class="field">
             <label asp-for="State" class="field-label">State</label>
             <input asp-for="State" type="text" class="form-control" maxlength="2"
-                   placeholder="Consignment cattle only" />
+                   placeholder="Consignment only" />
         </div>
 
         <div class="field">
             <label asp-for="BuyerName" class="field-label">Buyer name</label>
-            <input asp-for="BuyerName" type="text" class="form-control"
-                   placeholder="Office use" />
+            <input asp-for="BuyerName" type="text" class="form-control" placeholder="Office use" />
         </div>
 
         <div class="field">
@@ -282,16 +281,13 @@
                 <input asp-for="IsCondemned" type="checkbox" />
                 Mark this animal as condemned
             </label>
-            <div class="field-hint">Condemned animals are excluded from weight and cost totals</div>
+            <div class="field-hint">Excluded from weight and cost totals in tally</div>
         </div>
 
-    </div>
-
-    <div class="field-grid fg-1" style="margin-top:10px">
         <div class="field">
             <label asp-for="OfficeUse2" class="field-label">Office use 2</label>
-            <input asp-for="OfficeUse2" type="text" class="form-control"
-                   placeholder="Internal notes only" />
+            <input asp-for="OfficeUse2" type="text" class="form-control" placeholder="Internal notes" />
         </div>
+
     </div>
 </div>

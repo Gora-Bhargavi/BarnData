@@ -1,61 +1,100 @@
 @model IEnumerable<BarnData.Data.Entities.Animal>
 @{
-    ViewData["Title"]    = "Animal records";
-    ViewData["Subtitle"] = $"Kill date: {ViewBag.KillDate}";
+    var statusFilter = ViewBag.StatusFilter as string ?? "pending";
+    var killDateStr  = ViewBag.KillDate as string ?? DateTime.Today.ToString("yyyy-MM-dd");
+    ViewData["Title"] = statusFilter == "pending" ? "Pending animals"
+                      : statusFilter == "killed"  ? "Killed animals — " + killDateStr
+                      : "All animals";
+    ViewData["Subtitle"] = statusFilter == "pending"
+        ? "Animals imported but not yet killed — go to Mark as killed to set kill date"
+        : statusFilter == "killed" ? "Animals killed on " + killDateStr
+        : "All animal records";
 }
+
+<!-- Status tabs -->
+<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--color-border-tertiary)">
+    <a asp-action="Index" asp-route-status="pending"
+       style="padding:8px 18px;font-size:13px;font-weight:500;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;
+              @(statusFilter == "pending" ? "color:var(--color-text-info);border-bottom-color:var(--color-text-info)" : "color:var(--color-text-tertiary)")">
+        Pending
+    </a>
+    <a asp-action="Index" asp-route-status="killed" asp-route-killDate="@killDateStr"
+       style="padding:8px 18px;font-size:13px;font-weight:500;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;
+              @(statusFilter == "killed" ? "color:var(--color-text-info);border-bottom-color:var(--color-text-info)" : "color:var(--color-text-tertiary)")">
+        Killed
+    </a>
+    <a asp-action="Index" asp-route-status="all"
+       style="padding:8px 18px;font-size:13px;font-weight:500;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;
+              @(statusFilter == "all" ? "color:var(--color-text-info);border-bottom-color:var(--color-text-info)" : "color:var(--color-text-tertiary)")">
+        All records
+    </a>
+</div>
 
 <div class="filter-bar">
     <form method="get" asp-action="Index" class="filter-form">
-        <div class="filter-field">
-            <label>Kill date</label>
-            <input type="date" name="killDate" value="@ViewBag.KillDate" class="form-control-sm" />
-        </div>
+        <input type="hidden" name="status" value="@statusFilter" />
+        @if (statusFilter == "killed")
+        {
+            <div class="filter-field">
+                <label>Kill date</label>
+                <input type="date" name="killDate" value="@killDateStr" class="form-control-sm" />
+            </div>
+        }
         <div class="filter-field">
             <label>Vendor</label>
             <select name="vendorId" class="form-control-sm">
                 <option value="">All vendors</option>
                 @foreach (var item in (IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)ViewBag.VendorList)
                 {
-                    <option value="@item.Value" selected="@(item.Selected ? "selected" : null)">@item.Text</option>
+                    if (item.Selected)
+                    {
+                        <option value="@item.Value" selected>@item.Text</option>
+                    }
+                    else
+                    {
+                        <option value="@item.Value">@item.Text</option>
+                    }
                 }
             </select>
         </div>
         <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-        <a asp-action="Index" class="btn btn-secondary btn-sm">Today</a>
     </form>
 
     <div class="filter-actions">
         <a asp-action="Create" class="btn btn-primary">+ New animal record</a>
-        <a asp-controller="Report" asp-action="TallyToday" class="btn btn-secondary">
-            View tally report
-        </a>
+        @if (statusFilter == "pending")
+        {
+            <a asp-controller="Import" asp-action="MarkKilled" class="btn btn-secondary">
+                Mark as killed →
+            </a>
+        }
+        @if (statusFilter == "killed")
+        {
+            <a asp-controller="Report" asp-action="Tally"
+               asp-route-killDate="@killDateStr" class="btn btn-secondary">
+                View tally report
+            </a>
+        }
     </div>
 </div>
 
 <!-- Summary strip -->
-<div class="summary-strip">
+<div class="summary-strip" style="margin-bottom:16px">
     <div class="summary-stat">
         <div class="summary-val">@ViewBag.TotalCount</div>
         <div class="summary-lbl">Animals</div>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val">@ViewBag.TotalLiveWeight.ToString("N1")</div>
+        <div class="summary-val">@((decimal)ViewBag.TotalLiveWeight).ToString("N1")</div>
         <div class="summary-lbl">Total live wt (lbs)</div>
     </div>
-    <div class="summary-divider"></div>
-    <div class="summary-stat">
-        <div class="summary-val">@ViewBag.TotalHotWeight.ToString("N1")</div>
-        <div class="summary-lbl">Total hot wt (lbs)</div>
-    </div>
-    @if ((decimal)ViewBag.TotalLiveWeight > 0)
+    @if (statusFilter == "killed")
     {
         <div class="summary-divider"></div>
         <div class="summary-stat">
-            <div class="summary-val">
-                @(((decimal)ViewBag.TotalHotWeight / (decimal)ViewBag.TotalLiveWeight * 100).ToString("N1"))%
-            </div>
-            <div class="summary-lbl">Avg yield</div>
+            <div class="summary-val">@((decimal)ViewBag.TotalHotWeight).ToString("N1")</div>
+            <div class="summary-lbl">Total hot wt (lbs)</div>
         </div>
     }
 </div>
@@ -63,11 +102,22 @@
 @if (!Model.Any())
 {
     <div class="empty-state">
-        <div class="empty-title">No records for this date</div>
-        <div class="empty-sub">No animal records found for @ViewBag.KillDate</div>
-        <a asp-action="Create" class="btn btn-primary" style="margin-top:12px">
-            + Add first animal record
-        </a>
+        <div class="empty-title">
+            @(statusFilter == "pending" ? "No pending animals"
+              : statusFilter == "killed" ? "No animals killed on " + killDateStr
+              : "No animal records")
+        </div>
+        <div class="empty-sub">
+            @(statusFilter == "pending"
+                ? "Import a sale bill to add animals, or add them manually."
+                : statusFilter == "killed"
+                    ? "No animals were marked as killed on this date."
+                    : "No records found.")
+        </div>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+            <a asp-controller="Import" asp-action="SaleBill" class="btn btn-primary">Import sale bill</a>
+            <a asp-action="Create" class="btn btn-secondary">Add manually</a>
+        </div>
     </div>
 }
 else
@@ -76,17 +126,18 @@ else
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Control No.</th>
+                    <th>Ctrl No.</th>
                     <th>Vendor</th>
                     <th>Tag 1</th>
                     <th>Tag 2</th>
                     <th>Type</th>
                     <th>Program</th>
-                    <th class="text-right">Live wt</th>
-                    <th class="text-right">Hot wt</th>
+                    <th class="text-right">Live Wt</th>
+                    <th class="text-right">Hot Wt</th>
                     <th>Grade</th>
                     <th>HS</th>
-                    <th>Kill date</th>
+                    <th>Purchase Date</th>
+                    <th>Kill Date</th>
                     <th>Status</th>
                     <th>Actions</th>
                 </tr>
@@ -94,7 +145,7 @@ else
             <tbody>
                 @foreach (var a in Model)
                 {
-                    <tr class="@(a.KillStatus == "Flagged" ? "row-flagged" : "")">
+                    <tr class="@(a.IsCondemned ? "row-condemned" : "")">
                         <td class="mono">@a.ControlNo</td>
                         <td>@(a.Vendor?.VendorName ?? "—")</td>
                         <td class="mono">@a.TagNumber1</td>
@@ -103,9 +154,10 @@ else
                         <td><span class="badge badge-prog">@a.ProgramCode</span></td>
                         <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
                         <td class="text-right mono">@(a.HotWeight?.ToString("N1") ?? "—")</td>
-                        <td><span class="badge badge-grade">@a.Grade</span></td>
-                        <td class="text-center">@a.HealthScore</td>
-                        <td>@a.KillDate.ToString("MM/dd/yyyy")</td>
+                        <td><span class="badge badge-grade">@(a.Grade ?? "—")</span></td>
+                        <td class="text-center">@(a.HealthScore?.ToString() ?? "—")</td>
+                        <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
+                        <td>@(a.KillDate.HasValue ? a.KillDate.Value.ToString("MM/dd/yyyy") : "—")</td>
                         <td>
                             <span class="badge badge-status-@a.KillStatus.ToLower()">
                                 @a.KillStatus
@@ -120,27 +172,28 @@ else
                             {
                                 <form method="post" asp-action="Delete"
                                       asp-route-id="@a.ControlNo"
-                                      asp-route-killDate="@ViewBag.KillDate"
+                                      asp-route-killDate="@killDateStr"
                                       style="display:inline"
-                                      onsubmit="return confirm('Remove animal #@a.ControlNo from this list?')">
+                                      onsubmit="return confirm('Remove animal #@a.ControlNo?')">
                                     @Html.AntiForgeryToken()
-                                    <button type="submit" class="btn btn-sm btn-danger-ghost">
-                                        Remove
-                                    </button>
+                                    <button type="submit" class="btn btn-sm btn-danger-ghost">Remove</button>
                                 </form>
                             }
                         </td>
                     </tr>
                 }
             </tbody>
-            <tfoot>
-                <tr class="table-total-row">
-                    <td colspan="6" class="text-right total-label">Totals</td>
-                    <td class="text-right mono">@Model.Sum(a => a.LiveWeight).ToString("N1")</td>
-                    <td class="text-right mono">@Model.Sum(a => a.HotWeight ?? 0).ToString("N1")</td>
-                    <td colspan="5"></td>
-                </tr>
-            </tfoot>
+            @if (statusFilter == "killed")
+            {
+                <tfoot>
+                    <tr class="table-total-row">
+                        <td colspan="6" class="text-right total-label">Totals</td>
+                        <td class="text-right mono">@Model.Sum(a => a.LiveWeight).ToString("N1")</td>
+                        <td class="text-right mono">@Model.Sum(a => a.HotWeight ?? 0).ToString("N1")</td>
+                        <td colspan="6"></td>
+                    </tr>
+                </tfoot>
+            }
         </table>
     </div>
 }
