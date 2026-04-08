@@ -1,0 +1,148 @@
+@model BarnData.Web.Models.ExcelImportViewModel
+@{
+    ViewData["Title"]    = "Import Preview";
+    ViewData["Subtitle"] = $"Review {Model.TotalRows} rows from {Model.FileName} before saving";
+
+    int okCount   = Model.Rows.Count(r => r.Status == "OK");
+    int dupCount  = Model.Rows.Count(r => r.Status == "Duplicate");
+    int errCount  = Model.Rows.Count(r => r.Status == "Error");
+}
+
+<!-- Summary -->
+<div class="summary-strip" style="margin-bottom:16px">
+    <div class="summary-stat">
+        <div class="summary-val">@Model.TotalRows</div>
+        <div class="summary-lbl">Rows found</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val" style="color:var(--green)">@okCount</div>
+        <div class="summary-lbl">Will import</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val" style="color:var(--amber)">@dupCount</div>
+        <div class="summary-lbl">Duplicates (skip)</div>
+    </div>
+    @if (errCount > 0)
+    {
+        <div class="summary-divider"></div>
+        <div class="summary-stat">
+            <div class="summary-val" style="color:var(--red)">@errCount</div>
+            <div class="summary-lbl">Errors (skip)</div>
+        </div>
+    }
+</div>
+
+@if (Model.Errors.Any())
+{
+    <div class="alert alert-error" style="margin-bottom:14px">
+        @foreach (var e in Model.Errors) { <div>@e</div> }
+    </div>
+}
+
+<!-- Action buttons -->
+<div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
+    @if (okCount > 0)
+    {
+        <form method="post" asp-action="ExcelConfirm">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn btn-primary">
+                ✓ Confirm &amp; Save @okCount animal@(okCount == 1 ? "" : "s")
+            </button>
+        </form>
+    }
+    <a asp-action="Excel" class="btn btn-secondary">← Upload different file</a>
+    @if (okCount == 0)
+    {
+        <span style="font-size:12.5px;color:var(--red)">Nothing to import — all rows are duplicates or have errors.</span>
+    }
+</div>
+
+<!-- Preview table -->
+<div class="table-card" style="overflow-x:auto">
+    <table class="data-table" style="min-width:1800px;font-size:12px;">
+        <thead>
+            <tr>
+                <th style="min-width:45px">Row</th>
+                <th style="min-width:70px">Status</th>
+                <th style="min-width:130px">Vendor</th>
+                <th style="min-width:90px">Tag 1</th>
+                <th style="min-width:90px">Tag 2</th>
+                <th style="min-width:95px">Animal Type</th>
+                <th style="min-width:95px">Purchase Type</th>
+                <th style="min-width:95px">Purchase Date</th>
+                <th class="text-right" style="min-width:75px">Live Wt</th>
+                <th class="text-right" style="min-width:75px">Live Rate</th>
+                <th style="min-width:95px">Kill Date</th>
+                <th class="text-right" style="min-width:70px">Hot Wt</th>
+                <th style="min-width:50px">Grade</th>
+                <th style="min-width:40px">HS</th>
+                <th style="min-width:140px">Comments</th>
+                <th style="min-width:110px">Animal Ctrl No.</th>
+                <th style="min-width:70px">Tag 3</th>
+                <th style="min-width:110px">Office Use 2</th>
+                <th style="min-width:45px">State</th>
+                <th style="min-width:95px">Buyer</th>
+                <th style="min-width:95px">Animal Type 2</th>
+                <th style="min-width:95px">Vet Name</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var r in Model.Rows)
+            {
+                var rowStyle = r.Status == "Duplicate" ? "opacity:.55;background:#fffbeb"
+                             : r.Status == "Error"     ? "opacity:.55;background:#fef2f2"
+                             : "";
+                <tr style="@rowStyle">
+                    <td class="mono" style="color:var(--text3)">@r.RowNum</td>
+                    <td>
+                        @if (r.Status == "OK")
+                        {
+                            <span class="badge" style="background:var(--green-bg);color:var(--green)">OK</span>
+                        }
+                        else if (r.Status == "Duplicate")
+                        {
+                            <span class="badge badge-prog" title="@r.StatusNote">Dup</span>
+                        }
+                        else
+                        {
+                            <span class="badge" style="background:var(--red-bg);color:var(--red)" title="@r.StatusNote">Err</span>
+                        }
+                    </td>
+                    <td>@r.VendorName</td>
+                    <td class="mono">@r.TagNumber1</td>
+                    <td class="mono">@(r.TagNumber2 ?? "—")</td>
+                    <td>@r.AnimalType</td>
+                    <td>
+                        <span class="badge @(r.PurchaseType == "Consignment Bill" ? "badge-cons" : "badge-sale")">
+                            @(r.PurchaseType == "Consignment Bill" ? "Cons." : "Sale")
+                        </span>
+                    </td>
+                    <td>@r.PurchaseDate.ToString("MM/dd/yyyy")</td>
+                    <td class="text-right mono">@r.LiveWeight.ToString("N1")</td>
+                    <td class="text-right mono">$@r.LiveRate.ToString("N4")</td>
+                    <td>@(r.KillDate.HasValue ? r.KillDate.Value.ToString("MM/dd/yyyy") : "—")</td>
+                    <td class="text-right mono">@(r.HotWeight?.ToString("N1") ?? "—")</td>
+                    <td>@(r.Grade ?? "—")</td>
+                    <td class="text-center">@(r.HealthScore?.ToString() ?? "—")</td>
+                    <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@r.Comment">@(r.Comment ?? "—")</td>
+                    <td class="mono">@(r.AnimalControlNumber ?? "—")</td>
+                    <td class="mono">@(r.Tag3 ?? "—")</td>
+                    <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@r.OfficeUse2">@(r.OfficeUse2 ?? "—")</td>
+                    <td>@(r.State ?? "—")</td>
+                    <td>@(r.BuyerName ?? "—")</td>
+                    <td>@(r.AnimalType2 ?? "—")</td>
+                    <td>@(r.VetName ?? "—")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@section Scripts {
+<style>
+    .badge-sale { background:#dbeafe; color:#1e40af; }
+    .badge-cons { background:#fef3c7; color:#92400e; }
+</style>
+}

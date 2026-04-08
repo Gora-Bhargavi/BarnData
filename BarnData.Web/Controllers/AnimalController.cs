@@ -1,6 +1,7 @@
 using BarnData.Core.Services;
 using BarnData.Data.Entities;
 using BarnData.Web.Models;
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 
@@ -17,7 +18,7 @@ namespace BarnData.Web.Controllers
             _vendorService = vendorService;
         }
 
-        // ── INDEX — show ALL animals with status filter ──────────────────
+        // INDEX — show ALL animals with status filter 
         public async Task<IActionResult> Index(DateTime? killDate, int? vendorId, string? status)
         {
             var vendors = await _vendorService.GetAllActiveAsync();
@@ -59,7 +60,7 @@ namespace BarnData.Web.Controllers
             return View(animals);
         }
 
-        // ── CREATE GET — blank entry form ─────────────────────────────────
+        //  CREATE GET — blank entry form 
         public async Task<IActionResult> Create()
         {
             var vm = new AnimalViewModel
@@ -72,7 +73,7 @@ namespace BarnData.Web.Controllers
             return View(vm);
         }
 
-        // ── CREATE POST — save new animal record ──────────────────────────
+        // CREATE POST — save new animal record
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(AnimalViewModel vm)
@@ -122,13 +123,61 @@ namespace BarnData.Web.Controllers
                 return View(vm);
             }
 
-            TempData["SuccessMessage"] = $"Animal record saved. Control No: {animal.ControlNo}";
+            TempData["SuccessMessage"] = $"Record saved — Control No. {animal.ControlNo}. Tag: {animal.TagNumber1}";
 
-            // If Save & Add Another was clicked — go back to blank Create form
+            // Save & Add Another — carry sticky fields to the next form
             if (Request.Form.ContainsKey("saveAndAdd"))
-                return RedirectToAction(nameof(Create));
+            {
+                // Store sticky fields in TempData to pre-populate next form
+                TempData["StickyVendorId"]    = vm.VendorID;
+                TempData["StickyPurchaseType"]= vm.PurchaseType;
+                TempData["StickyPurchaseDate"]= vm.PurchaseDate.ToString("yyyy-MM-dd");
+                TempData["StickyKillDate"]    = vm.KillDate?.ToString("yyyy-MM-dd");
+                TempData["StickyLiveRate"]    = vm.LiveRate.ToString();
+                TempData["StickyConsRate"]    = vm.ConsignmentRate?.ToString();
+                TempData["StickyProgramCode"] = vm.ProgramCode;
+                return RedirectToAction(nameof(CreateSticky));
+            }
 
             return RedirectToAction(nameof(Index), new { status = "pending" });
+        }
+
+        //  CREATE STICKY — blank form with fields pre-filled 
+        public async Task<IActionResult> CreateSticky()
+        {
+            var vm = new AnimalViewModel
+            {
+                PurchaseDate = DateTime.Today,
+                KillDate     = DateTime.Today,
+            };
+
+            // Restore sticky fields from TempData
+            if (TempData["StickyVendorId"] is int vendorId && vendorId > 0)
+                vm.VendorID = vendorId;
+
+            if (TempData["StickyPurchaseType"] is string pt && !string.IsNullOrEmpty(pt))
+                vm.PurchaseType = pt;
+
+            if (TempData["StickyPurchaseDate"] is string pd && DateTime.TryParse(pd, out var purchDate))
+                vm.PurchaseDate = purchDate;
+
+            if (TempData["StickyKillDate"] is string kd && DateTime.TryParse(kd, out var killDate))
+                vm.KillDate = killDate;
+
+            if (TempData["StickyLiveRate"] is string lr && decimal.TryParse(lr, out var liveRate))
+                vm.LiveRate = liveRate;
+
+            if (TempData["StickyConsRate"] is string cr && decimal.TryParse(cr, out var consRate))
+                vm.ConsignmentRate = consRate;
+
+            if (TempData["StickyProgramCode"] is string prog && !string.IsNullOrEmpty(prog))
+                vm.ProgramCode = prog;
+
+            // Keep StickyVendorId in TempData for the view to restore vendor search text
+            TempData.Keep("StickyVendorId");
+
+            await PopulateVendorDropdown(vm);
+            return View("Create", vm);
         }
 
         // ── EDIT GET — pre-filled form ────────────────────────────────────
@@ -235,7 +284,100 @@ namespace BarnData.Web.Controllers
             return Json(new { isDuplicate });
         }
 
-        // ── HELPERS ───────────────────────────────────────────────────────
+        // ── EXPORT EXCEL ──────────────────────────────────────────────────
+        [HttpGet]
+        public async Task<IActionResult> Export(
+            int? vendorId, string? status,
+            DateTime? killDateFrom, DateTime? killDateTo,
+            DateTime? purchDateFrom, DateTime? purchDateTo)
+        {
+            var filter = new ExportFilter
+            {
+                VendorId      = vendorId,
+                Status        = string.IsNullOrEmpty(status) ? null : status,
+                KillDateFrom  = killDateFrom,
+                KillDateTo    = killDateTo,
+                PurchDateFrom = purchDateFrom,
+                PurchDateTo   = purchDateTo,
+            };
+
+            var animals = (await _animalService.GetFilteredAsync(filter)).ToList();
+
+            using var wb = new ClosedXML.Excel.XLWorkbook();
+            var ws = wb.Worksheets.Add("Animals");
+
+            // Headers
+            var headers = new[]
+            {
+                "Control No", "Animal Type", "Tag Number One", "Tag Number Two",
+                "Purchase Date", "Purchase Type", "Vendor", "Live Weight", "Live Rate",
+                "Kill Date", "Hot Weight", "Grade", "H S", "Comments",
+                "Animal Control Number", "Tag 3", "Office Use 2", "State",
+                "Buyer", "Animal Type 2", "Vet Name", "Kill Status", "Program Code",
+                "Is Condemned"
+            };
+            for (int i = 0; i < headers.Length; i++)
+            {
+                var cell = ws.Cell(1, i + 1);
+                cell.Value = headers[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#1e2f47");
+                cell.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
+            }
+
+            // Data rows
+            int row = 2;
+            foreach (var a in animals)
+            {
+                ws.Cell(row, 1).Value  = a.ControlNo;
+                ws.Cell(row, 2).Value  = a.AnimalType;
+                ws.Cell(row, 3).Value  = a.TagNumber1;
+                ws.Cell(row, 4).Value  = a.TagNumber2 ?? "";
+                ws.Cell(row, 5).Value  = a.PurchaseDate.ToString("MM/dd/yyyy");
+                ws.Cell(row, 6).Value  = a.PurchaseType;
+                ws.Cell(row, 7).Value  = a.Vendor?.VendorName ?? "";
+                ws.Cell(row, 8).Value  = a.LiveWeight;
+                ws.Cell(row, 9).Value  = a.LiveRate;
+                ws.Cell(row, 10).Value = a.KillDate.HasValue ? a.KillDate.Value.ToString("MM/dd/yyyy") : "";
+                ws.Cell(row, 11).Value = a.HotWeight.HasValue ? a.HotWeight.Value : 0;
+                ws.Cell(row, 12).Value = a.Grade ?? "";
+                ws.Cell(row, 13).Value = a.HealthScore.HasValue ? a.HealthScore.Value : 0;
+                ws.Cell(row, 14).Value = a.Comment ?? "";
+                ws.Cell(row, 15).Value = a.AnimalControlNumber ?? "";
+                ws.Cell(row, 16).Value = a.Tag3 ?? "";
+                ws.Cell(row, 17).Value = a.OfficeUse2 ?? "";
+                ws.Cell(row, 18).Value = a.State ?? "";
+                ws.Cell(row, 19).Value = a.BuyerName ?? "";
+                ws.Cell(row, 20).Value = a.AnimalType2 ?? "";
+                ws.Cell(row, 21).Value = a.VetName ?? "";
+                ws.Cell(row, 22).Value = a.KillStatus;
+                ws.Cell(row, 23).Value = a.ProgramCode;
+                ws.Cell(row, 24).Value = a.IsCondemned ? "Yes" : "No";
+                row++;
+            }
+
+            ws.Columns().AdjustToContents();
+
+            using var stream = new MemoryStream();
+            wb.SaveAs(stream);
+            stream.Position = 0;
+
+            var fileName = $"Animals_Export_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+            return File(stream.ToArray(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                fileName);
+        }
+
+        // ── EXPORT PAGE (filter form) ─────────────────────────────────────
+        public async Task<IActionResult> ExportPage()
+        {
+            var vendors = await _vendorService.GetAllActiveAsync();
+            ViewBag.VendorList = new Microsoft.AspNetCore.Mvc.Rendering.SelectList(
+                vendors, "VendorID", "VendorName");
+            ViewData["Title"]    = "Export Animals";
+            ViewData["Subtitle"] = "Choose filters and download as Excel";
+            return View();
+        }
         private async Task PopulateVendorDropdown(AnimalViewModel vm)
         {
             var vendors = await _vendorService.GetAllActiveAsync();

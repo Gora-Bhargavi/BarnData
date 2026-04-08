@@ -76,7 +76,7 @@ else
                             <span class="badge badge-status-@a.KillStatus.ToLower()">@a.KillStatus</span>
                         </td>
                         <td><span class="badge badge-grade">@a.Grade</span></td>
-                        <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
+                        <td class="text-right mono">@(a.LiveWeight.ToString("N1"))</td>
                         <td class="text-right mono">@(a.HotWeight?.ToString("N1") ?? "—")</td>
                     </tr>
                 }

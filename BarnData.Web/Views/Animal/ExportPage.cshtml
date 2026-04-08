@@ -1,0 +1,80 @@
+@{
+    ViewData["Title"]    = "Export Animals";
+    ViewData["Subtitle"] = "Choose filters and download as Excel";
+}
+
+<div style="max-width:580px">
+    <div class="table-card" style="padding:28px 32px">
+        <h2 style="font-size:15px;font-weight:600;margin-bottom:6px">Export to Excel</h2>
+        <p style="font-size:12.5px;color:var(--text3);margin-bottom:22px">
+            All filters are optional — leave blank to export everything. Mix and match as needed.
+        </p>
+
+        <form method="get" asp-action="Export">
+
+            <!-- Vendor -->
+            <div style="margin-bottom:16px">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:5px">
+                    Vendor <span style="color:var(--text3);font-weight:400">(optional)</span>
+                </label>
+                <select name="vendorId" class="form-control-sm" style="width:100%">
+                    <option value="">— All vendors —</option>
+                    @foreach (var item in (IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)ViewBag.VendorList)
+                    {
+                        <option value="@item.Value">@item.Text</option>
+                    }
+                </select>
+            </div>
+
+            <!-- Status -->
+            <div style="margin-bottom:16px">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:5px">
+                    Status <span style="color:var(--text3);font-weight:400">(optional)</span>
+                </label>
+                <select name="status" class="form-control-sm" style="width:100%">
+                    <option value="all">— All statuses —</option>
+                    <option value="Pending">Pending only</option>
+                    <option value="Killed">Killed only</option>
+                    <option value="Verified">Verified only</option>
+                    <option value="Flagged">Flagged / deleted only</option>
+                </select>
+            </div>
+
+            <!-- Kill date range -->
+            <div style="margin-bottom:16px">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:5px">
+                    Kill date range <span style="color:var(--text3);font-weight:400">(optional)</span>
+                </label>
+                <div style="display:flex;gap:10px;align-items:center">
+                    <input type="date" name="killDateFrom" class="form-control-sm" style="flex:1"
+                           placeholder="From" />
+                    <span style="font-size:12px;color:var(--text3)">to</span>
+                    <input type="date" name="killDateTo" class="form-control-sm" style="flex:1"
+                           placeholder="To" />
+                </div>
+            </div>
+
+            <!-- Purchase date range -->
+            <div style="margin-bottom:24px">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:5px">
+                    Purchase date range <span style="color:var(--text3);font-weight:400">(optional)</span>
+                </label>
+                <div style="display:flex;gap:10px;align-items:center">
+                    <input type="date" name="purchDateFrom" class="form-control-sm" style="flex:1"
+                           placeholder="From" />
+                    <span style="font-size:12px;color:var(--text3)">to</span>
+                    <input type="date" name="purchDateTo" class="form-control-sm" style="flex:1"
+                           placeholder="To" />
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" style="width:100%;font-size:13px;padding:10px">
+                ↓ Download Excel
+            </button>
+        </form>
+    </div>
+
+    <div style="margin-top:12px;font-size:12px;color:var(--text3);text-align:center">
+        Export includes all 24 fields — Control No, Tags, Vendor, Weights, Dates, Grade, Comments, and more.
+    </div>
+</div>

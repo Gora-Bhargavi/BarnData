@@ -12,24 +12,25 @@
 }
 
 <!-- Status tabs -->
-<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--color-border-tertiary)">
+<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--gray3)">
     <a asp-action="Index" asp-route-status="pending"
        style="padding:8px 18px;font-size:13px;font-weight:500;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;
-              @(statusFilter == "pending" ? "color:var(--color-text-info);border-bottom-color:var(--color-text-info)" : "color:var(--color-text-tertiary)")">
+              @(statusFilter == "pending" ? "color:var(--blue);border-bottom-color:var(--blue)" : "color:var(--text3)")">
         Pending
     </a>
     <a asp-action="Index" asp-route-status="killed" asp-route-killDate="@killDateStr"
        style="padding:8px 18px;font-size:13px;font-weight:500;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;
-              @(statusFilter == "killed" ? "color:var(--color-text-info);border-bottom-color:var(--color-text-info)" : "color:var(--color-text-tertiary)")">
+              @(statusFilter == "killed" ? "color:var(--blue);border-bottom-color:var(--blue)" : "color:var(--text3)")">
         Killed
     </a>
     <a asp-action="Index" asp-route-status="all"
        style="padding:8px 18px;font-size:13px;font-weight:500;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;
-              @(statusFilter == "all" ? "color:var(--color-text-info);border-bottom-color:var(--color-text-info)" : "color:var(--color-text-tertiary)")">
+              @(statusFilter == "all" ? "color:var(--blue);border-bottom-color:var(--blue)" : "color:var(--text3)")">
         All records
     </a>
 </div>
 
+<!-- Filter bar -->
 <div class="filter-bar">
     <form method="get" asp-action="Index" class="filter-form">
         <input type="hidden" name="status" value="@statusFilter" />
@@ -64,14 +65,11 @@
         <a asp-action="Create" class="btn btn-primary">+ New animal record</a>
         @if (statusFilter == "pending")
         {
-            <a asp-controller="Import" asp-action="MarkKilled" class="btn btn-secondary">
-                Mark as killed →
-            </a>
+            <a asp-controller="Import" asp-action="MarkKilled" class="btn btn-secondary">Mark as killed →</a>
         }
         @if (statusFilter == "killed")
         {
-            <a asp-controller="Report" asp-action="Tally"
-               asp-route-killDate="@killDateStr" class="btn btn-secondary">
+            <a asp-controller="Report" asp-action="Tally" asp-route-killDate="@killDateStr" class="btn btn-secondary">
                 View tally report
             </a>
         }
@@ -86,14 +84,14 @@
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val">@((decimal)ViewBag.TotalLiveWeight).ToString("N1")</div>
+        <div class="summary-val">@(((decimal)ViewBag.TotalLiveWeight).ToString("N1"))</div>
         <div class="summary-lbl">Total live wt (lbs)</div>
     </div>
     @if (statusFilter == "killed")
     {
         <div class="summary-divider"></div>
         <div class="summary-stat">
-            <div class="summary-val">@((decimal)ViewBag.TotalHotWeight).ToString("N1")</div>
+            <div class="summary-val">@(((decimal)ViewBag.TotalHotWeight).ToString("N1"))</div>
             <div class="summary-lbl">Total hot wt (lbs)</div>
         </div>
     }
@@ -122,24 +120,32 @@
 }
 else
 {
-    <div class="table-card">
-        <table class="data-table">
+    <div class="table-card" style="overflow-x:auto;">
+        <table class="data-table" style="min-width:2000px;font-size:12px;">
             <thead>
                 <tr>
-                    <th>Ctrl No.</th>
-                    <th>Vendor</th>
-                    <th>Tag 1</th>
-                    <th>Tag 2</th>
-                    <th>Type</th>
-                    <th>Program</th>
-                    <th class="text-right">Live Wt</th>
-                    <th class="text-right">Hot Wt</th>
-                    <th>Grade</th>
-                    <th>HS</th>
-                    <th>Purchase Date</th>
-                    <th>Kill Date</th>
-                    <th>Status</th>
-                    <th>Actions</th>
+                    <th style="min-width:70px">Ctrl No.</th>
+                    <th style="min-width:100px">Animal Type</th>
+                    <th style="min-width:90px">Tag 1</th>
+                    <th style="min-width:90px">Tag 2</th>
+                    <th style="min-width:100px">Purchase Date</th>
+                    <th style="min-width:100px">Purchase Type</th>
+                    <th style="min-width:130px">Vendor</th>
+                    <th class="text-right" style="min-width:75px">Live Wt</th>
+                    <th class="text-right" style="min-width:75px">Live Rate</th>
+                    <th style="min-width:95px">Kill Date</th>
+                    <th class="text-right" style="min-width:70px">Hot Wt</th>
+                    <th style="min-width:50px">Grade</th>
+                    <th style="min-width:40px">HS</th>
+                    <th style="min-width:160px">Comments</th>
+                    <th style="min-width:115px">Animal Ctrl No.</th>
+                    <th style="min-width:70px">Tag 3</th>
+                    <th style="min-width:120px">Office Use 2</th>
+                    <th style="min-width:45px">State</th>
+                    <th style="min-width:100px">Buyer</th>
+                    <th style="min-width:100px">Animal Type 2</th>
+                    <th style="min-width:100px">Vet Name</th>
+                    <th style="min-width:130px">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -147,27 +153,33 @@ else
                 {
                     <tr class="@(a.IsCondemned ? "row-condemned" : "")">
                         <td class="mono">@a.ControlNo</td>
-                        <td>@(a.Vendor?.VendorName ?? "—")</td>
+                        <td>@a.AnimalType</td>
                         <td class="mono">@a.TagNumber1</td>
                         <td class="mono">@(a.TagNumber2 ?? "—")</td>
-                        <td>@a.AnimalType</td>
-                        <td><span class="badge badge-prog">@a.ProgramCode</span></td>
+                        <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
+                        <td>
+                            <span class="badge @(a.PurchaseType == "Consignment Bill" ? "badge-cons" : "badge-sale")">
+                                @(a.PurchaseType == "Consignment Bill" ? "Cons." : "Sale")
+                            </span>
+                        </td>
+                        <td>@(a.Vendor?.VendorName ?? "—")</td>
                         <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
+                        <td class="text-right mono">$@a.LiveRate.ToString("N4")</td>
+                        <td>@(a.KillDate.HasValue ? a.KillDate.Value.ToString("MM/dd/yyyy") : "—")</td>
                         <td class="text-right mono">@(a.HotWeight?.ToString("N1") ?? "—")</td>
                         <td><span class="badge badge-grade">@(a.Grade ?? "—")</span></td>
                         <td class="text-center">@(a.HealthScore?.ToString() ?? "—")</td>
-                        <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
-                        <td>@(a.KillDate.HasValue ? a.KillDate.Value.ToString("MM/dd/yyyy") : "—")</td>
-                        <td>
-                            <span class="badge badge-status-@a.KillStatus.ToLower()">
-                                @a.KillStatus
-                            </span>
-                        </td>
-                        <td class="actions-cell">
-                            <a asp-action="Edit" asp-route-id="@a.ControlNo"
-                               class="btn btn-sm btn-secondary">Edit</a>
-                            <a asp-action="Detail" asp-route-id="@a.ControlNo"
-                               class="btn btn-sm btn-ghost">View</a>
+                        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.Comment">@(a.Comment ?? "—")</td>
+                        <td class="mono">@(a.AnimalControlNumber ?? "—")</td>
+                        <td class="mono">@(a.Tag3 ?? "—")</td>
+                        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.OfficeUse2">@(a.OfficeUse2 ?? "—")</td>
+                        <td>@(a.State ?? "—")</td>
+                        <td>@(a.BuyerName ?? "—")</td>
+                        <td>@(a.AnimalType2 ?? "—")</td>
+                        <td>@(a.VetName ?? "—")</td>
+                        <td class="actions-cell" style="white-space:nowrap">
+                            <a asp-action="Edit" asp-route-id="@a.ControlNo" class="btn btn-sm btn-secondary">Edit</a>
+                            <a asp-action="Detail" asp-route-id="@a.ControlNo" class="btn btn-sm btn-ghost">View</a>
                             @if (a.KillStatus != "Flagged")
                             {
                                 <form method="post" asp-action="Delete"
@@ -176,7 +188,7 @@ else
                                       style="display:inline"
                                       onsubmit="return confirm('Remove animal #@a.ControlNo?')">
                                     @Html.AntiForgeryToken()
-                                    <button type="submit" class="btn btn-sm btn-danger-ghost">Remove</button>
+                                    <button type="submit" class="btn btn-sm btn-danger-ghost">Del</button>
                                 </form>
                             }
                         </td>
@@ -187,13 +199,22 @@ else
             {
                 <tfoot>
                     <tr class="table-total-row">
-                        <td colspan="6" class="text-right total-label">Totals</td>
+                        <td colspan="7" class="text-right total-label">Totals</td>
                         <td class="text-right mono">@Model.Sum(a => a.LiveWeight).ToString("N1")</td>
+                        <td></td>
+                        <td></td>
                         <td class="text-right mono">@Model.Sum(a => a.HotWeight ?? 0).ToString("N1")</td>
-                        <td colspan="6"></td>
+                        <td colspan="11"></td>
                     </tr>
                 </tfoot>
             }
         </table>
     </div>
+}
+
+@section Scripts {
+<style>
+    .badge-sale { background:#dbeafe; color:#1e40af; }
+    .badge-cons { background:#fef3c7; color:#92400e; }
+</style>
 }

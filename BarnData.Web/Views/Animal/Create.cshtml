@@ -2,6 +2,16 @@
 @{
     ViewData["Title"]    = "New animal record";
     ViewData["Subtitle"] = "Enter all required fields to save the record";
+    // Check if this is a "sticky" return (after Save & Add Another)
+    var isSticky = TempData["StickyVendorId"] != null;
+}
+
+@if (isSticky)
+{
+    <div class="alert alert-success" style="margin-bottom:14px">
+        <strong>Record saved!</strong> Sticky fields (vendor, purchase type, dates, rate) have been kept.
+        Just enter the new tag number and live weight.
+    </div>
 }
 
 <form method="post" asp-action="Create" novalidate>
@@ -18,7 +28,7 @@
         </button>
         <a asp-action="Index" asp-route-status="pending" class="btn btn-ghost">Cancel</a>
         <span class="form-actions-note">
-            Control No. is assigned automatically on save
+            <strong>Save &amp; add another</strong> keeps vendor, purchase type, dates and rate for next record
         </span>
     </div>
 </form>
@@ -28,5 +38,24 @@
     <script>
         const CONTROL_NO    = 0;
         const CHECK_TAG_URL = '@Url.Action("CheckTag", "Animal")';
+
+        // Restore vendor search text if coming back from Save & Add Another
+        @if (Model.VendorID > 0 && Model.VendorList.Any())
+        {
+            var vendorItem = Model.VendorList.FirstOrDefault(v => v.Value == Model.VendorID.ToString());
+            if (vendorItem != null)
+            {
+                <text>
+                document.addEventListener('DOMContentLoaded', function() {
+                    var vs = document.getElementById('vendorSearch');
+                    var vi = document.getElementById('vendorIdHidden');
+                    if (vs && vi) {
+                        vs.value = '@vendorItem.Text';
+                        vi.value = '@vendorItem.Value';
+                    }
+                });
+                </text>
+            }
+        }
     </script>
 }

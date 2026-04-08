@@ -74,7 +74,7 @@
                 <td>@a.KillDate?.ToString("MM/dd/yyyy")</td>
                 <td>@a.KillStatus</td>
                 <td>@a.Grade</td>
-                <td class="tr mono">@a.LiveWeight.ToString("N1")</td>
+                <td class="tr mono">@(a.LiveWeight.ToString("N1"))</td>
                 <td class="tr mono">@(a.HotWeight?.ToString("N1") ?? "")</td>
                 <td>@a.Comment</td>
             </tr>

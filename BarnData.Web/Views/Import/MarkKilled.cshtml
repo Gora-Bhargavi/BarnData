@@ -1,34 +1,33 @@
 @model BarnData.Web.Models.MarkKilledViewModel
 @{
     ViewData["Title"]    = "Mark animals as killed";
-    ViewData["Subtitle"] = "Select animals killed today and set the kill date";
+    ViewData["Subtitle"] = "Select animals, enter kill data, then submit";
+    var todayStr = DateTime.Today.ToString("yyyy-MM-dd");
+    var grades   = new[] { "", "CT","B1","B2","CN","LB","UB","BB","BR","SL" };
 }
 
 <div class="alert alert-info" style="margin-bottom:14px">
     <strong>How this works:</strong>
-    Animals imported from sale bills start as <strong>Pending</strong> — kill date is unknown at purchase.
-    When animals are killed, select them here and click <strong>Mark selected as killed</strong>.
-    They will then appear in the Nightly Tally report for that kill date.
+    Check each animal killed today, fill in <strong>Hot Weight</strong>, <strong>Grade</strong>,
+    and <strong>Health Score</strong> inline. Mark <strong>Condemned</strong> if applicable.
+    Then click <strong>Mark selected as killed</strong>.
 </div>
 
 <form method="post" asp-action="MarkKilled">
     @Html.AntiForgeryToken()
 
-    <!-- Header controls -->
+    <!-- Kill date + vendor filter + actions -->
     <div class="form-section" style="margin-bottom:12px">
-        <div class="form-section-title">Kill date &amp; filter</div>
         <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
             <div class="field">
                 <label class="field-label">Kill date <span class="req">*</span></label>
-                <input name="killDate" type="date"
-                       value="@DateTime.Today.ToString("yyyy-MM-dd")"
+                <input name="killDate" type="date" value="@todayStr"
                        class="form-control" style="width:180px" />
-                <div class="field-hint">Date the animals were killed on the floor</div>
             </div>
             <div class="field">
                 <label class="field-label">Filter by vendor</label>
                 <select asp-for="VendorId" asp-items="Model.VendorList"
-                        class="form-control" style="width:220px"
+                        class="form-control" style="width:240px"
                         onchange="window.location='/Import/MarkKilled?vendorId='+this.value">
                     <option value="">All vendors (@Model.Animals.Count pending)</option>
                 </select>
@@ -36,7 +35,7 @@
             <div style="display:flex;gap:8px;padding-bottom:2px">
                 <button type="button" onclick="selectAll(true)"  class="btn btn-secondary btn-sm">Select all</button>
                 <button type="button" onclick="selectAll(false)" class="btn btn-secondary btn-sm">Deselect all</button>
-                <button type="submit" class="btn btn-primary">Mark selected as killed</button>
+                <button type="submit" class="btn btn-primary">Mark selected as killed →</button>
             </div>
         </div>
     </div>
@@ -55,84 +54,172 @@
     else
     {
         <div class="table-card">
-            <div style="padding:10px 14px;background:var(--color-background-secondary);border-bottom:1px solid var(--color-border-tertiary);display:flex;justify-content:space-between;align-items:center;font-size:12.5px">
-                <span><strong>@Model.Animals.Count</strong> pending animals waiting for a kill date</span>
-                <span id="selectedCount" style="font-size:11.5px;color:var(--color-text-info);font-weight:500">0 selected</span>
+            <div style="padding:10px 14px;border-bottom:1px solid var(--gray3);display:flex;justify-content:space-between;align-items:center;font-size:12.5px;background:var(--gray1)">
+                <span><strong>@Model.Animals.Count</strong> pending animals</span>
+                <span id="selectedCount" style="font-size:11.5px;color:var(--blue);font-weight:500">0 selected</span>
             </div>
-            <table class="data-table" style="font-size:12px">
-                <thead>
-                    <tr>
-                        <th style="width:36px">
-                            <input type="checkbox" id="selectAllChk"
-                                   onchange="selectAll(this.checked)" title="Select all" />
-                        </th>
-                        <th>Vendor</th>
-                        <th>Tag 1</th>
-                        <th>Tag 2</th>
-                        <th>Type</th>
-                        <th class="text-right">Live Wt</th>
-                        <th>Purchase Type</th>
-                        <th>Purchase Date</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var a in Model.Animals)
-                    {
-                        <tr class="animal-row" id="row-@a.ControlNo">
-                            <td>
-                                <input type="checkbox"
-                                       name="selectedIds"
-                                       value="@a.ControlNo"
-                                       class="animal-chk"
-                                       onchange="highlightRow(this); updateCount()" />
-                            </td>
-                            <td style="font-weight:500">@a.VendorName</td>
-                            <td class="mono">@a.Tag1</td>
-                            <td class="mono">@(a.Tag2 ?? "—")</td>
-                            <td>@a.AnimalType</td>
-                            <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
-                            <td>
-                                <span class="badge @(a.PurchaseType == "Sale Bill" ? "badge-prog" : "badge-grade")">
-                                    @a.PurchaseType
-                                </span>
-                            </td>
-                            <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
+
+            <!-- Top scrollbar mirror -->
+            <div id="scrollTop" style="overflow-x:auto;overflow-y:hidden;border-bottom:1px solid var(--gray3)">
+                <div id="scrollTopInner" style="height:1px"></div>
+            </div>
+
+            <!-- Main scrollable table -->
+            <div id="scrollMain" style="overflow-x:auto">
+                <table class="data-table" id="mainTable" style="min-width:2400px;font-size:12px;">
+                    <thead>
+                        <tr>
+                            <th style="width:36px;position:sticky;left:0;z-index:3;background:var(--gray2)">
+                                <input type="checkbox" id="selectAllChk" onchange="selectAll(this.checked)" />
+                            </th>
+                            <th class="sticky-col sticky-col-1" style="min-width:65px">Ctrl No.</th>
+                            <th class="sticky-col sticky-col-2" style="min-width:130px">Vendor</th>
+                            <th class="sticky-col sticky-col-3" style="min-width:90px">Tag 1</th>
+                            <th class="sticky-col sticky-col-4" style="min-width:90px">Tag 2</th>
+                            <th style="min-width:95px">Animal Type</th>
+                            <th style="min-width:95px">Purchase Type</th>
+                            <th style="min-width:95px">Purchase Date</th>
+                            <th class="text-right" style="min-width:75px">Live Wt</th>
+                            <th class="text-right" style="min-width:75px">Live Rate</th>
+                            <th style="min-width:110px">Animal Ctrl No.</th>
+                            <th style="min-width:70px">Tag 3</th>
+                            <th style="min-width:45px">State</th>
+                            <th style="min-width:100px">Buyer</th>
+                            <th style="min-width:100px">Animal Type 2</th>
+                            <th style="min-width:100px">Vet Name</th>
+                            <th style="min-width:120px">Office Use 2</th>
+                            <th style="min-width:160px">Comments</th>
+                            <th style="min-width:95px;background:#f0fdf4;color:#15803d">Hot Wt ✎</th>
+                            <th style="min-width:90px;background:#f0fdf4;color:#15803d">Grade ✎</th>
+                            <th style="min-width:75px;background:#f0fdf4;color:#15803d">HS ✎</th>
+                            <th style="min-width:95px;background:#fef2f2;color:#b91c1c">Condemned ✎</th>
                         </tr>
-                    }
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in Model.Animals)
+                        {
+                            <tr class="animal-row" id="row-@a.ControlNo">
+                                <td style="position:sticky;left:0;z-index:2;background:#fff">
+                                    <input type="checkbox"
+                                           name="selectedIds"
+                                           value="@a.ControlNo"
+                                           class="animal-chk"
+                                           onchange="highlightRow(this); updateCount()" />
+                                </td>
+                                <td class="mono sticky-col sticky-col-1">@a.ControlNo</td>
+                                <td class="sticky-col sticky-col-2" style="font-weight:500">@a.VendorName</td>
+                                <td class="mono sticky-col sticky-col-3">@a.Tag1</td>
+                                <td class="mono sticky-col sticky-col-4">@(a.Tag2 ?? "—")</td>
+                                <td>@a.AnimalType</td>
+                                <td>
+                                    <span class="badge @(a.PurchaseType == "Consignment Bill" ? "badge-cons" : "badge-sale")">
+                                        @(a.PurchaseType == "Consignment Bill" ? "Cons." : "Sale")
+                                    </span>
+                                </td>
+                                <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
+                                <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
+                                <td class="text-right mono">$@a.LiveRate.ToString("N4")</td>
+                                <td class="mono">@(a.AnimalControlNumber ?? "—")</td>
+                                <td class="mono">@(a.Tag3 ?? "—")</td>
+                                <td>@(a.State ?? "—")</td>
+                                <td>@(a.BuyerName ?? "—")</td>
+                                <td>@(a.AnimalType2 ?? "—")</td>
+                                <td>@(a.VetName ?? "—")</td>
+                                <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.OfficeUse2">@(a.OfficeUse2 ?? "—")</td>
+                                <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.Comment">@(a.Comment ?? "—")</td>
+                                <!-- Editable kill fields -->
+                                <td style="background:#f0fdf4">
+                                    <input type="number" name="hotWeight_@a.ControlNo"
+                                           step="0.1" min="0" placeholder="lbs"
+                                           style="width:82px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    <select name="grade_@a.ControlNo"
+                                            style="width:72px;padding:3px 4px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff">
+                                        @foreach (var g in grades)
+                                        {
+                                            <option value="@g">@(string.IsNullOrEmpty(g) ? "—" : g)</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    <input type="number" name="healthScore_@a.ControlNo"
+                                           min="1" max="5" placeholder="1-5"
+                                           style="width:58px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td style="background:#fef2f2;text-align:center">
+                                    <input type="checkbox" name="condemned_@a.ControlNo"
+                                           value="true"
+                                           style="width:16px;height:16px;cursor:pointer"
+                                           title="Mark as condemned" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div class="form-actions" style="margin-top:12px">
-            <button type="submit" class="btn btn-primary">Mark selected as killed</button>
-            <a asp-controller="Animal" asp-action="Index" class="btn btn-secondary">View animal list</a>
+            <button type="submit" class="btn btn-primary">Mark selected as killed →</button>
+            <a asp-controller="Animal" asp-action="Index" asp-route-status="pending" class="btn btn-secondary">View animal list</a>
             <span class="form-actions-note" id="footerCount">0 selected</span>
         </div>
     }
 </form>
 
 @section Scripts {
+<style>
+    .badge-sale { background:#dbeafe; color:#1e40af; }
+    .badge-cons { background:#fef3c7; color:#92400e; }
+    tr.selected-row td { background: #eff6ff !important; }
+    tr.selected-row td.sticky-col { background: #eff6ff !important; }
+</style>
 <script>
+// ── Dual scrollbar sync ───────────────────────────────────────────────────
+(function() {
+    var top  = document.getElementById('scrollTop');
+    var main = document.getElementById('scrollMain');
+    var tbl  = document.getElementById('mainTable');
+    if (!top || !main || !tbl) return;
+
+    // Set top mirror width to match table
+    document.getElementById('scrollTopInner').style.width = tbl.offsetWidth + 'px';
+
+    var syncing = false;
+    top.addEventListener('scroll', function() {
+        if (syncing) return; syncing = true;
+        main.scrollLeft = top.scrollLeft;
+        syncing = false;
+    });
+    main.addEventListener('scroll', function() {
+        if (syncing) return; syncing = true;
+        top.scrollLeft = main.scrollLeft;
+        syncing = false;
+    });
+})();
+
+// ── Row selection ────────────────────────────────────────────────────────
 function selectAll(val) {
-    document.querySelectorAll('.animal-chk').forEach(c => {
+    document.querySelectorAll('.animal-chk').forEach(function(c) {
         c.checked = val;
         highlightRow(c);
     });
-    const chk = document.getElementById('selectAllChk');
+    var chk = document.getElementById('selectAllChk');
     if (chk) chk.checked = val;
     updateCount();
 }
-
 function highlightRow(chk) {
-    const row = chk.closest('tr');
-    if (row) row.style.background = chk.checked ? 'var(--color-background-info)' : '';
+    var row = chk.closest('tr');
+    if (!row) return;
+    if (chk.checked) row.classList.add('selected-row');
+    else row.classList.remove('selected-row');
 }
-
 function updateCount() {
-    const n = document.querySelectorAll('.animal-chk:checked').length;
-    const txt = n + ' animal' + (n !== 1 ? 's' : '') + ' selected';
-    const el1 = document.getElementById('selectedCount');
-    const el2 = document.getElementById('footerCount');
+    var n = document.querySelectorAll('.animal-chk:checked').length;
+    var txt = n + ' animal' + (n !== 1 ? 's' : '') + ' selected';
+    var el1 = document.getElementById('selectedCount');
+    var el2 = document.getElementById('footerCount');
     if (el1) el1.textContent = txt;
     if (el2) el2.textContent = txt;
 }

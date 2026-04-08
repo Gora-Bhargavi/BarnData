@@ -13,9 +13,21 @@ namespace BarnData.Core.Services
         Task<(bool Success, string ErrorMessage)> CreateAsync(Animal animal);
         Task<(int Imported, int Skipped, List<string> Errors)> BulkImportAsync(IEnumerable<Animal> animals);
         Task<int> MarkKilledAsync(IEnumerable<int> controlNos, DateTime killDate);
+        Task<int> MarkKilledWithDataAsync(IEnumerable<KillAnimalData> animalData, DateTime killDate);
         Task<(bool Success, string ErrorMessage)> UpdateAsync(Animal animal);
         Task<bool> DeleteAsync(int controlNo);
         Task<TallySummary> GetTallySummaryAsync(DateTime killDate, int? vendorId = null);
+        Task<IEnumerable<Animal>> GetFilteredAsync(ExportFilter filter);
+    }
+
+    // ── Per-animal kill data ───────────────────────────────────────────────
+    public class KillAnimalData
+    {
+        public int      ControlNo   { get; set; }
+        public decimal? HotWeight   { get; set; }
+        public string?  Grade       { get; set; }
+        public int?     HealthScore { get; set; }
+        public bool     IsCondemned { get; set; }
     }
 
     public class TallySummary
@@ -58,5 +70,15 @@ namespace BarnData.Core.Services
         public decimal DressedWt { get; set; }
         public decimal Cost      { get; set; }
         public decimal AvgCost   { get; set; }
+    }
+
+    public class ExportFilter
+    {
+        public int?      VendorId      { get; set; }
+        public string?   Status        { get; set; }  // Pending / Killed / Flagged / (null = all)
+        public DateTime? KillDateFrom  { get; set; }
+        public DateTime? KillDateTo    { get; set; }
+        public DateTime? PurchDateFrom { get; set; }
+        public DateTime? PurchDateTo   { get; set; }
     }
 }

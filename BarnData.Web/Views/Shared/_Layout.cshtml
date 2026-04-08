@@ -3,25 +3,32 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] — Barn Data System</title>
+    <title>@ViewData["Title"] Barn Data System</title>
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
 <body>
 
 <div class="app-shell">
 
-    <!-- ── SIDEBAR ─────────────────────────────────────────────────── -->
+    <!--  SIDEBAR TOGGLE  -->
+    <button class="sidebar-toggle" id="sidebarToggle" title="Toggle menu" onclick="toggleSidebar()">&#9776;</button>
+
+    <!--  SIDEBAR -->
     <nav class="sidebar">
         <div class="sidebar-brand">
-            <div class="brand-tag">trax-it</div>
-            <div class="brand-name">Slaughter</div>
-            <div class="brand-sub">Barn Data System</div>
+            <!--<div class="brand-tag">trax-it</div> -->
+            <!--<div class="brand-name">Slaughter</div> -->
+            <div class="brand-name">Barn Data System</div>
         </div>
 
         <div class="nav-section">Import &amp; intake</div>
         <a asp-controller="Import" asp-action="SaleBill"
            class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" && ViewContext.RouteData.Values["action"]?.ToString() == "SaleBill" ? "active" : "")">
             <span class="nav-dot"></span> Import sale / cons. bill
+        </a>
+        <a asp-controller="Import" asp-action="Excel"
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" && ViewContext.RouteData.Values["action"]?.ToString() is "Excel" or "ExcelPreview" or "ExcelConfirm" ? "active" : "")">
+            <span class="nav-dot"></span> Import Excel
         </a>
         <a asp-controller="Import" asp-action="MarkKilled"
            class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" && ViewContext.RouteData.Values["action"]?.ToString() == "MarkKilled" ? "active" : "")">
@@ -37,11 +44,19 @@
            class="nav-item @(ViewContext.RouteData.Values["action"]?.ToString() == "Create" ? "active" : "")">
             <span class="nav-dot"></span> New animal record
         </a>
+        <a asp-controller="Animal" asp-action="ExportPage"
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Animal" && ViewContext.RouteData.Values["action"]?.ToString() is "ExportPage" or "Export" ? "active" : "")">
+            <span class="nav-dot"></span> Export Excel
+        </a>
 
         <div class="nav-section">Reports</div>
         <a asp-controller="Report" asp-action="Tally"
-           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Report" ? "active" : "")">
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Report" && ViewContext.RouteData.Values["action"]?.ToString() == "Tally" ? "active" : "")">
             <span class="nav-dot"></span> Nightly tally
+        </a>
+        <a asp-controller="Report" asp-action="FilterView"
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Report" && ViewContext.RouteData.Values["action"]?.ToString() == "FilterView" ? "active" : "")">
+            <span class="nav-dot"></span> Filter view
         </a>
 
         <div class="sidebar-footer">
@@ -55,7 +70,7 @@
         </div>
     </nav>
 
-    <!-- ── MAIN ────────────────────────────────────────────────────── -->
+    <!-- MAIN  -->
     <div class="main-area">
 
         <!-- Top bar -->
@@ -94,6 +109,23 @@
 </div>
 
 <script src="~/js/site.js" asp-append-version="true"></script>
+<script>
+function toggleSidebar() {
+    var sidebar = document.querySelector('.sidebar');
+    var btn     = document.getElementById('sidebarToggle');
+    var collapsed = sidebar.classList.toggle('collapsed');
+    btn.style.left = collapsed ? '14px' : '228px';
+    localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');
+}
+// Restore state on load
+(function() {
+    if (localStorage.getItem('sidebarCollapsed') === '1') {
+        document.querySelector('.sidebar').classList.add('collapsed');
+        var btn = document.getElementById('sidebarToggle');
+        if (btn) btn.style.left = '14px';
+    }
+})();
+</script>
 @await RenderSectionAsync("Scripts", required: false)
 
 </body>

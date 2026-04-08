@@ -8,16 +8,13 @@ namespace BarnData.Core.Services
     {
         private readonly BarnDataContext _db;
 
-        public VendorService(BarnDataContext db)
-        {
-            _db = db;
-        }
+        public VendorService(BarnDataContext db) => _db = db;
 
         public async Task<IEnumerable<Vendor>> GetAllActiveAsync()
         {
+            // Raw SQL — avoids EF Core 8 bool/string LINQ translation issues
             return await _db.Vendors
-                .Where(v => v.IsActive)
-                .OrderBy(v => v.VendorName)
+                .FromSqlRaw("SELECT * FROM tbl_vendor_master WHERE IsActive = 1 ORDER BY VendorName")
                 .ToListAsync();
         }
 
@@ -26,14 +23,13 @@ namespace BarnData.Core.Services
             return await _db.Vendors.FindAsync(vendorId);
         }
 
-        // Find vendor by name or create a new one — used when typing a new vendor
         public async Task<int> GetOrCreateAsync(string vendorName)
         {
             var existing = await _db.Vendors
-                .FirstOrDefaultAsync(v => v.VendorName == vendorName);
+                .FromSqlRaw("SELECT * FROM tbl_vendor_master WHERE VendorName = {0}", vendorName)
+                .FirstOrDefaultAsync();
 
-            if (existing != null)
-                return existing.VendorID;
+            if (existing != null) return existing.VendorID;
 
             var newVendor = new Vendor
             {

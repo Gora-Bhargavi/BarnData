@@ -40,7 +40,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
 /* ── Sidebar ───────────────────────────────────────────────────────────── */
 .sidebar { width: 220px; flex-shrink: 0; background: var(--navy);
-           display: flex; flex-direction: column; }
+           display: flex; flex-direction: column;
+           transition: width .2s ease, opacity .2s ease; overflow: hidden; }
+.sidebar.collapsed { width: 0; opacity: 0; pointer-events: none; }
 
 .sidebar-brand { padding: 18px 16px 14px;
                  border-bottom: 1px solid rgba(255,255,255,.08); }
@@ -71,11 +73,30 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .user-name  { font-size: 12px; font-weight: 500; color: rgba(255,255,255,.8); }
 .user-role  { font-size: 11px; color: rgba(255,255,255,.4); }
 
+/* ── Sidebar toggle button ─────────────────────────────────────────────── */
+.sidebar-toggle {
+    position: fixed; top: 14px; left: 14px; z-index: 200;
+    width: 28px; height: 28px; border-radius: 6px;
+    background: var(--navy); border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,.7); font-size: 14px;
+    transition: left .2s ease, background .15s;
+    box-shadow: 0 1px 4px rgba(0,0,0,.25);
+}
+.sidebar-toggle:hover { background: var(--navy3); color: #fff; }
+.sidebar.collapsed ~ .main-area .sidebar-toggle,
+.sidebar-toggle.shifted { left: 228px; }
+
 /* ── Main area ─────────────────────────────────────────────────────────── */
 .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
+/* ── Sticky dual scrollbar ─────────────────────────────────────────────── */
+.scroll-wrapper { overflow-x: auto; }
+.scroll-top-bar { overflow-x: auto; overflow-y: hidden; }
+.scroll-top-bar > div { height: 1px; }
+
 .topbar { background: #fff; border-bottom: 1px solid var(--gray3);
-          padding: 0 24px; height: 52px; display: flex;
+          padding: 0 24px 0 56px; height: 52px; display: flex;
           align-items: center; justify-content: space-between; flex-shrink: 0; }
 .topbar-title { font-size: 15px; font-weight: 600; color: var(--text); }
 .topbar-path  { font-size: 11.5px; color: var(--text3); margin-top: 1px; }
@@ -289,3 +310,22 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .row-condemned td { background: #fee2e2 !important; color: #b91c1c; }
 .text-danger { color: var(--red) !important; }
 
+
+/* ── Sticky frozen columns ─────────────────────────────────────────────── */
+.sticky-col { position: sticky; background: #fff; z-index: 2; }
+.sticky-col-1 { left: 36px; }
+.sticky-col-2 { left: 101px; }
+.sticky-col-3 { left: 231px; }
+.sticky-col-4 { left: 321px; }
+thead .sticky-col { background: var(--gray2); z-index: 3; }
+.row-condemned .sticky-col { background: #fef2f2; }
+.selected-row   .sticky-col { background: #eff6ff; }
+
+/* Shadow on last frozen col */
+.sticky-col-4::after {
+    content: '';
+    position: absolute; top: 0; right: -4px; bottom: 0;
+    width: 4px;
+    background: linear-gradient(to right, rgba(0,0,0,.06), transparent);
+    pointer-events: none;
+}

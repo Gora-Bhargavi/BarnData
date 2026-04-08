@@ -214,14 +214,66 @@ namespace BarnData.Web.Models
 
     public class PendingAnimalRow
     {
-        public int     ControlNo   { get; set; }
-        public string  VendorName  { get; set; } = string.Empty;
-        public string  Tag1        { get; set; } = string.Empty;
-        public string? Tag2        { get; set; }
-        public string  AnimalType  { get; set; } = string.Empty;
-        public decimal LiveWeight  { get; set; }
-        public string  PurchaseType{ get; set; } = string.Empty;
-        public DateTime PurchaseDate{ get; set; }
-        public bool    Selected    { get; set; }
+        public int      ControlNo    { get; set; }
+        public string   VendorName   { get; set; } = string.Empty;
+        public string   Tag1         { get; set; } = string.Empty;
+        public string?  Tag2         { get; set; }
+        public string?  Tag3         { get; set; }
+        public string   AnimalType   { get; set; } = string.Empty;
+        public string?  AnimalType2  { get; set; }
+        public decimal  LiveWeight   { get; set; }
+        public decimal  LiveRate     { get; set; }
+        public string   PurchaseType { get; set; } = string.Empty;
+        public DateTime PurchaseDate { get; set; }
+        public string?  AnimalControlNumber { get; set; }
+        public string?  Comment      { get; set; }
+        public string?  State        { get; set; }
+        public string?  BuyerName    { get; set; }
+        public string?  VetName      { get; set; }
+        public string?  OfficeUse2   { get; set; }
+        public string   ProgramCode  { get; set; } = string.Empty;
+        public bool     Selected     { get; set; }
+        // Editable kill fields
+        public decimal? HotWeight    { get; set; }
+        public string?  Grade        { get; set; }
+        public int?     HealthScore  { get; set; }
+        public bool     IsCondemned  { get; set; }
+    }
+
+    // ── Excel Import view models ───────────────────────────────────────────
+    public class ExcelImportViewModel
+    {
+        public string? FileName { get; set; }
+        public int TotalRows   { get; set; }
+        public List<ExcelPreviewRow> Rows { get; set; } = new();
+        public List<string> Errors        { get; set; } = new();
+    }
+
+    public class ExcelPreviewRow
+    {
+        public int      RowNum             { get; set; }
+        public string   VendorName         { get; set; } = string.Empty;
+        public string   TagNumber1         { get; set; } = string.Empty;
+        public string?  TagNumber2         { get; set; }
+        public string?  Tag3               { get; set; }
+        public string   AnimalType         { get; set; } = string.Empty;
+        public string?  AnimalType2        { get; set; }
+        public string   PurchaseType       { get; set; } = string.Empty;
+        public DateTime PurchaseDate       { get; set; }
+        public decimal  LiveWeight         { get; set; }
+        public decimal  LiveRate           { get; set; }
+        public DateTime? KillDate          { get; set; }
+        public decimal? HotWeight          { get; set; }
+        public string?  Grade              { get; set; }
+        public int?     HealthScore        { get; set; }
+        public string?  Comment            { get; set; }
+        public string?  AnimalControlNumber{ get; set; }
+        public string?  OfficeUse2         { get; set; }
+        public string?  State              { get; set; }
+        public string?  BuyerName          { get; set; }
+        public string?  VetName            { get; set; }
+        public bool     IsCondemned        { get; set; }
+        public string   Status             { get; set; } = "OK"; // OK / Duplicate / Error
+        public string?  StatusNote         { get; set; }
     }
 }

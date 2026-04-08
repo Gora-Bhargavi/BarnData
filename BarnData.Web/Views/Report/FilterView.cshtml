@@ -1,0 +1,252 @@
+@model IEnumerable<BarnData.Data.Entities.Animal>
+@{
+    ViewData["Title"]    = "Filter view";
+    ViewData["Subtitle"] = "Search all animal records by any combination of filters";
+    var vendorId      = ViewBag.VendorId as int?;
+    var status        = ViewBag.Status as string ?? "all";
+    var killDateFrom  = ViewBag.KillDateFrom as string;
+    var killDateTo    = ViewBag.KillDateTo as string;
+    var purchDateFrom = ViewBag.PurchDateFrom as string;
+    var purchDateTo   = ViewBag.PurchDateTo as string;
+    bool hasFilter    = (bool)ViewBag.HasFilter;
+}
+
+<!-- Filter bar -->
+<div style="background:#fff;border:1px solid var(--gray3);border-radius:var(--radius2);padding:14px 16px;margin-bottom:16px">
+    <form method="get" asp-action="FilterView">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
+            <!-- Vendor -->
+            <div class="filter-field">
+                <label>Vendor</label>
+                <select name="vendorId" class="form-control-sm" style="width:100%">
+                    <option value="">— All vendors —</option>
+                    @foreach (var item in (IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)ViewBag.VendorList)
+                    {
+                        if (item.Value == vendorId?.ToString())
+                        { <option value="@item.Value" selected>@item.Text</option> }
+                        else
+                        { <option value="@item.Value">@item.Text</option> }
+                    }
+                </select>
+            </div>
+            <!-- Status -->
+            <div class="filter-field">
+                <label>Status</label>
+                <select name="status" class="form-control-sm" style="width:100%">
+                    <option value="all" selected="@(status == "all" ? "selected" : null)">— All statuses —</option>
+                    <option value="Pending" selected="@(status == "Pending" ? "selected" : null)">Pending</option>
+                    <option value="Killed" selected="@(status == "Killed" ? "selected" : null)">Killed</option>
+                    <option value="Verified" selected="@(status == "Verified" ? "selected" : null)">Verified</option>
+                    <option value="Flagged" selected="@(status == "Flagged" ? "selected" : null)">Flagged / deleted</option>
+                </select>
+            </div>
+            <!-- spacer -->
+            <div></div>
+            <!-- Kill date range -->
+            <div class="filter-field">
+                <label>Kill date — from</label>
+                <input type="date" name="killDateFrom" value="@killDateFrom" class="form-control-sm" style="width:100%" />
+            </div>
+            <div class="filter-field">
+                <label>Kill date — to</label>
+                <input type="date" name="killDateTo" value="@killDateTo" class="form-control-sm" style="width:100%" />
+            </div>
+            <div></div>
+            <!-- Purchase date range -->
+            <div class="filter-field">
+                <label>Purchase date — from</label>
+                <input type="date" name="purchDateFrom" value="@purchDateFrom" class="form-control-sm" style="width:100%" />
+            </div>
+            <div class="filter-field">
+                <label>Purchase date — to</label>
+                <input type="date" name="purchDateTo" value="@purchDateTo" class="form-control-sm" style="width:100%" />
+            </div>
+            <div></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+            <button type="submit" class="btn btn-primary">Apply filters</button>
+            <a asp-action="FilterView" class="btn btn-secondary">Clear all</a>
+            <div style="flex:1"></div>
+            @if (hasFilter && Model.Any())
+            {
+                <a asp-action="ExportFilterExcel"
+                   asp-route-vendorId="@vendorId"
+                   asp-route-status="@status"
+                   asp-route-killDateFrom="@killDateFrom"
+                   asp-route-killDateTo="@killDateTo"
+                   asp-route-purchDateFrom="@purchDateFrom"
+                   asp-route-purchDateTo="@purchDateTo"
+                   class="btn btn-primary">↓ Export Excel</a>
+                <a asp-action="ExportFilterPdf"
+                   asp-route-vendorId="@vendorId"
+                   asp-route-status="@status"
+                   asp-route-killDateFrom="@killDateFrom"
+                   asp-route-killDateTo="@killDateTo"
+                   asp-route-purchDateFrom="@purchDateFrom"
+                   asp-route-purchDateTo="@purchDateTo"
+                   class="btn btn-secondary">↓ Export PDF</a>
+            }
+            <a asp-action="Tally" class="btn btn-secondary">← Nightly tally</a>
+        </div>
+    </form>
+</div>
+
+@if (!hasFilter)
+{
+    <div class="empty-state">
+        <div class="empty-title">Choose filters above</div>
+        <div class="empty-sub">Select at least one filter and click Apply filters to see results.</div>
+    </div>
+}
+else
+{
+    <!-- Summary strip -->
+    <div class="summary-strip" style="margin-bottom:16px">
+        <div class="summary-stat">
+            <div class="summary-val">@ViewBag.TotalCount</div>
+            <div class="summary-lbl">Total animals</div>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-stat">
+            <div class="summary-val" style="color:var(--green)">@ViewBag.TotalKilled</div>
+            <div class="summary-lbl">Killed</div>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-stat">
+            <div class="summary-val" style="color:var(--amber)">@ViewBag.TotalPending</div>
+            <div class="summary-lbl">Pending</div>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-stat">
+            <div class="summary-val" style="color:var(--red)">@ViewBag.TotalCondemned</div>
+            <div class="summary-lbl">Condemned</div>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-stat">
+            <div class="summary-val">@(((decimal)ViewBag.TotalLiveWt).ToString("N0"))</div>
+            <div class="summary-lbl">Total live wt (lbs)</div>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-stat">
+            <div class="summary-val">@(((decimal)ViewBag.TotalHotWt).ToString("N0"))</div>
+            <div class="summary-lbl">Total hot wt (lbs)</div>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-stat">
+            <div class="summary-val">$@(((decimal)ViewBag.TotalCost).ToString("N2"))</div>
+            <div class="summary-lbl">Total cost</div>
+        </div>
+    </div>
+
+    @if (!Model.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-title">No records match these filters</div>
+            <div class="empty-sub">Try different filter values.</div>
+        </div>
+    }
+    else
+    {
+        <div class="table-card" style="overflow-x:auto">
+            <div id="scrollTop2" style="overflow-x:auto;overflow-y:hidden;border-bottom:1px solid var(--gray3)">
+                <div id="scrollTopInner2" style="height:1px"></div>
+            </div>
+            <div id="scrollMain2" style="overflow-x:auto">
+                <table class="data-table" id="mainTable2" style="min-width:2300px;font-size:12px;">
+                    <thead>
+                        <tr>
+                            <th class="sticky-col" style="min-width:70px;left:0">Ctrl No.</th>
+                            <th class="sticky-col" style="min-width:130px;left:70px">Vendor</th>
+                            <th class="sticky-col" style="min-width:90px;left:200px">Tag 1</th>
+                            <th style="min-width:90px">Tag 2</th>
+                            <th style="min-width:100px">Animal Type</th>
+                            <th style="min-width:80px">Status</th>
+                            <th style="min-width:100px">Purchase Type</th>
+                            <th style="min-width:100px">Purchase Date</th>
+                            <th style="min-width:95px">Kill Date</th>
+                            <th class="text-right" style="min-width:75px">Live Wt</th>
+                            <th class="text-right" style="min-width:75px">Live Rate</th>
+                            <th class="text-right" style="min-width:75px">Hot Wt</th>
+                            <th style="min-width:55px">Grade</th>
+                            <th style="min-width:40px">HS</th>
+                            <th style="min-width:160px">Comments</th>
+                            <th style="min-width:115px">Animal Ctrl No.</th>
+                            <th style="min-width:70px">Tag 3</th>
+                            <th style="min-width:120px">Office Use 2</th>
+                            <th style="min-width:45px">State</th>
+                            <th style="min-width:100px">Buyer</th>
+                            <th style="min-width:100px">Animal Type 2</th>
+                            <th style="min-width:100px">Vet Name</th>
+                            <th style="min-width:80px">Condemned</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in Model)
+                        {
+                            <tr class="@(a.IsCondemned ? "row-condemned" : "")">
+                                <td class="mono sticky-col" style="left:0">@a.ControlNo</td>
+                                <td class="sticky-col" style="left:70px;font-weight:500">@(a.Vendor?.VendorName ?? "—")</td>
+                                <td class="mono sticky-col" style="left:200px">@a.TagNumber1</td>
+                                <td class="mono">@(a.TagNumber2 ?? "—")</td>
+                                <td>@a.AnimalType</td>
+                                <td>
+                                    <span class="badge badge-status-@a.KillStatus.ToLower()">@a.KillStatus</span>
+                                </td>
+                                <td><span class="badge @(a.PurchaseType == "Consignment Bill" ? "badge-cons" : "badge-sale")">@(a.PurchaseType == "Consignment Bill" ? "Cons." : "Sale")</span></td>
+                                <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
+                                <td>@(a.KillDate.HasValue ? a.KillDate.Value.ToString("MM/dd/yyyy") : "—")</td>
+                                <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
+                                <td class="text-right mono">$@a.LiveRate.ToString("N4")</td>
+                                <td class="text-right mono">@(a.HotWeight?.ToString("N1") ?? "—")</td>
+                                <td><span class="badge badge-grade">@(a.Grade ?? "—")</span></td>
+                                <td class="text-center">@(a.HealthScore?.ToString() ?? "—")</td>
+                                <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.Comment">@(a.Comment ?? "—")</td>
+                                <td class="mono">@(a.AnimalControlNumber ?? "—")</td>
+                                <td class="mono">@(a.Tag3 ?? "—")</td>
+                                <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.OfficeUse2">@(a.OfficeUse2 ?? "—")</td>
+                                <td>@(a.State ?? "—")</td>
+                                <td>@(a.BuyerName ?? "—")</td>
+                                <td>@(a.AnimalType2 ?? "—")</td>
+                                <td>@(a.VetName ?? "—")</td>
+                                <td>
+                                    @if (a.IsCondemned)
+                                    { <span class="badge" style="background:var(--red-bg);color:var(--red)">Yes</span> }
+                                    else
+                                    { <span style="color:var(--gray5)">—</span> }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr class="table-total-row">
+                            <td colspan="9" class="text-right total-label">Totals</td>
+                            <td class="text-right mono">@Model.Sum(a => a.LiveWeight).ToString("N1")</td>
+                            <td></td>
+                            <td class="text-right mono">@Model.Sum(a => a.HotWeight ?? 0).ToString("N1")</td>
+                            <td colspan="11"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    }
+}
+
+@section Scripts {
+<style>
+    .badge-sale { background:#dbeafe; color:#1e40af; }
+    .badge-cons { background:#fef3c7; color:#92400e; }
+</style>
+<script>
+(function() {
+    var top  = document.getElementById('scrollTop2');
+    var main = document.getElementById('scrollMain2');
+    var tbl  = document.getElementById('mainTable2');
+    if (!top || !main || !tbl) return;
+    document.getElementById('scrollTopInner2').style.width = tbl.offsetWidth + 'px';
+    var syncing = false;
+    top.addEventListener('scroll', function() { if (syncing) return; syncing = true; main.scrollLeft = top.scrollLeft; syncing = false; });
+    main.addEventListener('scroll', function() { if (syncing) return; syncing = true; top.scrollLeft = main.scrollLeft; syncing = false; });
+})();
+</script>
+}
