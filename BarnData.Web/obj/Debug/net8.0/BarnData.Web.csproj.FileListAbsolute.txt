@@ -155,3 +155,8 @@ C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Debug\net8.0\Microsoft.Extens
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Debug\net8.0\Microsoft.Extensions.Logging.Abstractions.dll
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Debug\net8.0\Microsoft.Extensions.Options.dll
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Debug\net8.0\System.ClientModel.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Debug\net8.0\publish\web.config
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Debug\net8.0\publish\appsettings.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Debug\net8.0\publish\BarnData.Web.deps.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Debug\net8.0\publish\BarnData.Web.runtimeconfig.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Debug\net8.0\publish\BarnData.Web.staticwebassets.endpoints.json
