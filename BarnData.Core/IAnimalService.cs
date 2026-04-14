@@ -14,13 +14,14 @@ namespace BarnData.Core.Services
         Task<(int Imported, int Skipped, List<string> Errors)> BulkImportAsync(IEnumerable<Animal> animals);
         Task<int> MarkKilledAsync(IEnumerable<int> controlNos, DateTime killDate);
         Task<int> MarkKilledWithDataAsync(IEnumerable<KillAnimalData> animalData, DateTime killDate);
+        Task<int> SaveKillDataAsync(IEnumerable<KillAnimalData> animalData);
         Task<(bool Success, string ErrorMessage)> UpdateAsync(Animal animal);
         Task<bool> DeleteAsync(int controlNo);
         Task<TallySummary> GetTallySummaryAsync(DateTime killDate, int? vendorId = null);
         Task<IEnumerable<Animal>> GetFilteredAsync(ExportFilter filter);
     }
 
-    // ── Per-animal kill data ───────────────────────────────────────────────
+    //  Per-animal kill data 
     public class KillAnimalData
     {
         public int      ControlNo   { get; set; }
@@ -28,6 +29,12 @@ namespace BarnData.Core.Services
         public string?  Grade       { get; set; }
         public int?     HealthScore { get; set; }
         public bool     IsCondemned { get; set; }
+
+        public string? AnimalControlNumber {get; set;}
+
+        public DateTime? KillDate { get; set; }
+
+        public decimal? LiveWeight {get; set;}
     }
 
     public class TallySummary

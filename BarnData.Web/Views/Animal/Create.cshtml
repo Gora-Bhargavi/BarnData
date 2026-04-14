@@ -2,60 +2,442 @@
 @{
     ViewData["Title"]    = "New animal record";
     ViewData["Subtitle"] = "Enter all required fields to save the record";
-    // Check if this is a "sticky" return (after Save & Add Another)
     var isSticky = TempData["StickyVendorId"] != null;
 }
 
 @if (isSticky)
 {
-    <div class="alert alert-success" style="margin-bottom:14px">
-        <strong>Record saved!</strong> Sticky fields (vendor, purchase type, dates, rate) have been kept.
-        Just enter the new tag number and live weight.
+    <div class="alert alert-success" style="margin-bottom:10px">
+        <strong>Record saved!</strong> Sticky fields kept — enter the new tag and live weight.
     </div>
 }
 
-<form method="post" asp-action="Create" novalidate>
-    @Html.AntiForgeryToken()
+<div style="display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start">
 
-    @await Html.PartialAsync("_AnimalForm", Model)
+    <!-- ── LEFT: FORM ──────────────────────────────────────────────────── -->
+    <div>
+        <form method="post" asp-action="Create" novalidate id="animalForm">
+            @Html.AntiForgeryToken()
 
-    <div class="form-actions">
-        <button type="submit" name="saveAndAdd" value="1" class="btn btn-secondary">
-            Save &amp; add another
-        </button>
-        <button type="submit" class="btn btn-primary">
-            Save and go to list
-        </button>
-        <a asp-action="Index" asp-route-status="pending" class="btn btn-ghost">Cancel</a>
-        <span class="form-actions-note">
-            <strong>Save &amp; add another</strong> keeps vendor, purchase type, dates and rate for next record
-        </span>
+            <div asp-validation-summary="ModelOnly" class="alert alert-error" style="margin-bottom:10px"></div>
+
+            @if (Model.ShowWeightWarning)
+            {
+                <div class="alert alert-warn" style="margin-bottom:10px">
+                    <strong>Weight outside normal range.</strong>
+                    @Model.LiveWeight lbs is outside 300–2,500 lbs. Confirm below to save.
+                </div>
+            }
+
+            <!-- ── SECTION A: VENDOR & PURCHASE ────────────────────────── -->
+            <div class="form-section" style="margin-bottom:8px;padding:12px 14px">
+                <div class="form-section-title">Vendor &amp; purchase</div>
+                <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px 12px">
+
+                    <div class="field" style="position:relative">
+                        <label class="field-label">Vendor <span class="req">*</span></label>
+                        <input type="hidden" asp-for="VendorID" id="vendorIdHidden" />
+                        <input type="hidden" name="VendorNameFreeText" id="vendorNameFreeText" />
+                        <input type="text" id="vendorSearch" class="form-control"
+                               placeholder="Search or enter new..." autocomplete="off" />
+                        <div id="vendorDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--gray3);border-top:none;border-radius:0 0 6px 6px;max-height:200px;overflow-y:auto;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.1)"></div>
+                        <span asp-validation-for="VendorID" class="field-error"></span>
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="PurchaseType" class="field-label">Type <span class="req">*</span></label>
+                        <select asp-for="PurchaseType" asp-items="Model.PurchaseTypeList"
+                                class="form-control" id="purchaseTypeSelect">
+                            <option value="">— Select —</option>
+                        </select>
+                        <span asp-validation-for="PurchaseType" class="field-error"></span>
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="PurchaseDate" class="field-label">Purchase date <span class="req">*</span></label>
+                        <input asp-for="PurchaseDate" type="date" class="form-control" />
+                        <span asp-validation-for="PurchaseDate" class="field-error"></span>
+                    </div>
+
+                    <div class="field" id="consignmentFields" style="display:none">
+                        <label asp-for="Origin" class="field-label">Origin</label>
+                        <select asp-for="Origin" asp-items="Model.OriginList" class="form-control"></select>
+                    </div>
+                </div>
+
+                <div id="costPreview" style="margin-top:6px;padding:5px 10px;background:var(--blue-light);border-radius:4px;font-size:12px;display:none">
+                    Est. cost: <strong id="costPreviewVal">$0.00</strong>
+                </div>
+            </div>
+
+            <!-- ── SECTION B: TAGS ──────────────────────────────────────── -->
+            <div class="form-section" style="margin-bottom:8px;padding:12px 14px">
+                <div class="form-section-title">Tag identification</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px 12px">
+
+                    <div class="field">
+                        <label asp-for="TagNumber1" class="field-label">Tag 1 <span class="req">*</span></label>
+                        <input asp-for="TagNumber1" type="text" class="form-control"
+                               id="tag1Input" placeholder="Primary tag" autocomplete="off" />
+                        <div id="tag1Feedback" class="field-hint"></div>
+                        <span asp-validation-for="TagNumber1" class="field-error"></span>
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="TagNumber2" class="field-label">Tag 2</label>
+                        <input asp-for="TagNumber2" type="text" class="form-control" placeholder="Secondary" />
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="Tag3" class="field-label">Tag 3</label>
+                        <input asp-for="Tag3" type="text" class="form-control" placeholder="Optional" />
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="AnimalControlNumber" class="field-label">Animal ctrl no.</label>
+                        <input asp-for="AnimalControlNumber" type="text" class="form-control" placeholder="Ext. ref." />
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- ── SECTION C: ANIMAL & WEIGHT ───────────────────────────── -->
+            <div class="form-section" style="margin-bottom:8px;padding:12px 14px">
+                <div class="form-section-title">Animal &amp; weight</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr 1fr;gap:8px 12px">
+
+                    <div class="field">
+                        <label asp-for="AnimalType" class="field-label">Animal type <span class="req">*</span></label>
+                        <select asp-for="AnimalType" asp-items="Model.AnimalTypeList" class="form-control">
+                            <option value="">— Select —</option>
+                        </select>
+                        <span asp-validation-for="AnimalType" class="field-error"></span>
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="AnimalType2" class="field-label">Animal type 2</label>
+                        <input asp-for="AnimalType2" type="text" class="form-control" placeholder="e.g. Non-amb." />
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="ProgramCode" class="field-label">Program <span class="req">*</span></label>
+                        <select asp-for="ProgramCode" asp-items="Model.ProgramCodeList" class="form-control"></select>
+                        <span asp-validation-for="ProgramCode" class="field-error"></span>
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="KillDate" class="field-label">Kill date</label>
+                        <input asp-for="KillDate" type="date" class="form-control" id="killDateInput" />
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="LiveWeight" class="field-label">Live wt (lbs)</label>
+                        <input asp-for="LiveWeight" type="number" step="0.1" class="form-control"
+                               id="liveWeightInput" placeholder="1485.0" />
+                        <span asp-validation-for="LiveWeight" class="field-error"></span>
+                    </div>
+
+                    <div class="field" id="liveRateField">
+                        <label asp-for="LiveRate" class="field-label">Live rate ($/lb) <span class="req sale-req">*</span></label>
+                        <input asp-for="LiveRate" type="number" step="0.0001" class="form-control" placeholder="1.9500" />
+                        <span asp-validation-for="LiveRate" class="field-error"></span>
+                    </div>
+
+                    <div class="field" id="consRateField" style="display:none">
+                        <label asp-for="ConsignmentRate" class="field-label">Cons. rate ($/lb hw)</label>
+                        <input asp-for="ConsignmentRate" type="number" step="0.0001" class="form-control" placeholder="3.0000" />
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="HotWeight" class="field-label">Hot wt (lbs)</label>
+                        <input asp-for="HotWeight" type="number" step="0.1" class="form-control"
+                               id="hotWeightInput" placeholder="Scale ticket" />
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="FetalBlood" class="field-label">Fetal blood</label>
+                        <input asp-for="FetalBlood" type="number" step="0.01" class="form-control" placeholder="If applicable" />
+                    </div>
+
+                </div>
+
+                @if (Model.ShowWeightWarning)
+                {
+                    <div class="field" style="margin-top:8px">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="WeightWarningConfirmed" value="true"
+                                   @(Model.WeightWarningConfirmed ? "checked" : "") />
+                            I confirm @Model.LiveWeight lbs is correct
+                        </label>
+                    </div>
+                }
+                else
+                {
+                    <input type="hidden" name="WeightWarningConfirmed" value="false" />
+                }
+            </div>
+
+            <!-- ── SECTION D: GRADING & OFFICE ─────────────────────────── -->
+            <div class="form-section" style="margin-bottom:8px;padding:12px 14px">
+                <div class="form-section-title">Grading &amp; office</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:8px 12px">
+
+                    <div class="field">
+                        <label asp-for="Grade" class="field-label">Grade</label>
+                        <label asp-for="State" class="field-label">State</label>
+                        <input asp-for="State" type="text" class="form-control" maxlength="2" placeholder="2-letter" />
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="BuyerName" class="field-label">Buyer</label>
+                        <input asp-for="BuyerName" type="text" class="form-control" placeholder="Buyer name" />
+                    </div>
+
+                    <div class="field">
+                        <label asp-for="VetName" class="field-label">Vet name</label>
+                        <input asp-for="VetName" type="text" class="form-control" placeholder="If condemned" />
+                    </div>
+
+                    <div class="field" style="grid-column:span 4">
+                        <label asp-for="Comment" class="field-label">Comment</label>
+                        <input asp-for="Comment" type="text" class="form-control"
+                               placeholder="FB=fetal blood, rt=retag, HT=heavy hind, COND=condemned" />
+                    </div>
+
+                    <div class="field" style="grid-column:span 2">
+                        <label asp-for="OfficeUse2" class="field-label">Office use 2</label>
+                        <input asp-for="OfficeUse2" type="text" class="form-control" placeholder="Internal notes" />
+                    </div>
+
+                    <div class="field" style="grid-column:span 2;display:flex;align-items:flex-end;padding-bottom:4px">
+                        <label class="checkbox-label">
+                            <input asp-for="IsCondemned" type="checkbox" />
+                            Mark as condemned
+                        </label>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- ── ACTIONS ───────────────────────────────────────────────── -->
+            <div class="form-actions">
+                <button type="submit" name="saveAndAdd" value="1" class="btn btn-secondary">
+                    Save &amp; add another
+                </button>
+                <button type="submit" class="btn btn-primary">Save and go to list</button>
+                <a asp-action="Index" asp-route-status="pending" class="btn btn-ghost">Cancel</a>
+            </div>
+
+        </form>
     </div>
-</form>
+
+    <!-- ── RIGHT: LIVE PREVIEW PANEL ─────────────────────────────────────── -->
+    <div id="previewPanel" style="position:sticky;top:16px">
+        <div style="background:#fff;border:1px solid var(--gray3);border-radius:var(--radius2);overflow:hidden">
+            <!-- Header -->
+            <div style="background:var(--navy);padding:10px 14px;display:flex;justify-content:space-between;align-items:center">
+                <div style="color:#fff;font-size:12px;font-weight:600">Session records</div>
+                <div id="previewCount" style="background:var(--blue);color:#fff;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px">0</div>
+            </div>
+            <!-- Vendor summary -->
+            <div id="previewVendorBar" style="padding:8px 14px;border-bottom:1px solid var(--gray3);font-size:12px;color:var(--text3);display:none">
+                <span id="previewVendorName" style="font-weight:500;color:var(--text)"></span>
+                <span id="previewVendorCount" style="color:var(--text3)"></span>
+            </div>
+            <!-- Empty state -->
+            <div id="previewEmpty" style="padding:24px 14px;text-align:center;color:var(--text3);font-size:12px">
+                <div style="font-size:24px;margin-bottom:6px">📋</div>
+                Records saved this session<br>will appear here
+            </div>
+            <!-- Records list -->
+            <div id="previewList" style="max-height:420px;overflow-y:auto"></div>
+            <!-- Totals -->
+            <div id="previewTotals" style="display:none;padding:8px 14px;border-top:1px solid var(--gray3);background:var(--gray1);font-size:11.5px">
+                <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+                    <span style="color:var(--text3)">Animals</span>
+                    <span id="totalCount" style="font-weight:600">0</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+                    <span style="color:var(--text3)">Total live wt</span>
+                    <span id="totalLiveWt" style="font-weight:600;font-family:monospace">0.0 lbs</span>
+                </div>
+                <div style="display:flex;justify-content:space-between">
+                    <span style="color:var(--text3)">Est. cost</span>
+                    <span id="totalCost" style="font-weight:600;font-family:monospace">$0.00</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
 
 @section Scripts {
-    <script src="~/js/animal-form.js"></script>
-    <script>
-        const CONTROL_NO    = 0;
-        const CHECK_TAG_URL = '@Url.Action("CheckTag", "Animal")';
+<script src="~/js/animal-form.js"></script>
+<script>
+const CONTROL_NO    = 0;
+const CHECK_TAG_URL = '@Url.Action("CheckTag", "Animal")';
 
-        // Restore vendor search text if coming back from Save & Add Another
-        @if (Model.VendorID > 0 && Model.VendorList.Any())
-        {
-            var vendorItem = Model.VendorList.FirstOrDefault(v => v.Value == Model.VendorID.ToString());
-            if (vendorItem != null)
-            {
-                <text>
-                document.addEventListener('DOMContentLoaded', function() {
-                    var vs = document.getElementById('vendorSearch');
-                    var vi = document.getElementById('vendorIdHidden');
-                    if (vs && vi) {
-                        vs.value = '@vendorItem.Text';
-                        vi.value = '@vendorItem.Value';
-                    }
-                });
-                </text>
-            }
+@if (Model.VendorID > 0 && Model.VendorList.Any())
+{
+    var vendorItem = Model.VendorList.FirstOrDefault(v => v.Value == Model.VendorID.ToString());
+    if (vendorItem != null)
+    {
+        <text>
+        document.addEventListener('DOMContentLoaded', function() {
+            var vs = document.getElementById('vendorSearch');
+            var vi = document.getElementById('vendorIdHidden');
+            if (vs && vi) { vs.value = '@vendorItem.Text'; vi.value = '@vendorItem.Value'; }
+        });
+        </text>
+    }
+}
+
+// ── Session preview ───────────────────────────────────────────────────────
+var sessionRecords = JSON.parse(sessionStorage.getItem('barnSessionRecords') || '[]');
+
+// Last saved record — injected directly from server TempData (reliable)
+@{
+    var lastCN       = TempData["LastSavedControlNo"];
+    var lastTag      = TempData["LastSavedTag1"] as string ?? "";
+    var lastVendorId = TempData["LastSavedVendorId"];
+    var lastLiveWt   = TempData["LastSavedLiveWt"] as string ?? "0";
+    var lastLiveRate = TempData["LastSavedLiveRate"] as string ?? "0";
+    var lastType     = TempData["LastSavedAnimalType"] as string ?? "";
+    string lastVendorName = "";
+    if (lastVendorId != null && Model.VendorList.Any())
+    {
+        var vi = Model.VendorList.FirstOrDefault(v => v.Value == lastVendorId.ToString());
+        if (vi != null) lastVendorName = vi.Text;
+    }
+    decimal lw = 0, lr = 0;
+    decimal.TryParse(lastLiveWt, out lw);
+    decimal.TryParse(lastLiveRate, out lr);
+    var lastCost = (lw * lr).ToString("F2");
+    bool hasLastSaved = lastCN != null && !string.IsNullOrEmpty(lastTag);
+}
+@if (hasLastSaved)
+{
+    <text>
+var lastSaved = {
+    controlNo: @lastCN,
+    tag1: "@Html.Raw(lastTag.Replace("\"","\\\""))",
+    vendor: "@Html.Raw(lastVendorName.Replace("\"","\\\""))",
+    liveWt: "@lastLiveWt",
+    liveRate: "@lastLiveRate",
+    type: "@Html.Raw(lastType.Replace("\"","\\\""))",
+    cost: "@lastCost"
+};
+    </text>
+}
+else
+{
+    <text>
+var lastSaved = null;
+    </text>
+}
+
+function renderPreview() {
+    var list  = document.getElementById('previewList');
+    var empty = document.getElementById('previewEmpty');
+    var tots  = document.getElementById('previewTotals');
+    var vBar  = document.getElementById('previewVendorBar');
+    var cnt   = document.getElementById('previewCount');
+
+    cnt.textContent = sessionRecords.length;
+
+    if (!sessionRecords.length) {
+        empty.style.display = ''; list.innerHTML = ''; tots.style.display = 'none';
+        vBar.style.display = 'none'; return;
+    }
+
+    empty.style.display = 'none';
+    tots.style.display  = '';
+
+    // Vendor summary
+    var vendors = {};
+    sessionRecords.forEach(function(r) {
+        vendors[r.vendor] = (vendors[r.vendor] || 0) + 1;
+    });
+    var vendorNames = Object.keys(vendors);
+    if (vendorNames.length === 1) {
+        vBar.style.display = '';
+        document.getElementById('previewVendorName').textContent = vendorNames[0];
+        document.getElementById('previewVendorCount').textContent = ' — ' + vendors[vendorNames[0]] + ' record' + (vendors[vendorNames[0]] !== 1 ? 's' : '');
+    } else {
+        vBar.style.display = '';
+        document.getElementById('previewVendorName').textContent = vendorNames.length + ' vendors';
+        document.getElementById('previewVendorCount').textContent = ' — ' + sessionRecords.length + ' total';
+    }
+
+    // Totals
+    var totalLw = sessionRecords.reduce(function(s,r){ return s + (parseFloat(r.liveWt)||0); }, 0);
+    var totalCost = sessionRecords.reduce(function(s,r){ return s + (parseFloat(r.cost)||0); }, 0);
+    document.getElementById('totalCount').textContent  = sessionRecords.length;
+    document.getElementById('totalLiveWt').textContent = totalLw.toFixed(1) + ' lbs';
+    document.getElementById('totalCost').textContent   = '$' + totalCost.toFixed(2);
+
+    // Row list
+    list.innerHTML = sessionRecords.slice().reverse().map(function(r, i) {
+        var idx = sessionRecords.length - 1 - i;
+        var editUrl = r.controlNo ? '/Animal/Edit/' + r.controlNo : null;
+        return '<div style="padding:7px 14px;border-bottom:1px solid var(--gray3);font-size:11.5px;' +
+               (i === 0 ? 'background:#eff6ff;' : '') + '">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">' +
+                (editUrl
+                    ? '<a href="' + editUrl + '" style="font-weight:600;font-family:monospace;color:var(--blue);text-decoration:none;border-bottom:1px dashed var(--blue)" title="Click to edit this record">' + escHtml(r.tag1) + ' ✎</a>'
+                    : '<span style="font-weight:600;font-family:monospace;color:var(--blue)">' + escHtml(r.tag1) + '</span>') +
+                '<span style="color:var(--text3);font-size:10px">#' + (idx+1) + '</span>' +
+            '</div>' +
+            '<div style="display:flex;gap:8px;color:var(--text3)">' +
+                '<span>' + escHtml(r.vendor || '—') + '</span>' +
+                '<span>·</span>' +
+                '<span>' + (r.liveWt ? r.liveWt + ' lbs' : '—') + '</span>' +
+                (r.type ? '<span>·</span><span>' + escHtml(r.type) + '</span>' : '') +
+            '</div>' +
+        '</div>';
+    }).join('');
+}
+
+function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Add record to session on successful save (page reload with success message)
+@if (TempData["SuccessMessage"] != null && isSticky)
+{
+    <text>
+    // Extract details from success message or form to add last record
+    </text>
+}
+
+// Clear session records when navigating away (not save & add another)
+document.getElementById('animalForm').addEventListener('submit', function(e) {
+    var btn = e.submitter;
+    if (!btn || btn.name !== 'saveAndAdd') {
+        sessionStorage.removeItem('barnSessionRecords');
+    }
+});
+(function() {
+    if (@(isSticky ? "true" : "false") && lastSaved && lastSaved.tag1) {
+        // Avoid duplicates — check if controlNo already in session
+        var alreadyAdded = sessionRecords.some(function(r) {
+            return r.controlNo && r.controlNo === lastSaved.controlNo;
+        });
+        if (!alreadyAdded) {
+            sessionRecords.push(lastSaved);
+            sessionStorage.setItem('barnSessionRecords', JSON.stringify(sessionRecords));
         }
-    </script>
+    }
+    renderPreview();
+})();
+
+// Clear session records when navigating away (not save & add another)
+document.getElementById('animalForm').addEventListener('submit', function(e) {
+    var btn = e.submitter;
+    if (!btn || btn.name !== 'saveAndAdd') {
+        // Going to list — clear session
+        sessionStorage.removeItem('barnSessionRecords');
+    }
+});
+</script>
 }

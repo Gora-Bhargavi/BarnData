@@ -56,6 +56,10 @@ namespace BarnData.Web.Controllers
             ViewBag.TotalCount = animals.Count();
             ViewBag.TotalLiveWeight = animals.Sum(a => a.LiveWeight);
             ViewBag.TotalHotWeight  = animals.Sum(a => a.HotWeight ?? 0);
+            ViewBag.TotalCost = animals.Sum(a =>
+                (a.PurchaseType?.Contains("consignment", StringComparison.OrdinalIgnoreCase) ?? false)
+                    ? (a.HotWeight ?? 0m) * (a.ConsignmentRate ?? 0)
+                    : a.LiveWeight * a.LiveRate);
 
             return View(animals);
         }
@@ -128,7 +132,6 @@ namespace BarnData.Web.Controllers
             // Save & Add Another — carry sticky fields to the next form
             if (Request.Form.ContainsKey("saveAndAdd"))
             {
-                // Store sticky fields in TempData to pre-populate next form
                 TempData["StickyVendorId"]    = vm.VendorID;
                 TempData["StickyPurchaseType"]= vm.PurchaseType;
                 TempData["StickyPurchaseDate"]= vm.PurchaseDate.ToString("yyyy-MM-dd");
@@ -136,6 +139,12 @@ namespace BarnData.Web.Controllers
                 TempData["StickyLiveRate"]    = vm.LiveRate.ToString();
                 TempData["StickyConsRate"]    = vm.ConsignmentRate?.ToString();
                 TempData["StickyProgramCode"] = vm.ProgramCode;
+                TempData["LastSavedControlNo"] = animal.ControlNo;
+                TempData["LastSavedTag1"]      = animal.TagNumber1;
+                TempData["LastSavedVendorId"]  = vm.VendorID;
+                TempData["LastSavedLiveWt"]    = vm.LiveWeight.ToString();
+                TempData["LastSavedLiveRate"]  = vm.LiveRate.ToString();
+                TempData["LastSavedAnimalType"]= vm.AnimalType;
                 return RedirectToAction(nameof(CreateSticky));
             }
 
@@ -180,7 +189,7 @@ namespace BarnData.Web.Controllers
             return View("Create", vm);
         }
 
-        // ── EDIT GET — pre-filled form ────────────────────────────────────
+        //  EDIT GET — pre-filled form 
         public async Task<IActionResult> Edit(int id)
         {
             var animal = await _animalService.GetByControlNoAsync(id);
@@ -191,7 +200,7 @@ namespace BarnData.Web.Controllers
             return View(vm);
         }
 
-        // ── EDIT POST — save changes ──────────────────────────────────────
+        //  EDIT POST — save changes 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, AnimalViewModel vm)
@@ -237,7 +246,7 @@ namespace BarnData.Web.Controllers
                 new { killDate = vm.KillDate.HasValue ? vm.KillDate.Value.ToString("yyyy-MM-dd") : DateTime.Today.ToString("yyyy-MM-dd") });
         }
 
-        // ── DETAIL — read-only view ───────────────────────────────────────
+        //  DETAIL — read-only view 
         public async Task<IActionResult> Detail(int id)
         {
             var animal = await _animalService.GetByControlNoAsync(id);
@@ -246,7 +255,7 @@ namespace BarnData.Web.Controllers
             return View(animal);
         }
 
-        // ── DELETE POST — soft delete ─────────────────────────────────────
+        //  DELETE POST — soft delete 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(int id, string killDate)
@@ -256,7 +265,7 @@ namespace BarnData.Web.Controllers
             return RedirectToAction(nameof(Index), new { killDate });
         }
 
-        // ── VENDOR SEARCH — called via AJAX as user types ────────────────
+        //  VENDOR SEARCH — called via AJAX as user types
         [HttpGet]
         public async Task<IActionResult> SearchVendors(string term)
         {
@@ -270,7 +279,7 @@ namespace BarnData.Web.Controllers
             return Json(matches);
         }
 
-        // ── TAG DUPLICATE CHECK — called via AJAX on blur ─────────────────
+        //  TAG DUPLICATE CHECK — called via AJAX on blur 
         [HttpGet]
         public async Task<IActionResult> CheckTag(
             string tag1, int vendorId, int? controlNo = null)
@@ -284,7 +293,7 @@ namespace BarnData.Web.Controllers
             return Json(new { isDuplicate });
         }
 
-        // ── EXPORT EXCEL ──────────────────────────────────────────────────
+        //  EXPORT EXCEL 
         [HttpGet]
         public async Task<IActionResult> Export(
             int? vendorId, string? status,
@@ -368,7 +377,7 @@ namespace BarnData.Web.Controllers
                 fileName);
         }
 
-        // ── EXPORT PAGE (filter form) ─────────────────────────────────────
+        //  EXPORT PAGE (filter form) 
         public async Task<IActionResult> ExportPage()
         {
             var vendors = await _vendorService.GetAllActiveAsync();

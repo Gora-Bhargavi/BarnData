@@ -19,7 +19,7 @@ namespace BarnData.Core.Services
             _weightMax = config.GetValue<decimal>("AppSettings:LiveWeightMaxLbs", 2500);
         }
 
-        // ── Helper: load vendors and attach to animal list ─────────────────
+        //  Helper: load vendors and attach to animal list 
         private async Task AttachVendors(List<Animal> animals)
         {
             var ids = animals.Select(a => a.VendorID).Distinct().ToArray();
@@ -33,7 +33,7 @@ namespace BarnData.Core.Services
                 if (dict.TryGetValue(a.VendorID, out var v)) a.Vendor = v;
         }
 
-        // ── GetPendingAsync ───────────────────────────────────────────────
+        // GetPendingAsync 
         public async Task<IEnumerable<Animal>> GetPendingAsync(int? vendorId = null)
         {
             // Raw SQL to completely bypass EF Core translation issues
@@ -53,7 +53,7 @@ namespace BarnData.Core.Services
             return animals;
         }
 
-        // ── GetAllAsync ───────────────────────────────────────────────────
+        // GetAllAsync
         public async Task<IEnumerable<Animal>> GetAllAsync(int? vendorId = null)
         {
             var sql = vendorId.HasValue
@@ -73,7 +73,7 @@ namespace BarnData.Core.Services
             return animals;
         }
 
-        // ── GetByKillDateAsync ────────────────────────────────────────────
+        //  GetByKillDateAsync 
         public async Task<IEnumerable<Animal>> GetByKillDateAsync(
             DateTime killDate, int? vendorId = null)
         {
@@ -97,7 +97,7 @@ namespace BarnData.Core.Services
             return animals;
         }
 
-        // ── GetByControlNoAsync ───────────────────────────────────────────
+        // GetByControlNoAsync 
         public async Task<Animal?> GetByControlNoAsync(int controlNo)
         {
             var animals = await _db.Animals
@@ -108,7 +108,7 @@ namespace BarnData.Core.Services
             return animal;
         }
 
-        // ── IsTagDuplicateAsync ───────────────────────────────────────────
+        // IsTagDuplicateAsync 
         public async Task<bool> IsTagDuplicateAsync(
             string tag1, int vendorId, int? excludeControlNo = null)
         {
@@ -135,11 +135,11 @@ namespace BarnData.Core.Services
             }
         }
 
-        // ── IsWeightOutOfRange ────────────────────────────────────────────
+        //  IsWeightOutOfRange 
         public bool IsWeightOutOfRange(decimal liveWeight)
             => liveWeight > 0 && (liveWeight < _weightMin || liveWeight > _weightMax);
 
-        // ── CreateAsync ───────────────────────────────────────────────────
+        // CreateAsync
         public async Task<(bool Success, string ErrorMessage)> CreateAsync(Animal animal)
         {
             bool isDuplicate = await IsTagDuplicateAsync(animal.TagNumber1, animal.VendorID);
@@ -156,7 +156,7 @@ namespace BarnData.Core.Services
             return (true, string.Empty);
         }
 
-        // ── BulkImportAsync ───────────────────────────────────────────────
+        //  BulkImportAsync
         public async Task<(int Imported, int Skipped, List<string> Errors)>
             BulkImportAsync(IEnumerable<Animal> animals)
         {
@@ -184,7 +184,7 @@ namespace BarnData.Core.Services
             return (imported, skipped, errors);
         }
 
-        // ── MarkKilledAsync ───────────────────────────────────────────────
+        // MarkKilledAsync 
         public async Task<int> MarkKilledAsync(IEnumerable<int> controlNos, DateTime killDate)
         {
             var idArray = controlNos.ToArray();
@@ -208,8 +208,56 @@ namespace BarnData.Core.Services
 
             return toUpdate.Count;
         }
+        //Saving inline kill fields wityhout changing the kill status
+        public async Task<int> SaveKillDataAsync(IEnumerable<KillAnimalData> animalData)
+        {
+            var dataList = animalData.ToList();
+            if (!dataList.Any()) return 0;
 
-        // ── MarkKilledWithDataAsync — saves HotWeight, Grade, HS, Condemned ─
+            var ids = dataList.Select(d => d.ControlNo).ToArray();
+            var idList = string.Join(",", ids);
+
+            var animals = await _db.Animals
+                .FromSqlRaw($"SELECT * FROM tbl_barn_animal_entry WHERE ControlNo IN ({idList})")
+                .ToListAsync();
+
+            var dataDict = dataList.ToDictionary(d => d.ControlNo);
+
+            foreach (var a in animals)
+            {
+                if (!dataDict.TryGetValue(a.ControlNo, out var d)) continue;
+
+                a.UpdatedAt   = DateTime.Now;
+
+                a.IsCondemned = d.IsCondemned;
+
+                //Allow clear or update of AnimalControlNumber
+                a.AnimalControlNumber = string.IsNullOrWhiteSpace(d.AnimalControlNumber)
+                    ? null
+                    : d.AnimalControlNumber.Trim();
+                if (d.HotWeight.HasValue && d.HotWeight > 0)
+                    a.HotWeight = d.HotWeight;
+                
+                if (!string.IsNullOrWhiteSpace(d.Grade))
+                    a.Grade = d.Grade.Trim();
+                
+                if (d.HealthScore.HasValue && d.HealthScore > 0)
+                    a.HealthScore = d.HealthScore;
+                
+                if(d.LiveWeight.HasValue && d.LiveWeight >0)
+                    a.LiveWeight = d.LiveWeight.Value;
+
+                //optional: if kill date is provided on save, persist it
+                if (d.KillDate.HasValue)
+                    a.KillDate = d.KillDate.Value;
+            }
+            if(animals.Any())
+                await _db.SaveChangesAsync();
+            
+            return animals.Count;
+        }
+
+       //  ── MarkKilledWithDataAsync — saves HotWeight, Grade, HS, Condemned ─
         public async Task<int> MarkKilledWithDataAsync(
             IEnumerable<KillAnimalData> animalData, DateTime killDate)
         {
@@ -228,16 +276,25 @@ namespace BarnData.Core.Services
             foreach (var a in animals)
             {
                 if (!dataDict.TryGetValue(a.ControlNo, out var d)) continue;
-                a.KillDate    = killDate;
+                a.KillDate    = d.KillDate ?? killDate;
                 a.KillStatus  = "Killed";
                 a.UpdatedAt   = DateTime.Now;
                 a.IsCondemned = d.IsCondemned;
+
+                if(d.AnimalControlNumber != null)
+                    a.AnimalControlNumber = string.IsNullOrWhiteSpace(d.AnimalControlNumber)
+                        ? null
+                        : d.AnimalControlNumber.Trim();
+                        
                 if (d.HotWeight.HasValue && d.HotWeight > 0)
                     a.HotWeight = d.HotWeight;
                 if (!string.IsNullOrWhiteSpace(d.Grade))
                     a.Grade = d.Grade.Trim();
                 if (d.HealthScore.HasValue && d.HealthScore > 0)
                     a.HealthScore = d.HealthScore;
+                
+                if(d.LiveWeight.HasValue && d.LiveWeight >0)
+                    a.LiveWeight = d.LiveWeight.Value;
             }
 
             if (animals.Any())
@@ -246,7 +303,7 @@ namespace BarnData.Core.Services
             return animals.Count;
         }
 
-        // ── UpdateAsync ───────────────────────────────────────────────────
+        //  UpdateAsync 
         public async Task<(bool Success, string ErrorMessage)> UpdateAsync(Animal animal)
         {
             bool isDuplicate = await IsTagDuplicateAsync(
@@ -289,7 +346,7 @@ namespace BarnData.Core.Services
             return (true, string.Empty);
         }
 
-        // ── DeleteAsync ───────────────────────────────────────────────────
+        //  DeleteAsync 
         public async Task<bool> DeleteAsync(int controlNo)
         {
             var animal = await _db.Animals.FindAsync(controlNo);
@@ -300,7 +357,7 @@ namespace BarnData.Core.Services
             return true;
         }
 
-        // ── GetTallySummaryAsync ──────────────────────────────────────────
+        //  GetTallySummaryAsync 
         public async Task<TallySummary> GetTallySummaryAsync(
             DateTime killDate, int? vendorId = null)
         {
@@ -392,7 +449,7 @@ namespace BarnData.Core.Services
             };
         }
 
-        // ── GetFilteredAsync — flexible export query ───────────────────────
+        // GetFilteredAsync - flexible export query 
         public async Task<IEnumerable<Animal>> GetFilteredAsync(ExportFilter f)
         {
             // Build WHERE clauses dynamically using safe raw SQL parameters

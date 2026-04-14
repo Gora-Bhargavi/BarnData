@@ -155,3 +155,8 @@ C:\Users\bgora\Downloads\BarnData\BarnData.Web\obj\Release\net8.0\refint\BarnDat
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\obj\Release\net8.0\BarnData.Web.pdb
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\obj\Release\net8.0\BarnData.Web.genruntimeconfig.cache
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\obj\Release\net8.0\ref\BarnData.Web.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\publish\web.config
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\publish\appsettings.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\publish\BarnData.Web.deps.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\publish\BarnData.Web.runtimeconfig.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\publish\BarnData.Web.staticwebassets.endpoints.json

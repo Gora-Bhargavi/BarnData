@@ -4,6 +4,7 @@ using BarnData.Web.Models;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using System.Data;
 using System.Text.Json;
 namespace BarnData.Web.Controllers
 {
@@ -21,13 +22,13 @@ namespace BarnData.Web.Controllers
             _vendorService = vendorService;
         }
 
-        // ── SALE BILL IMPORT — GET ────────────────────────────────────────
+        //  SALE BILL IMPORT — GET 
         public IActionResult SaleBill()
         {
             return View();
         }
 
-        // ── SALE BILL IMPORT — POST ───────────────────────────────────────
+        //  SALE BILL IMPORT — POST 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> SaleBill(IFormFile? file)
@@ -39,7 +40,7 @@ namespace BarnData.Web.Controllers
             }
 
             var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-            if (ext != ".xlsx")
+            if (!string.Equals(ext, ".xlsx", StringComparison.OrdinalIgnoreCase))
             {
                 ModelState.AddModelError("", "Only .xlsx files are supported. Please save as .xlsx in Excel first.");
                 return View();
@@ -58,7 +59,7 @@ namespace BarnData.Web.Controllers
                 using var wb = new XLWorkbook(stream);
                 var ws = wb.Worksheets.First();
 
-                // ── Map headers by name ───────────────────────────────────
+                //  Map headers by name 
                 var colMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 int lastCol = ws.LastColumnUsed()?.ColumnNumber() ?? 30;
 
@@ -69,6 +70,48 @@ namespace BarnData.Web.Controllers
                     if (!string.IsNullOrEmpty(h))
                         colMap[h] = c;
                 }
+
+                // Helper: read any cell as string regardless of data type
+                /*string GetCellString(IXLCell cell)
+                {
+                    if (cell == null) return "";
+                    try
+                    {
+                        // Numeric stored as number — convert to string without decimal
+                        if (cell.DataType == XLDataType.Number)
+                        {
+                            var d = cell.GetDouble();
+                            return d == Math.Floor(d)
+                                ? ((long)d).ToString()
+                                : d.ToString();
+                        }
+                        if (cell.DataType == XLDataType.Text)   return cell.GetString().Trim();
+                        if (cell.DataType == XLDataType.Boolean) return cell.GetBoolean().ToString();
+                        // Formula or other — try cached value
+                        var v = cell.CachedValue;
+                        //return v != null ? v.ToString()?.Trim() ?? "" : cell.GetString().Trim();
+                        var value = v.ToString()?.Trim();
+                        return string.IsNullOrEmpty(value) ? cell.GetString().Trim() : value;
+                    }
+                    catch { return cell.GetString().Trim(); }
+                }*/
+
+                // Helper: read date from cell handling formulas and text
+                /*DateTime? GetCellDate(IXLCell cell)
+                {
+                    if (cell == null) return null;
+                    try
+                    {
+                        if (cell.DataType == XLDataType.DateTime) return cell.GetDateTime();
+                        // Try cached value for formula cells
+                        //var raw = cell.CachedValue?.ToString() ?? cell.GetString();
+                        var raw = cell.CachedValue.ToString();
+                        if(string.IsNullOrEmpty(raw)) raw = cell.GetString();
+                        if (DateTime.TryParse(raw, out var dt)) return dt;
+                    }
+                    catch { }
+                    return null;
+                }*/
 
                 // Helper to get column number by possible names
                 int Col(params string[] names)
@@ -106,14 +149,14 @@ namespace BarnData.Web.Controllers
                 for (int row = 2; row <= lastRow; row++)
                 {
                     // Get tag — skip blank rows
-                    var tag1 = colTag1 > 0 ? ws.Cell(row, colTag1).GetString().Trim() : "";
+                    var tag1 = colTag1 > 0 ? GetCellString(ws.Cell(row, colTag1)) : "";
                     if (string.IsNullOrEmpty(tag1)) continue;
 
                     vm.TotalRows++;
 
-                    // ── Vendor ────────────────────────────────────────────
+                    // Vendor 
                     var vendorName = colVendor > 0
-                        ? ws.Cell(row, colVendor).GetString().Trim()
+                        ? GetCellString(ws.Cell(row, colVendor))
                         : "";
                     if (string.IsNullOrEmpty(vendorName)) { vm.Skipped++; continue; }
 
@@ -128,48 +171,40 @@ namespace BarnData.Web.Controllers
                     }
                     else vendorId = vendor.VendorID;
 
-                    // ── Purchase type ─────────────────────────────────────
+                    //  Purchase type 
                     var purchType = colPurchType > 0
-                        ? ws.Cell(row, colPurchType).GetString().Trim()
+                        ? GetCellString(ws.Cell(row, colPurchType))
                         : "Sale Bill";
                     if (purchType.ToLower().Contains("consignment"))
                         purchType = "Consignment Bill";
                     else
                         purchType = "Sale Bill";
 
-                    // ── Purchase date ─────────────────────────────────────
+                    //  Purchase date 
                     DateTime purchDate = DateTime.Today;
                     if (colPurchDate > 0)
                     {
-                        var cell = ws.Cell(row, colPurchDate);
-                        if (cell.DataType == XLDataType.DateTime)
-                            purchDate = cell.GetDateTime();
-                        else
-                            DateTime.TryParse(cell.GetString(), out purchDate);
+                        var pd = GetCellDate(ws.Cell(row, colPurchDate));
+                        if (pd.HasValue) purchDate = pd.Value;
                     }
 
-                    // ── Kill date — 2000-01-02 means pending (not killed yet) ──
+                    //  Kill date — 2000-01-02 means pending (not killed yet) 
                     DateTime? killDate = null;
                     if (colKillDate > 0)
                     {
-                        var cell = ws.Cell(row, colKillDate);
-                        DateTime kd = DateTime.MinValue;
-                        if (cell.DataType == XLDataType.DateTime)
-                            kd = cell.GetDateTime();
-                        else
-                            DateTime.TryParse(cell.GetString(), out kd);
-
-                        // Only set kill date if it's a real date (not the 2000-01-02 placeholder)
-                        if (kd > PENDING_DATE && kd.Year > 2000)
-                            killDate = kd;
+                        var kd = GetCellDate(ws.Cell(row, colKillDate));
+                        if (kd.HasValue && kd.Value > PENDING_DATE && kd.Value.Year > 2000)
+                            killDate = kd.Value;
                     }
 
-                    // ── Numeric fields ────────────────────────────────────
+                    //  Numeric fields 
                     decimal GetDecimal(int col)
                     {
                         if (col < 0) return 0;
-                        var v = ws.Cell(row, col).GetString()
-                                   .Replace("$", "").Replace(",", "").Trim();
+                        var cell = ws.Cell(row, col);
+                        if (cell.DataType == XLDataType.Number)
+                            return (decimal)cell.GetDouble();
+                        var v = GetCellString(cell).Replace("$", "").Replace(",", "").Trim();
                         return decimal.TryParse(v, out var d) ? d : 0;
                     }
 
@@ -177,61 +212,51 @@ namespace BarnData.Web.Controllers
                     decimal liveRate   = GetDecimal(colLiveRate);
                     decimal hotWeight  = GetDecimal(colHotWeight);
 
-                    // ── Hot weight — 0 means not yet measured ─────────────
+                    //  Hot weight — 0 means not yet measured 
                     decimal? hotWt = hotWeight > 0 ? hotWeight : null;
 
-                    // ── Grade — trim whitespace ───────────────────────────
-                    var grade = colGrade > 0
-                        ? ws.Cell(row, colGrade).GetString().Trim()
-                        : null;
+                    //  Grade - trim whitespace 
+                    var grade = colGrade > 0 ? GetCellString(ws.Cell(row, colGrade)) : null;
                     if (string.IsNullOrEmpty(grade)) grade = null;
 
-                    // ── Health score ──────────────────────────────────────
+                    //  Health score 
                     int? hs = null;
                     if (colHS > 0)
                     {
-                        var hsStr = ws.Cell(row, colHS).GetString().Trim();
-                        if (int.TryParse(hsStr, out var hsVal) && hsVal > 0)
-                            hs = hsVal;
+                        var hsStr = GetCellString(ws.Cell(row, colHS));
+                        if (int.TryParse(hsStr, out var hsVal) && hsVal > 0) hs = hsVal;
                     }
 
-                    // ── Animal type ───────────────────────────────────────
-                    var animalType = colAnimalType > 0
-                        ? ws.Cell(row, colAnimalType).GetString().Trim()
-                        : "Cow";
+                    //  Animal type 
+                    var animalType = colAnimalType > 0 ? GetCellString(ws.Cell(row, colAnimalType)) : "Cow";
                     if (string.IsNullOrEmpty(animalType)) animalType = "Cow";
-                    // Normalize Str/str → Steer
-                    if (animalType.StartsWith("Str", StringComparison.OrdinalIgnoreCase))
-                        animalType = "Steer";
+                    if (animalType.StartsWith("Str", StringComparison.OrdinalIgnoreCase)) animalType = "Steer";
 
-                    // ── Comments — check for condemned ────────────────────
-                    var comment = colComment > 0
-                        ? ws.Cell(row, colComment).GetString().Trim()
-                        : null;
-                    bool isCond = !string.IsNullOrEmpty(comment) &&
-                                  comment.ToLower().Contains("cond");
+                    //  Comments — check for condemned 
+                    var comment = colComment > 0 ? GetCellString(ws.Cell(row, colComment)) : null;
+                    bool isCond = !string.IsNullOrEmpty(comment) && comment.ToLower().Contains("cond");
                     if (string.IsNullOrEmpty(comment)) comment = null;
 
-                    // ── Program code from vendor name ─────────────────────
+                    //  Program code from vendor name 
                     var progCode = vendorName.ToUpper().Contains("ABF") ? "ABF" : "REG";
 
-                    // ── Kill status ───────────────────────────────────────
+                    //  Kill status 
                     var killStatus = killDate.HasValue ? "Killed" : "Pending";
 
-                    // ── Build animal ──────────────────────────────────────
+                    //  Build animal 
                     var animal = new Animal
                     {
                         VendorID             = vendorId,
                         TagNumber1           = tag1,
                         TagNumber2           = colTag2 > 0
-                            ? NullIfEmpty(ws.Cell(row, colTag2).GetString().Trim())
+                            ? NullIfEmpty(GetCellString(ws.Cell(row, colTag2)))
                             : null,
                         Tag3                 = colTag3 > 0
-                            ? NullIfEmpty(ws.Cell(row, colTag3).GetString().Trim())
+                            ? NullIfEmpty(GetCellString(ws.Cell(row, colTag3)))
                             : null,
                         AnimalType           = animalType,
                         AnimalType2          = colAnimalType2 > 0
-                            ? NullIfEmpty(ws.Cell(row, colAnimalType2).GetString().Trim())
+                            ? NullIfEmpty(GetCellString(ws.Cell(row, colAnimalType2)))
                             : null,
                         ProgramCode          = progCode,
                         PurchaseDate         = purchDate,
@@ -244,19 +269,19 @@ namespace BarnData.Web.Controllers
                         HealthScore          = hs,
                         Comment              = comment,
                         AnimalControlNumber  = colACN > 0
-                            ? NullIfEmpty(ws.Cell(row, colACN).GetString().Trim())
+                            ? NullIfEmpty(GetCellString(ws.Cell(row, colACN)))
                             : null,
                         OfficeUse2           = colOfficeUse2 > 0
-                            ? NullIfEmpty(ws.Cell(row, colOfficeUse2).GetString().Trim())
+                            ? NullIfEmpty(GetCellString(ws.Cell(row, colOfficeUse2)))
                             : null,
                         State                = colState > 0
-                            ? NullIfEmpty(ws.Cell(row, colState).GetString().Trim())
+                            ? NullIfEmpty(GetCellString(ws.Cell(row, colState)))
                             : null,
                         BuyerName            = colBuyer > 0
-                            ? NullIfEmpty(ws.Cell(row, colBuyer).GetString().Trim())
+                            ? NullIfEmpty(GetCellString(ws.Cell(row, colBuyer)))
                             : null,
                         VetName              = colVetName > 0
-                            ? NullIfEmpty(ws.Cell(row, colVetName).GetString().Trim())
+                            ? NullIfEmpty(GetCellString(ws.Cell(row, colVetName)))
                             : null,
                         IsCondemned          = isCond,
                         KillStatus           = killStatus,
@@ -281,7 +306,7 @@ namespace BarnData.Web.Controllers
                     toImport.Add(animal);
                 }
 
-                // ── Bulk import ───────────────────────────────────────────
+                //  Bulk import 
                 var (imported, skipped, errors) = await _animalService.BulkImportAsync(toImport);
                 vm.Imported  = imported;
                 vm.Skipped  += skipped;
@@ -299,7 +324,7 @@ namespace BarnData.Web.Controllers
             return View("SaleBillResult", vm);
         }
 
-        // ── MARK AS KILLED ────────────────────────────────────────────────
+        //  MARK AS KILLED 
         public async Task<IActionResult> MarkKilled(int? vendorId)
         {
             var vendors = await _vendorService.GetAllActiveAsync();
@@ -332,63 +357,228 @@ namespace BarnData.Web.Controllers
                     OfficeUse2          = a.OfficeUse2,
                     ProgramCode         = a.ProgramCode,
                     Selected            = false,
+                    IsCondemned        = a.IsCondemned,
+                    HotWeight           = a.HotWeight,
+                    Grade               = a.Grade,
+                    HealthScore         = a.HealthScore,
                 }).ToList()
             };
 
             return View(vm);
         }
 
+        //Adding Post method to handle SaveMarkedEdits
+        [HttpPost]
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> SaveMarkKilledEdits(IFormCollection form, int? vendorId)
+{
+    var allIds = form["allIds"]
+        .Where(v => !string.IsNullOrWhiteSpace(v))
+        .Select(v => int.TryParse(v, out var id) ? id : 0)
+        .Where(id => id > 0)
+        .Distinct()
+        .ToList();
+
+    bool IsEditedForSave(int id)
+    {
+        var animalCtrl = NullIfEmpty(form[$"animalCtrlNo_{id}"].FirstOrDefault());
+        var origAnimalCtrl = NullIfEmpty(form[$"origAnimalCtrlNo_{id}"].FirstOrDefault());
+        bool animalCtrlChanged = !string.Equals(animalCtrl ?? "", origAnimalCtrl ?? "", StringComparison.Ordinal);
+
+        bool liveWeightEntered = decimal.TryParse(form[$"liveWeight_{id}"], out var lw) && lw > 0;
+        bool hotWeightEntered = decimal.TryParse(form[$"hotWeight_{id}"], out var hw) && hw > 0;
+        bool gradeEntered = !string.IsNullOrWhiteSpace(form[$"grade_{id}"].FirstOrDefault());
+        bool hsEntered = int.TryParse(form[$"healthScore_{id}"], out var hs) && hs > 0;
+
+        bool condemnedNow = form[$"condemned_{id}"].Any(v => v == "true" || v == "on");
+        bool condemnedOrig = form[$"origCondemned_{id}"].Any(v => v == "true" || v == "on");
+        bool condemnedChanged = condemnedNow != condemnedOrig;
+
+        decimal.TryParse(form[$"origLiveWeight_{id}"].FirstOrDefault(), out var origLw);
+        bool liveWeightChanged = liveWeightEntered && lw != origLw;
+
+        // Kill-date-only should not be treated as save-edit trigger.
+        return animalCtrlChanged || liveWeightChanged || hotWeightEntered || gradeEntered || hsEntered || condemnedChanged;
+    }
+
+    var editedIds = allIds.Where(IsEditedForSave).ToList();
+
+    if (!editedIds.Any())
+    {
+        TempData["ErrorMessage"] = "No editable field changes found to save.";
+        return RedirectToAction(nameof(MarkKilled), new { vendorId });
+    }
+
+    //Consignment validation: If hot weight entered, live weight is required and must be >= Hot weight
+    var validationErrors = new List<string>();
+        foreach (var id in editedIds)
+        {
+            var purchaseType = form[$"purchaseType_{id}"].FirstOrDefault() ?? "";
+            var isConsignment = purchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase);
+
+            bool hasHot = decimal.TryParse(form[$"hotWeight_{id}"], out var hot) && hot > 0;
+            bool hasLive = decimal.TryParse(form[$"liveWeight_{id}"], out var live) && live > 0;
+
+            if(!isConsignment) continue;
+
+            if(hasHot && !hasLive)
+                validationErrors.Add($"Ctrl No {id}: Live Wt is required for consignment when Hot Wt is entered.");
+            else if (hasHot && hasLive && hot > live)
+                validationErrors.Add($"Ctrl No {id}: Hot Wt ({hot:N1}) cannot exceed Live Wt ({live:N1})."); 
+        }
+
+            if (validationErrors.Any())
+            {
+                TempData["ErrorMessage"] = string.Join(" ", validationErrors.Take(3)) +
+                    (validationErrors.Count > 3 ? " More rows have the same issue." : "");
+                return RedirectToAction(nameof(MarkKilled), new { vendorId });
+            }
+
+    var animalData = editedIds.Select(id =>
+    {
+        DateTime? rowKillDate = null;
+        var rowKillRaw = form[$"killDate_{id}"].FirstOrDefault();
+        if (DateTime.TryParse(rowKillRaw, out var parsedRowDate))
+            rowKillDate = parsedRowDate;
+
+        return new KillAnimalData
+        {
+            ControlNo = id,
+            AnimalControlNumber = NullIfEmpty(form[$"animalCtrlNo_{id}"].FirstOrDefault()),
+            KillDate = rowKillDate,
+            LiveWeight = decimal.TryParse(form[$"liveWeight_{id}"], out var lw) && lw > 0 ? lw : null,
+            HotWeight = decimal.TryParse(form[$"hotWeight_{id}"], out var hw) && hw > 0 ? hw : null,
+            Grade = NullIfEmpty(form[$"grade_{id}"].FirstOrDefault()),
+            HealthScore = int.TryParse(form[$"healthScore_{id}"], out var hs) && hs > 0 ? hs : null,
+            IsCondemned = form[$"condemned_{id}"].Any(v => v == "true" || v == "on"),
+        };
+    }).ToList();
+
+    int count = await _animalService.SaveKillDataAsync(animalData);
+
+    TempData["SuccessMessage"] = $"{count} animal records updated. They remain pending until marked as killed.";
+    return RedirectToAction(nameof(MarkKilled), new { vendorId });
+}
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> MarkKilled(IFormCollection form)
-        {
-            if (!DateTime.TryParse(form["killDate"], out var killDate))
-                killDate = DateTime.Today;
+    public async Task<IActionResult> MarkKilled(IFormCollection form)
+    {
+        if (!DateTime.TryParse(form["killDate"], out var defaultKillDate))
+            defaultKillDate = DateTime.Today;
 
-            // Collect selected control numbers
-            var selectedIds = form["selectedIds"]
-                .Where(v => !string.IsNullOrEmpty(v))
-                .Select(v => int.TryParse(v, out var id) ? id : 0)
-                .Where(id => id > 0)
-                .Distinct()
-                .ToList();
+        var selectedIds = form["selectedIds"]
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => int.TryParse(v, out var id) ? id : 0)
+            .Where(id => id > 0)
+            .Distinct()
+            .ToList();
 
             if (!selectedIds.Any())
             {
-                TempData["ErrorMessage"] = "No animals selected. Please check at least one animal.";
+                TempData["ErrorMessage"] = "Select at least one row to mark as killed.";
                 return RedirectToAction(nameof(MarkKilled));
             }
 
-            // Build per-animal kill data from form fields
-            var animalData = selectedIds.Select(id => new KillAnimalData
+            var validationErrors = new List<string>();
+                foreach (var id in selectedIds)
+                {
+                    var purchaseType = form[$"purchaseType_{id}"].FirstOrDefault() ?? "";
+                    var isConsignment = purchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase);
+    
+                    bool hasHot = decimal.TryParse(form[$"hotWeight_{id}"], out var hot) && hot > 0;
+                    bool hasLive = decimal.TryParse(form[$"liveWeight_{id}"], out var live) && live > 0;
+    
+                    if(!isConsignment) continue;
+    
+                    if(hasHot && !hasLive)
+                        validationErrors.Add($"Ctrl No {id}: Live Wt is required for consignment when Hot Wt is entered.");
+                    else if (hasHot && hasLive && hot > live)
+                        validationErrors.Add($"Ctrl No {id}: Hot Wt ({hot:N1}) cannot exceed Live Wt ({live:N1})."); 
+                }
+
+                if(validationErrors.Any())
+                {
+                    TempData["ErrorMessage"] = string.Join(" ", validationErrors.Take(3)) +
+                        (validationErrors.Count > 3 ? " More rows have the same issue." : "");
+                    return RedirectToAction(nameof(MarkKilled));
+                }
+
+            var animalData = selectedIds.Select(id =>
             {
-                ControlNo   = id,
-                HotWeight   = decimal.TryParse(form[$"hotWeight_{id}"], out var hw) && hw > 0 ? hw : null,
-                Grade       = form[$"grade_{id}"].FirstOrDefault(),
-                HealthScore = int.TryParse(form[$"healthScore_{id}"], out var hs) && hs > 0 ? hs : null,
-                IsCondemned = form[$"condemned_{id}"].Any(v => v == "true" || v == "on"),
+                DateTime? rowKillDate = null;
+                var rowKillRaw = form[$"killDate_{id}"].FirstOrDefault();
+                if (DateTime.TryParse(rowKillRaw, out var parsedRowDate))
+                    rowKillDate = parsedRowDate;
+
+                return new KillAnimalData
+                {
+                    ControlNo = id,
+                    AnimalControlNumber = NullIfEmpty(form[$"animalCtrlNo_{id}"].FirstOrDefault()),
+                    KillDate = rowKillDate ?? defaultKillDate,
+                    HotWeight = decimal.TryParse(form[$"hotWeight_{id}"], out var hw) && hw > 0 ? hw : null,
+                    Grade = NullIfEmpty(form[$"grade_{id}"].FirstOrDefault()),
+                    HealthScore = int.TryParse(form[$"healthScore_{id}"], out var hs) && hs > 0 ? hs : null,
+                    IsCondemned = form[$"condemned_{id}"].Any(v => v == "true" || v == "on"),
+                };
             }).ToList();
 
-            int count = await _animalService.MarkKilledWithDataAsync(animalData, killDate);
+            int count = await _animalService.MarkKilledWithDataAsync(animalData, defaultKillDate);
 
-            TempData["SuccessMessage"] =
-                $"{count} animals marked as killed on {killDate:MM/dd/yyyy}. Tally report is ready.";
+            TempData["SuccessMessage"] = 
+                $"{count} animals marked as killed on {defaultKillDate:MM/dd/yyyy}.";
 
-            return RedirectToAction("Tally", "Report",
-                new { killDate = killDate.ToString("yyyy-MM-dd") });
-        }
+            return RedirectToAction("Tally", "Report", new { killDate = defaultKillDate.ToString("yyyy-MM-dd") });
 
-        // ── Helper ────────────────────────────────────────────────────────
+        
+    }
+
+        //  Helper 
         private static string? NullIfEmpty(string? s)
             => string.IsNullOrWhiteSpace(s) ? null : s;
+        
+        private static string GetCellString(IXLCell cell)
+        {
+            if (cell == null) return "";
+            try
+            {
+                // Numeric stored as number — convert to string without decimal
+                if (cell.DataType == XLDataType.Number)
+                {
+                    var d = cell.GetDouble();
+                    return d == Math.Floor(d)
+                        ? ((long)d).ToString()
+                        : d.ToString();
+                }
+                if (cell.DataType == XLDataType.Text)   return cell.GetString().Trim();
+                if(cell.DataType == XLDataType.Boolean) return cell.GetBoolean().ToString();
 
-        // ── EXCEL IMPORT — GET ────────────────────────────────────────────
+                var value = cell.CachedValue.ToString()?.Trim();
+                return string.IsNullOrEmpty(value) ? cell.GetString().Trim() : value;
+            }
+            catch { return cell.GetString().Trim(); }
+        }
+
+        private static DateTime? GetCellDate(IXLCell cell)
+        {
+            if (cell == null) return null;
+            try
+            {
+                if (cell.DataType == XLDataType.DateTime) return cell.GetDateTime();
+
+                var raw = cell.CachedValue.ToString();
+                if (string.IsNullOrEmpty(raw)) raw = cell.GetString();
+                if (DateTime.TryParse(raw, out var dt)) return dt;
+            }
+            catch { }
+            return null;
+        }
+        //  EXCEL IMPORT — GET 
         public IActionResult Excel()
         {
             return View();
         }
 
-        // ── EXCEL IMPORT — POST (parse & preview) ─────────────────────────
+        //  EXCEL IMPORT — POST (parse & preview) 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Excel(IFormFile? file)
@@ -460,18 +650,21 @@ namespace BarnData.Web.Controllers
                 decimal GetDecimal(int col, int row)
                 {
                     if (col < 0) return 0;
-                    var v = ws.Cell(row, col).GetString().Replace("$", "").Replace(",", "").Trim();
+                    var cell = ws.Cell(row, col);
+                    if (cell.DataType == XLDataType.Number)
+                        return (decimal)cell.GetDouble();
+                    var v = GetCellString(cell).Replace("$", "").Replace(",", "").Trim();
                     return decimal.TryParse(v, out var d) ? d : 0;
                 }
 
                 for (int row = 2; row <= lastRow; row++)
                 {
-                    var tag1 = colTag1 > 0 ? ws.Cell(row, colTag1).GetString().Trim() : "";
+                    var tag1 = colTag1 > 0 ? GetCellString(ws.Cell(row, colTag1)) : "";
                     if (string.IsNullOrEmpty(tag1)) continue;
 
                     vm.TotalRows++;
 
-                    var vendorName = colVendor > 0 ? ws.Cell(row, colVendor).GetString().Trim() : "";
+                    var vendorName = colVendor > 0 ? GetCellString(ws.Cell(row, colVendor)) : "";
                     if (string.IsNullOrEmpty(vendorName))
                     {
                         vm.Rows.Add(new ExcelPreviewRow { RowNum = row, TagNumber1 = tag1, Status = "Error", StatusNote = "Missing vendor" });
@@ -479,36 +672,33 @@ namespace BarnData.Web.Controllers
                     }
 
                     // Purchase type
-                    var purchTypeRaw = colPurchType > 0 ? ws.Cell(row, colPurchType).GetString().Trim() : "Sale Bill";
+                    var purchTypeRaw = colPurchType > 0 ? GetCellString(ws.Cell(row, colPurchType)) : "Sale Bill";
                     var purchType    = purchTypeRaw.ToLower().Contains("consignment") ? "Consignment Bill" : "Sale Bill";
 
                     // Purchase date
                     DateTime purchDate = DateTime.Today;
                     if (colPurchDate > 0)
                     {
-                        var cell = ws.Cell(row, colPurchDate);
-                        if (cell.DataType == XLDataType.DateTime) purchDate = cell.GetDateTime();
-                        else DateTime.TryParse(cell.GetString(), out purchDate);
+                        var pd = GetCellDate(ws.Cell(row, colPurchDate));
+                        if (pd.HasValue) purchDate = pd.Value;
                     }
 
                     // Kill date
                     DateTime? killDate = null;
                     if (colKillDate > 0)
                     {
-                        var cell = ws.Cell(row, colKillDate);
-                        DateTime kd = DateTime.MinValue;
-                        if (cell.DataType == XLDataType.DateTime) kd = cell.GetDateTime();
-                        else DateTime.TryParse(cell.GetString(), out kd);
-                        if (kd > PENDING_DATE && kd.Year > 2000) killDate = kd;
+                        var kd2 = GetCellDate(ws.Cell(row, colKillDate));
+                        if (kd2.HasValue && kd2.Value > PENDING_DATE && kd2.Value.Year > 2000)
+                            killDate = kd2.Value;
                     }
 
                     // Animal type
-                    var animalType = colAnimalType > 0 ? ws.Cell(row, colAnimalType).GetString().Trim() : "Cow";
+                    var animalType = colAnimalType > 0 ? GetCellString(ws.Cell(row, colAnimalType)) : "Cow";
                     if (string.IsNullOrEmpty(animalType)) animalType = "Cow";
                     if (animalType.StartsWith("Str", StringComparison.OrdinalIgnoreCase)) animalType = "Steer";
 
                     // Comment / condemned
-                    var comment = colComment > 0 ? ws.Cell(row, colComment).GetString().Trim() : null;
+                    var comment = colComment > 0 ? GetCellString(ws.Cell(row, colComment)) : null;
                     bool isCond = !string.IsNullOrEmpty(comment) && comment.ToLower().Contains("cond");
                     if (string.IsNullOrEmpty(comment)) comment = null;
 
@@ -516,7 +706,7 @@ namespace BarnData.Web.Controllers
                     int? hs = null;
                     if (colHS > 0)
                     {
-                        var hsStr = ws.Cell(row, colHS).GetString().Trim();
+                        var hsStr = GetCellString(ws.Cell(row, colHS));
                         if (int.TryParse(hsStr, out var hsVal) && hsVal > 0) hs = hsVal;
                     }
 
@@ -541,24 +731,24 @@ namespace BarnData.Web.Controllers
                         RowNum              = row,
                         VendorName          = vendorName,
                         TagNumber1          = tag1,
-                        TagNumber2          = colTag2 > 0 ? NullIfEmpty(ws.Cell(row, colTag2).GetString().Trim()) : null,
-                        Tag3                = colTag3 > 0 ? NullIfEmpty(ws.Cell(row, colTag3).GetString().Trim()) : null,
+                        TagNumber2          = colTag2 > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colTag2))) : null,
+                        Tag3                = colTag3 > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colTag3))) : null,
                         AnimalType          = animalType,
-                        AnimalType2         = colAnimalType2 > 0 ? NullIfEmpty(ws.Cell(row, colAnimalType2).GetString().Trim()) : null,
+                        AnimalType2         = colAnimalType2 > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colAnimalType2))) : null,
                         PurchaseType        = purchType,
                         PurchaseDate        = purchDate,
                         LiveWeight          = liveWeight,
                         LiveRate            = liveRate,
                         KillDate            = killDate,
                         HotWeight           = hotWtRaw > 0 ? hotWtRaw : null,
-                        Grade               = colGrade > 0 ? NullIfEmpty(ws.Cell(row, colGrade).GetString().Trim()) : null,
+                        Grade               = colGrade > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colGrade))) : null,
                         HealthScore         = hs,
                         Comment             = comment,
-                        AnimalControlNumber = colACN > 0 ? NullIfEmpty(ws.Cell(row, colACN).GetString().Trim()) : null,
-                        OfficeUse2          = colOfficeUse2 > 0 ? NullIfEmpty(ws.Cell(row, colOfficeUse2).GetString().Trim()) : null,
-                        State               = colState > 0 ? NullIfEmpty(ws.Cell(row, colState).GetString().Trim()) : null,
-                        BuyerName           = colBuyer > 0 ? NullIfEmpty(ws.Cell(row, colBuyer).GetString().Trim()) : null,
-                        VetName             = colVetName > 0 ? NullIfEmpty(ws.Cell(row, colVetName).GetString().Trim()) : null,
+                        AnimalControlNumber = colACN > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colACN))) : null,
+                        OfficeUse2          = colOfficeUse2 > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colOfficeUse2))) : null,
+                        State               = colState > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colState))) : null,
+                        BuyerName           = colBuyer > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colBuyer))) : null,
+                        VetName             = colVetName > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colVetName))) : null,
                         IsCondemned         = isCond,
                         Status              = status,
                         StatusNote          = note,
@@ -576,7 +766,7 @@ namespace BarnData.Web.Controllers
             return View("ExcelPreview", vm);
         }
 
-        // ── EXCEL IMPORT — CONFIRM & SAVE ─────────────────────────────────
+        // EXCEL IMPORT - CONFIRM & SAVE 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ExcelConfirm()

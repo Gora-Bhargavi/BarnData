@@ -8,13 +8,15 @@
 
 <div class="alert alert-info" style="margin-bottom:14px">
     <strong>How this works:</strong>
-    Check each animal killed today, fill in <strong>Hot Weight</strong>, <strong>Grade</strong>,
-    and <strong>Health Score</strong> inline. Mark <strong>Condemned</strong> if applicable.
-    Then click <strong>Mark selected as killed</strong>.
+    Update inline fields, then click <strong>Save edits</strong> to store partial changes without marking killed.
+    For consignment rows, if Hot Wt is entered then Live Wt is required and Hot Wt cannot be greater than Live Wt.
+    Use row checkboxes only for animals you want to finalize, then click <strong>Mark selected as killed</strong>.
 </div>
 
 <form method="post" asp-action="MarkKilled">
     @Html.AntiForgeryToken()
+
+    <input type="hidden" name="VendorId" value="@Model.VendorId" />
 
     <!-- Kill date + vendor filter + actions -->
     <div class="form-section" style="margin-bottom:12px">
@@ -33,6 +35,7 @@
                 </select>
             </div>
             <div style="display:flex;gap:8px;padding-bottom:2px">
+                <button type="submit" formaction="@Url.Action("SaveMarkKilledEdits","Import")" class="btn btn-secondary">Save edits</button>
                 <button type="button" onclick="selectAll(true)"  class="btn btn-secondary btn-sm">Select all</button>
                 <button type="button" onclick="selectAll(false)" class="btn btn-secondary btn-sm">Deselect all</button>
                 <button type="submit" class="btn btn-primary">Mark selected as killed →</button>
@@ -81,7 +84,7 @@
                             <th style="min-width:95px">Purchase Date</th>
                             <th class="text-right" style="min-width:75px">Live Wt</th>
                             <th class="text-right" style="min-width:75px">Live Rate</th>
-                            <th style="min-width:110px">Animal Ctrl No.</th>
+                            <th class="sticky-col sticky-col-5" style="min-width:110px">Animal Ctrl No.</th>
                             <th style="min-width:70px">Tag 3</th>
                             <th style="min-width:45px">State</th>
                             <th style="min-width:100px">Buyer</th>
@@ -89,6 +92,9 @@
                             <th style="min-width:100px">Vet Name</th>
                             <th style="min-width:120px">Office Use 2</th>
                             <th style="min-width:160px">Comments</th>
+                            <th style="min-width:95px;background:#f0fdf4;color:#15803d">Animal Ctrl No ✎</th>
+                            <th class="sticky-col sticky-col-6" style="min-width: 105px;background:#f0fdf4;color:#15803d">Live Wt ✎</th>
+                            <th style="min-width:95px;background:#f0fdf4;color:#15803d">Kill Date ✎</th>
                             <th style="min-width:95px;background:#f0fdf4;color:#15803d">Hot Wt ✎</th>
                             <th style="min-width:90px;background:#f0fdf4;color:#15803d">Grade ✎</th>
                             <th style="min-width:75px;background:#f0fdf4;color:#15803d">HS ✎</th>
@@ -105,6 +111,12 @@
                                            value="@a.ControlNo"
                                            class="animal-chk"
                                            onchange="highlightRow(this); updateCount()" />
+                                           <input type="hidden" name="origLiveWeight_@a.ControlNo" value="@a.LiveWeight.ToString("0.0")" />
+                                           <input type="hidden" name="purchaseType_@a.ControlNo" value="@a.PurchaseType" />
+                                           <input type ="hidden" name="allIds" value="@a.ControlNo" />
+                                           <input type ="hidden" name="origAnimalCtrlNo_@a.ControlNo" value="@a.AnimalControlNumber" />
+                                           <input type="hidden" name="origCondemned_@a.ControlNo" value="@(a.IsCondemned ? "true" : "false")" />
+                                           
                                 </td>
                                 <td class="mono sticky-col sticky-col-1">@a.ControlNo</td>
                                 <td class="sticky-col sticky-col-2" style="font-weight:500">@a.VendorName</td>
@@ -119,7 +131,7 @@
                                 <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
                                 <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
                                 <td class="text-right mono">$@a.LiveRate.ToString("N4")</td>
-                                <td class="mono">@(a.AnimalControlNumber ?? "—")</td>
+                                <td class="mono sticky-col sticky-col-5">@(a.AnimalControlNumber ?? "—")</td>
                                 <td class="mono">@(a.Tag3 ?? "—")</td>
                                 <td>@(a.State ?? "—")</td>
                                 <td>@(a.BuyerName ?? "—")</td>
@@ -128,28 +140,63 @@
                                 <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.OfficeUse2">@(a.OfficeUse2 ?? "—")</td>
                                 <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.Comment">@(a.Comment ?? "—")</td>
                                 <!-- Editable kill fields -->
+                                <td style="background-color: #f0fdf4">
+                                    <input type="text"
+                                             name="animalCtrlNo_@a.ControlNo"
+                                             value="@a.AnimalControlNumber"
+                                            placeholder="Animal Ctrl No"
+                                            oninput="markEdited(@a.ControlNo)"
+                                            style="width:120px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td class="sticky-col sticky-col-6" style="background: #f0fdf4;">
+                                    <input type="number" 
+                                             name="liveWeight_@a.ControlNo"
+                                             value="@a.LiveWeight.ToString("0.0")"
+                                                step="0.1" min="0"
+                                                oninput="markEdited(@a.ControlNo)"
+                                                style="width:105px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td style="background:#f0fdf4">
+                                            <input type="date"
+                                                name="killDate_@a.ControlNo"
+                                                value="@todayStr"
+                                                onchange="markEdited(@a.ControlNo)"
+                                                style="width:114px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+
                                 <td style="background:#f0fdf4">
                                     <input type="number" name="hotWeight_@a.ControlNo"
-                                           step="0.1" min="0" placeholder="lbs"
-                                           style="width:82px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                            value="@(a.HotWeight?.ToString("0.0") ?? "")"
+                                            step="0.1" min="0" placeholder="lbs"
+                                            oninput="markEdited(@a.ControlNo)"
+                                            style="width:82px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                     
                                 </td>
                                 <td style="background:#f0fdf4">
                                     <select name="grade_@a.ControlNo"
+                                            onchange="markEdited(@a.ControlNo)"
                                             style="width:72px;padding:3px 4px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff">
                                         @foreach (var g in grades)
                                         {
-                                            <option value="@g">@(string.IsNullOrEmpty(g) ? "—" : g)</option>
+                                            <option value="@g" selected="@(string.Equals(g, a.Grade, StringComparison.OrdinalIgnoreCase) ? "selected" : null)">
+                                                    @(string.IsNullOrEmpty(g) ? "—" : g)
+                                            </option>
                                         }
                                     </select>
                                 </td>
                                 <td style="background:#f0fdf4">
                                     <input type="number" name="healthScore_@a.ControlNo"
-                                           min="1" max="5" placeholder="1-5"
-                                           style="width:58px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                        value="@(a.HealthScore?.ToString() ?? "")"
+                                        min="1" max="5" placeholder="1-5"
+                                        oninput="markEdited(@a.ControlNo)"
+                                        style="width:58px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
                                 </td>
                                 <td style="background:#fef2f2;text-align:center">
+                                    <input type="hidden" name="condemned_@a.ControlNo" value="false" />
                                     <input type="checkbox" name="condemned_@a.ControlNo"
                                            value="true"
+                                           @(a.IsCondemned ? "checked" : null)
+                                           onchange="markEdited(@a.ControlNo)"
                                            style="width:16px;height:16px;cursor:pointer"
                                            title="Mark as condemned" />
                                 </td>
@@ -161,7 +208,8 @@
         </div>
 
         <div class="form-actions" style="margin-top:12px">
-            <button type="submit" class="btn btn-primary">Mark selected as killed →</button>
+            <button type = "submit" formaction="@Url.Action("SaveMarkKilledEdits","Import")" class="btn btn-secondary">Save edits</button>
+            <button type="submit" class="btn btn-primary">Mark selected as killed</button>
             <a asp-controller="Animal" asp-action="Index" asp-route-status="pending" class="btn btn-secondary">View animal list</a>
             <span class="form-actions-note" id="footerCount">0 selected</span>
         </div>
@@ -174,9 +222,12 @@
     .badge-cons { background:#fef3c7; color:#92400e; }
     tr.selected-row td { background: #eff6ff !important; }
     tr.selected-row td.sticky-col { background: #eff6ff !important; }
+    tr.edited-row td { background: #fffbeb !important; }
+    tr.edited-row td.sticky-col { background: #fffbeb !important; }
 </style>
 <script>
-// ── Dual scrollbar sync ───────────────────────────────────────────────────
+
+//  Dual scrollbar sync 
 (function() {
     var top  = document.getElementById('scrollTop');
     var main = document.getElementById('scrollMain');
@@ -199,7 +250,7 @@
     });
 })();
 
-// ── Row selection ────────────────────────────────────────────────────────
+//  Row selection 
 function selectAll(val) {
     document.querySelectorAll('.animal-chk').forEach(function(c) {
         c.checked = val;
@@ -222,6 +273,12 @@ function updateCount() {
     var el2 = document.getElementById('footerCount');
     if (el1) el1.textContent = txt;
     if (el2) el2.textContent = txt;
+}
+function markEdited(id){
+    var row = document.getElementById('row-'+id);
+    if (!row) return;
+    row.classList.add('edited-row');
+    
 }
 </script>
 }

@@ -87,11 +87,16 @@
         <div class="summary-val">@(((decimal)ViewBag.TotalLiveWeight).ToString("N1"))</div>
         <div class="summary-lbl">Total live wt (lbs)</div>
     </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">@(((decimal)ViewBag.TotalCost).ToString("N1"))</div>
+        <div class="summary-lbl">Total cost</div>
+    </div>
     @if (statusFilter == "killed")
     {
         <div class="summary-divider"></div>
         <div class="summary-stat">
-            <div class="summary-val">@(((decimal)ViewBag.TotalHotWeight).ToString("N1"))</div>
+            <div class="summary-val">@(((decimal)ViewBag.TotalHotWeight).ToString("N2"))</div>
             <div class="summary-lbl">Total hot wt (lbs)</div>
         </div>
     }
