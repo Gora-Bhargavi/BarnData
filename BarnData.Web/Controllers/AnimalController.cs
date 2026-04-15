@@ -69,7 +69,7 @@ namespace BarnData.Web.Controllers
         {
             var vm = new AnimalViewModel
             {
-                KillDate     = DateTime.Today,
+                KillDate     = null,
                 PurchaseDate = DateTime.Today,
             };
 
@@ -118,6 +118,9 @@ namespace BarnData.Web.Controllers
             }
 
             var animal = MapToEntity(vm);
+            // Kill date is only set from Mark as killed workflow.
+            animal.KillDate = null;
+            animal.KillStatus = "Pending";
             var (success, error) = await _animalService.CreateAsync(animal);
 
             if (!success)
@@ -135,7 +138,6 @@ namespace BarnData.Web.Controllers
                 TempData["StickyVendorId"]    = vm.VendorID;
                 TempData["StickyPurchaseType"]= vm.PurchaseType;
                 TempData["StickyPurchaseDate"]= vm.PurchaseDate.ToString("yyyy-MM-dd");
-                TempData["StickyKillDate"]    = vm.KillDate?.ToString("yyyy-MM-dd");
                 TempData["StickyLiveRate"]    = vm.LiveRate.ToString();
                 TempData["StickyConsRate"]    = vm.ConsignmentRate?.ToString();
                 TempData["StickyProgramCode"] = vm.ProgramCode;
@@ -157,7 +159,7 @@ namespace BarnData.Web.Controllers
             var vm = new AnimalViewModel
             {
                 PurchaseDate = DateTime.Today,
-                KillDate     = DateTime.Today,
+                KillDate     = null,
             };
 
             // Restore sticky fields from TempData
@@ -169,9 +171,6 @@ namespace BarnData.Web.Controllers
 
             if (TempData["StickyPurchaseDate"] is string pd && DateTime.TryParse(pd, out var purchDate))
                 vm.PurchaseDate = purchDate;
-
-            if (TempData["StickyKillDate"] is string kd && DateTime.TryParse(kd, out var killDate))
-                vm.KillDate = killDate;
 
             if (TempData["StickyLiveRate"] is string lr && decimal.TryParse(lr, out var liveRate))
                 vm.LiveRate = liveRate;

@@ -145,7 +145,8 @@
 
                     <div class="field" id="consRateField" style="display:none">
                         <label asp-for="ConsignmentRate" class="field-label">Cons. rate ($/lb hw)</label>
-                        <input asp-for="ConsignmentRate" type="number" step="0.0001" class="form-control" placeholder="3.0000" />
+                        <input asp-for="ConsignmentRate" type="number" step="0.0001" class="form-control"
+                            id="consignmentRateInput" placeholder="3.0000" />
                     </div>
 
                     <div class="field">
@@ -438,6 +439,52 @@ document.getElementById('animalForm').addEventListener('submit', function(e) {
         // Going to list — clear session
         sessionStorage.removeItem('barnSessionRecords');
     }
+});
+
+document.addEventListener("DOMContentLoaded", function () {
+    if (!window.BarnNav) return;
+
+    var form = document.getElementById("animalForm");
+    if (!form) return;
+
+    BarnNav.registerCustomGrid({
+        container: form,
+        wrap: true,
+        getRows: function () {
+            var sections = Array.from(form.querySelectorAll(".form-section"));
+            var allRows = [];
+
+            sections.forEach(function (section) {
+                var controls = Array.from(section.querySelectorAll("input,select,textarea"))
+                    .filter(function (el) {
+                        return el.type !== "hidden" && !el.disabled && (el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+                    });
+
+                if (!controls.length) return;
+
+                var grouped = [];
+                controls.forEach(function (el) {
+                    var top = Math.round(el.getBoundingClientRect().top);
+                    var bucket = grouped.find(function (g) { return Math.abs(g.top - top) <= 4; });
+                    if (!bucket) {
+                        bucket = { top: top, items: [] };
+                        grouped.push(bucket);
+                    }
+                    bucket.items.push(el);
+                });
+
+                grouped.sort(function (a, b) { return a.top - b.top; });
+                grouped.forEach(function (g) {
+                    g.items.sort(function (a, b) {
+                        return a.getBoundingClientRect().left - b.getBoundingClientRect().left;
+                    });
+                    if (g.items.length) allRows.push(g.items);
+                });
+            });
+
+            return allRows;
+        }
+    });
 });
 </script>
 }

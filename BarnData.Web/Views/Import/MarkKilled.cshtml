@@ -93,6 +93,10 @@
                             <th style="min-width:120px">Office Use 2</th>
                             <th style="min-width:160px">Comments</th>
                             <th style="min-width:95px;background:#f0fdf4;color:#15803d">Animal Ctrl No ✎</th>
+                            <th style="min-width:95px;background:#f0fdf4;color:#15803d">State ✎</th>
+                            <th style="min-width:130px;background:#f0fdf4;color:#15803d">Vet Name ✎</th>
+                            <th style="min-width:140px;background:#f0fdf4;color:#15803d">Office Use 2 ✎</th>
+                            <th style="min-width:190px;background:#f0fdf4;color:#15803d">Comments ✎</th>
                             <th class="sticky-col sticky-col-6" style="min-width: 105px;background:#f0fdf4;color:#15803d">Live Wt ✎</th>
                             <th style="min-width:95px;background:#f0fdf4;color:#15803d">Kill Date ✎</th>
                             <th style="min-width:95px;background:#f0fdf4;color:#15803d">Hot Wt ✎</th>
@@ -148,6 +152,47 @@
                                             oninput="markEdited(@a.ControlNo)"
                                             style="width:120px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
                                 </td>
+                                <!-- State field -->
+                                <td style="background:#f0fdf4">
+                                    <input type="hidden" name="origState_@a.ControlNo" value="@(a.State ?? "")" />
+                                    <input type="text" name="state_@a.ControlNo"
+                                            value="@(a.State ?? "")"
+                                            placeholder="State"
+                                            oninput="markEdited(@a.ControlNo)"
+                                            style="width:90px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <!-- Vet Name field -->
+                                <td style="background:#f0fdf4">
+                                    <input type="hidden" name="origVetName_@a.ControlNo" value="@(a.VetName ?? "")" />
+
+                                    <input type="text" name="vetName_@a.ControlNo"
+                                            value="@(a.VetName ?? "")"
+                                            placeholder="Vet Name"
+                                            oninput="markEdited(@a.ControlNo)"
+                                            style="width:130px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <!-- Office Use 2 field -->
+                                <td style="background:#f0fdf4">
+                                    <input type="hidden" name="origOfficeUse2_@a.ControlNo" value="@(a.OfficeUse2 ?? "")" />
+
+                                    <input type="text" name="officeUse2_@a.ControlNo"
+                                            value="@(a.OfficeUse2 ?? "")"
+                                            placeholder="Office Use 2"
+                                            oninput="markEdited(@a.ControlNo)"
+                                            style="width:140px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+
+                                <!-- Comment field -->
+                                <td style="background:#f0fdf4">
+                                    <input type="hidden" name="origComment_@a.ControlNo" value="@(a.Comment ?? "")" />
+
+
+                                    <input type="text" name="comment_@a.ControlNo"
+                                            value="@(a.Comment ?? "")"
+                                            placeholder="Comments"
+                                            oninput="markEdited(@a.ControlNo)"
+                                            style="width:190px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
                                 <td class="sticky-col sticky-col-6" style="background: #f0fdf4;">
                                     <input type="number" 
                                              name="liveWeight_@a.ControlNo"
@@ -159,7 +204,7 @@
                                 <td style="background:#f0fdf4">
                                             <input type="date"
                                                 name="killDate_@a.ControlNo"
-                                                value="@todayStr"
+                                                value=""
                                                 onchange="markEdited(@a.ControlNo)"
                                                 style="width:114px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
                                 </td>
@@ -200,6 +245,7 @@
                                            style="width:16px;height:16px;cursor:pointer"
                                            title="Mark as condemned" />
                                 </td>
+                                
                             </tr>
                         }
                     </tbody>
@@ -280,5 +326,36 @@ function markEdited(id){
     row.classList.add('edited-row');
     
 }
+
+document.addEventListener("DOMContentLoaded", function () {
+    if (!window.BarnNav) return;
+    var table = document.getElementById("mainTable");
+    if (!table) return;
+
+    BarnNav.registerGrid({
+        container: table,
+        rowSelector: "tbody tr.animal-row",
+        cellSelector: [
+            "input[name^='animalCtrlNo_']",
+            "input[name^='liveWeight_']",
+            "input[name^='killDate_']",
+            "input[name^='hotWeight_']",
+            "select[name^='grade_']",
+            "input[name^='healthScore_']",
+            "input[type='checkbox'][name^='condemned_']"
+        ].join(","),
+        wrap: true,
+        onRowFocus: function (rowEl) {
+            if (!rowEl) return;
+            var chk = rowEl.querySelector(".animal-chk");
+            if (chk && !chk.checked) {
+                chk.checked = true;
+                if (typeof highlightRow === "function") highlightRow(chk);
+                if (typeof updateCount === "function") updateCount();
+            }
+        }
+    });
+});
+
 </script>
 }

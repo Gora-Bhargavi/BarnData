@@ -35,6 +35,13 @@ namespace BarnData.Core.Services
         public DateTime? KillDate { get; set; }
 
         public decimal? LiveWeight {get; set;}
+
+        public string? State {get; set;}
+        public string? VetName {get; set;}
+
+        public string? OfficeUse2 {get; set;}
+
+        public string? Comment {get; set;}
     }
 
     public class TallySummary

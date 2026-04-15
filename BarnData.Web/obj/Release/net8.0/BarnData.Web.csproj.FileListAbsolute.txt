@@ -160,3 +160,14 @@ C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\publish\appset
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\publish\BarnData.Web.deps.json
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\publish\BarnData.Web.runtimeconfig.json
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\publish\BarnData.Web.staticwebassets.endpoints.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\BouncyCastle.Cryptography.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\Enums.NET.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\ExtendedNumerics.BigDecimal.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\MathNet.Numerics.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\Microsoft.IO.RecyclableMemoryStream.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\NPOI.Core.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\NPOI.OOXML.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\NPOI.OpenXml4Net.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\NPOI.OpenXmlFormats.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\ICSharpCode.SharpZipLib.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\SixLabors.ImageSharp.dll

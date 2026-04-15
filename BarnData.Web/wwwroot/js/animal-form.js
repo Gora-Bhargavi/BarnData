@@ -84,6 +84,8 @@
     const costPreviewVal      = document.getElementById('costPreviewVal');
     const liveWeightInput     = document.getElementById('liveWeightInput');
     const hotWeightInput      = document.getElementById('hotWeightInput');
+    const liveRateInput       = document.getElementById('liveRateInput');
+    const consignmentRateInput = document.getElementById('consignmentRateInput');
 
     function applyPurchaseType(type) {
         const isCons = type === 'Consignment Bill';
@@ -101,29 +103,38 @@
         updateCostPreview();
     }
 
-    function updateCostPreview() {
-        if (!costPreview || !costPreviewVal) return;
-        const type   = purchaseTypeSelect?.value || '';
-        const isCons = type === 'Consignment Bill';
-        const liveWt = parseFloat(liveWeightInput?.value || '0') || 0;
-        const hotWt  = parseFloat(hotWeightInput?.value  || '0') || 0;
+    function readNumber(input) {
+    if (!input) return 0;
+    const value = parseFloat(input.value);
+    return Number.isFinite(value) ? value : 0;
+}
 
-        let cost = 0;
-        if (isCons) {
-            const consRate = parseFloat(document.querySelector('input[name="ConsignmentRate"]')?.value || '0') || 0;
-            cost = hotWt * consRate;
-        } else {
-            const liveRate = parseFloat(document.querySelector('input[name="LiveRate"]')?.value || '0') || 0;
-            cost = liveWt * liveRate;
-        }
+function updateCostPreview() {
+    if (!costPreview || !costPreviewVal) return;
 
-        if (cost > 0) {
-            costPreview.style.display = 'block';
-            costPreviewVal.textContent = '$' + cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        } else {
-            costPreview.style.display = 'none';
-        }
+    const type = purchaseTypeSelect?.value || '';
+    const isCons = type === 'Consignment Bill';
+
+    const liveWt = readNumber(liveWeightInput);
+    const hotWt = readNumber(hotWeightInput);
+    const liveRate = readNumber(liveRateInput);
+    const consRate = readNumber(consignmentRateInput);
+
+    const cost = isCons
+        ? hotWt * consRate
+        : liveWt * liveRate;
+
+    if (cost > 0) {
+        costPreview.style.display = 'block';
+        costPreviewVal.textContent =
+            '$' + cost.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+    } else {
+        costPreview.style.display = 'none';
     }
+}
 
     if (purchaseTypeSelect) {
         purchaseTypeSelect.addEventListener('change', () => applyPurchaseType(purchaseTypeSelect.value));
@@ -132,10 +143,12 @@
     }
 
     // Update cost preview when weights or rates change
-    document.querySelectorAll('input[name="LiveRate"], input[name="ConsignmentRate"]')
-        .forEach(el => el.addEventListener('input', updateCostPreview));
-    if (liveWeightInput) liveWeightInput.addEventListener('input', updateCostPreview);
-    if (hotWeightInput)  hotWeightInput.addEventListener('input', updateCostPreview);
+    [liveWeightInput, hotWeightInput, liveRateInput, consignmentRateInput]
+    .filter(Boolean)
+    .forEach(el => {
+        el.addEventListener('input', updateCostPreview);
+        el.addEventListener('change', updateCostPreview);
+    });
 
     // ── Live weight range highlight ───────────────────────────────────────
     const WEIGHT_MIN = 300, WEIGHT_MAX = 2500;

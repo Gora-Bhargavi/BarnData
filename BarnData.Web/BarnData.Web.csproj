@@ -17,6 +17,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
     <PackageReference Include="ClosedXML"             Version="0.102.1" />
+    <PackageReference Include="NPOI"                  Version="2.7.1" />
     <PackageReference Include="Rotativa.AspNetCore"   Version="1.3.2" />
   </ItemGroup>
 

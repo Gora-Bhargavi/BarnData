@@ -222,4 +222,19 @@ else
     .badge-sale { background:#dbeafe; color:#1e40af; }
     .badge-cons { background:#fef3c7; color:#92400e; }
 </style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    if (!window.BarnNav) return;
+    var table = document.querySelector(".table-card .data-table");
+    if (!table) return;
+
+    BarnNav.registerGrid({
+        container: table,
+        rowSelector: "tbody tr",
+        cellSelector: ".actions-cell a, .actions-cell button",
+        wrap: true
+    });
+});
+</script>
 }

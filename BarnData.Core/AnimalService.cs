@@ -248,8 +248,17 @@ namespace BarnData.Core.Services
                     a.LiveWeight = d.LiveWeight.Value;
 
                 //optional: if kill date is provided on save, persist it
-                if (d.KillDate.HasValue)
-                    a.KillDate = d.KillDate.Value;
+                //if (d.KillDate.HasValue)
+                 //   a.KillDate = d.KillDate.Value;
+
+                if(!string.IsNullOrWhiteSpace(d.State))
+                    a.State = d.State.Trim();
+                if(!string.IsNullOrWhiteSpace(d.VetName))
+                    a.VetName = d.VetName.Trim();
+                if(!string.IsNullOrWhiteSpace(d.OfficeUse2))
+                    a.OfficeUse2 = d.OfficeUse2.Trim();
+                if(!string.IsNullOrWhiteSpace(d.Comment))
+                    a.Comment = d.Comment.Trim();
             }
             if(animals.Any())
                 await _db.SaveChangesAsync();

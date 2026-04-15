@@ -37,7 +37,9 @@ builder.Services.AddScoped<IAnimalService, AnimalService>();
 builder.Services.AddScoped<IVendorService, VendorService>();
 
 //  3. MVC 
-builder.Services.AddControllersWithViews();
+builder.Services
+    .AddControllersWithViews()
+    .AddSessionStateTempDataProvider();
 
 var app = builder.Build();
 

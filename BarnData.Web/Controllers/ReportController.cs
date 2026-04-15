@@ -18,7 +18,7 @@ namespace BarnData.Web.Controllers
             _vendorService = vendorService;
         }
 
-        // ── PAGE 1: KILLED ANIMALS LIST ───────────────────────────────────
+        //  PAGE 1: KILLED ANIMALS LIST 
         public async Task<IActionResult> Tally(DateTime? killDate, int? vendorId)
         {
             var date    = killDate ?? DateTime.Today;
@@ -50,7 +50,7 @@ namespace BarnData.Web.Controllers
             return View(animals);
         }
 
-        // ── PAGE 2: FILTER VIEW ───────────────────────────────────────────
+        //  PAGE 2: FILTER VIEW 
         public async Task<IActionResult> FilterView(
             int? vendorId, string? status,
             DateTime? killDateFrom, DateTime? killDateTo,
@@ -101,7 +101,7 @@ namespace BarnData.Web.Controllers
             return View(animals);
         }
 
-        // ── EXPORT EXCEL — PAGE 1 (killed list) ──────────────────────────
+        //  EXPORT EXCEL — PAGE 1 (killed list)
         public async Task<IActionResult> ExportKilledExcel(DateTime? killDate, int? vendorId)
         {
             var date   = killDate ?? DateTime.Today;
@@ -119,7 +119,7 @@ namespace BarnData.Web.Controllers
                 $"KilledAnimals_{date:yyyyMMdd}.xlsx");
         }
 
-        // ── EXPORT PDF — PAGE 1 ───────────────────────────────────────────
+        //  EXPORT PDF — PAGE 1 
         public async Task<IActionResult> ExportKilledPdf(DateTime? killDate, int? vendorId)
         {
             var date   = killDate ?? DateTime.Today;
@@ -150,7 +150,7 @@ namespace BarnData.Web.Controllers
             };
         }
 
-        // ── EXPORT EXCEL — PAGE 2 (filter view) ──────────────────────────
+        // EXPORT EXCEL — PAGE 2 (filter view) 
         public async Task<IActionResult> ExportFilterExcel(
             int? vendorId, string? status,
             DateTime? killDateFrom, DateTime? killDateTo,
@@ -172,7 +172,7 @@ namespace BarnData.Web.Controllers
                 $"FilteredAnimals_{DateTime.Now:yyyyMMdd_HHmm}.xlsx");
         }
 
-        // ── EXPORT PDF — PAGE 2 ───────────────────────────────────────────
+        //  EXPORT PDF — PAGE 2 
         public async Task<IActionResult> ExportFilterPdf(
             int? vendorId, string? status,
             DateTime? killDateFrom, DateTime? killDateTo,
@@ -207,7 +207,7 @@ namespace BarnData.Web.Controllers
             };
         }
 
-        // ── SHARED EXCEL BUILDER ──────────────────────────────────────────
+        //  SHARED EXCEL BUILDER 
         private static byte[] BuildExcel(List<Animal> animals, string sheetTitle)
         {
             using var wb = new XLWorkbook();

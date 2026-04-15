@@ -4,7 +4,10 @@ using BarnData.Web.Models;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using NPOI.HSSF.UserModel;
+using NPOI.SS.UserModel;
 using System.Data;
+using System.Globalization;
 using System.Text.Json;
 namespace BarnData.Web.Controllers
 {
@@ -12,9 +15,6 @@ namespace BarnData.Web.Controllers
     {
         private readonly IAnimalService _animalService;
         private readonly IVendorService _vendorService;
-
-        // KillDate placeholder — 2000-01-02 means "not yet killed" in the export
-        private static readonly DateTime PENDING_DATE = new DateTime(2000, 1, 2);
 
         public ImportController(IAnimalService animalService, IVendorService vendorService)
         {
@@ -188,14 +188,7 @@ namespace BarnData.Web.Controllers
                         if (pd.HasValue) purchDate = pd.Value;
                     }
 
-                    //  Kill date — 2000-01-02 means pending (not killed yet) 
-                    DateTime? killDate = null;
-                    if (colKillDate > 0)
-                    {
-                        var kd = GetCellDate(ws.Cell(row, colKillDate));
-                        if (kd.HasValue && kd.Value > PENDING_DATE && kd.Value.Year > 2000)
-                            killDate = kd.Value;
-                    }
+                    // Kill date is always empty at import time.
 
                     //  Numeric fields 
                     decimal GetDecimal(int col)
@@ -240,8 +233,8 @@ namespace BarnData.Web.Controllers
                     //  Program code from vendor name 
                     var progCode = vendorName.ToUpper().Contains("ABF") ? "ABF" : "REG";
 
-                    //  Kill status 
-                    var killStatus = killDate.HasValue ? "Killed" : "Pending";
+                    // Kill status is always pending at import time.
+                    var killStatus = "Pending";
 
                     //  Build animal 
                     var animal = new Animal
@@ -263,7 +256,7 @@ namespace BarnData.Web.Controllers
                         PurchaseType         = purchType,
                         LiveWeight           = liveWeight,
                         LiveRate             = liveRate,
-                        KillDate             = killDate,
+                        KillDate             = null,
                         HotWeight            = hotWt,
                         Grade                = grade,
                         HealthScore          = hs,
@@ -390,6 +383,22 @@ public async Task<IActionResult> SaveMarkKilledEdits(IFormCollection form, int? 
         bool gradeEntered = !string.IsNullOrWhiteSpace(form[$"grade_{id}"].FirstOrDefault());
         bool hsEntered = int.TryParse(form[$"healthScore_{id}"], out var hs) && hs > 0;
 
+        var stateNow = NullIfEmpty(form[$"state_{id}"].FirstOrDefault());
+        var stateOrig = NullIfEmpty(form[$"origState_{id}"].FirstOrDefault());
+        bool stateChanged = !string.Equals(stateNow ?? "", stateOrig ?? "", StringComparison.Ordinal);
+
+        var vetNow = NullIfEmpty(form[$"vetName_{id}"].FirstOrDefault());
+        var vetOrig = NullIfEmpty(form[$"origVetName_{id}"].FirstOrDefault());
+        bool vetChanged = !string.Equals(vetNow ?? "", vetOrig ?? "", StringComparison.Ordinal);
+
+        var officeUse2Now = NullIfEmpty(form[$"officeUse2_{id}"].FirstOrDefault());
+        var officeUse2Orig = NullIfEmpty(form[$"origOfficeUse2_{id}"].FirstOrDefault());
+        bool office2Changed = !string.Equals(officeUse2Now ?? "", officeUse2Orig ?? "", StringComparison.Ordinal);
+
+        var commentNow = NullIfEmpty(form[$"comment_{id}"].FirstOrDefault());
+        var commentOrig = NullIfEmpty(form[$"origComment_{id}"].FirstOrDefault());
+        bool commentChanged = !string.Equals(commentNow ?? "", commentOrig ?? "", StringComparison.Ordinal);
+
         bool condemnedNow = form[$"condemned_{id}"].Any(v => v == "true" || v == "on");
         bool condemnedOrig = form[$"origCondemned_{id}"].Any(v => v == "true" || v == "on");
         bool condemnedChanged = condemnedNow != condemnedOrig;
@@ -398,7 +407,8 @@ public async Task<IActionResult> SaveMarkKilledEdits(IFormCollection form, int? 
         bool liveWeightChanged = liveWeightEntered && lw != origLw;
 
         // Kill-date-only should not be treated as save-edit trigger.
-        return animalCtrlChanged || liveWeightChanged || hotWeightEntered || gradeEntered || hsEntered || condemnedChanged;
+        return animalCtrlChanged || liveWeightChanged || hotWeightEntered || gradeEntered || hsEntered || condemnedChanged
+        || stateChanged || vetChanged || office2Changed || commentChanged;
     }
 
     var editedIds = allIds.Where(IsEditedForSave).ToList();
@@ -451,6 +461,10 @@ public async Task<IActionResult> SaveMarkKilledEdits(IFormCollection form, int? 
             Grade = NullIfEmpty(form[$"grade_{id}"].FirstOrDefault()),
             HealthScore = int.TryParse(form[$"healthScore_{id}"], out var hs) && hs > 0 ? hs : null,
             IsCondemned = form[$"condemned_{id}"].Any(v => v == "true" || v == "on"),
+            State = NullIfEmpty(form[$"state_{id}"].FirstOrDefault()),
+            VetName = NullIfEmpty(form[$"vetName_{id}"].FirstOrDefault()),
+            OfficeUse2 = NullIfEmpty(form[$"officeUse2_{id}"].FirstOrDefault()),
+            Comment = NullIfEmpty(form[$"comment_{id}"].FirstOrDefault()),
         };
     }).ToList();
 
@@ -590,14 +604,222 @@ public async Task<IActionResult> SaveMarkKilledEdits(IFormCollection form, int? 
             }
 
             var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-            if (ext != ".xlsx")
+            if (ext != ".xlsx" && ext != ".xls")
             {
-                ModelState.AddModelError("", "Only .xlsx files are supported.");
+                ModelState.AddModelError("", "Only .xlsx and .xls files are supported.");
                 return View();
             }
 
-            var vm      = new ExcelImportViewModel { FileName = file.FileName };
+            var vm = new ExcelImportViewModel { FileName = file.FileName };
             var vendors = (await _vendorService.GetAllActiveAsync()).ToList();
+            var inFileDupes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            const int maxVendorName = 150;
+            const int maxTag = 50;
+            const int maxAnimalType = 50;
+            const int maxGrade = 20;
+            const int maxComment = 500;
+            const int maxControlNo = 50;
+            const int maxOfficeUse2 = 100;
+            const int maxState = 2;
+            const int maxBuyer = 100;
+            const int maxVet = 100;
+
+            string NormalizeHeader(string? s)
+                => (s ?? "").Trim().Replace(":", "").ToLowerInvariant();
+
+            string NormalizeRequiredField(string? s)
+                => (s ?? "").Trim();
+
+            string? TrimWithNote(string? value, int maxLen, string fieldName, List<string> notes)
+            {
+                if (string.IsNullOrWhiteSpace(value)) return null;
+                var trimmed = value.Trim();
+                if (trimmed.Length <= maxLen) return trimmed;
+
+                notes.Add($"{fieldName} trimmed to {maxLen} chars");
+                return trimmed[..maxLen];
+            }
+
+            decimal ParseDecimal(string raw)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) return 0;
+                var cleaned = raw.Replace("$", "").Replace(",", "").Trim();
+                if (decimal.TryParse(cleaned, NumberStyles.Any, CultureInfo.InvariantCulture, out var invariant)) return invariant;
+                if (decimal.TryParse(cleaned, NumberStyles.Any, CultureInfo.CurrentCulture, out var current)) return current;
+                return 0;
+            }
+
+            async Task AddPreviewRowAsync(
+                int rowNum,
+                string vendorRaw,
+                string tag1Raw,
+                string purchaseTypeRaw,
+                DateTime? purchaseDate,
+                string animalTypeRaw,
+                string? tag2Raw,
+                string? tag3Raw,
+                string? animalType2Raw,
+                decimal liveWeight,
+                decimal liveRate,
+                decimal hotWeightRaw,
+                string? gradeRaw,
+                int? healthScore,
+                string? commentRaw,
+                string? animalControlNoRaw,
+                string? officeUse2Raw,
+                string? stateRaw,
+                string? buyerRaw,
+                string? vetRaw,
+                bool isCondemned,
+                List<string> notes)
+            {
+                var vendorName = NormalizeRequiredField(vendorRaw);
+                var tag1 = NormalizeRequiredField(tag1Raw);
+                var purchaseTypeValue = NormalizeRequiredField(purchaseTypeRaw);
+
+                if (string.IsNullOrEmpty(tag1))
+                {
+                    if (string.IsNullOrEmpty(vendorName) && string.IsNullOrEmpty(purchaseTypeValue) && !purchaseDate.HasValue)
+                    {
+                        return;
+                    }
+
+                    vm.TotalRows++;
+                    vm.Rows.Add(new ExcelPreviewRow
+                    {
+                        RowNum = rowNum,
+                        VendorName = vendorName,
+                        TagNumber1 = "",
+                        Status = "Error",
+                        StatusNote = "Missing required field: Tag Number One"
+                    });
+                    return;
+                }
+
+                vm.TotalRows++;
+
+                var missing = new List<string>();
+                if (string.IsNullOrEmpty(vendorName)) missing.Add("Vendor");
+                if (string.IsNullOrEmpty(purchaseTypeValue)) missing.Add("Purchase Type");
+                if (!purchaseDate.HasValue) missing.Add("Purchase Date");
+
+                if (missing.Count > 0)
+                {
+                    vm.Rows.Add(new ExcelPreviewRow
+                    {
+                        RowNum = rowNum,
+                        VendorName = vendorName,
+                        TagNumber1 = tag1,
+                        Status = "Error",
+                        StatusNote = "Missing required field(s): " + string.Join(", ", missing)
+                    });
+                    return;
+                }
+
+                var localNotes = new List<string>(notes);
+
+                var vendorSafe = TrimWithNote(vendorName, maxVendorName, "Vendor", localNotes) ?? vendorName;
+                var tag1Safe = TrimWithNote(tag1, maxTag, "Tag Number One", localNotes) ?? tag1;
+                var tag2Safe = TrimWithNote(tag2Raw, maxTag, "Tag Number Two", localNotes);
+                var tag3Safe = TrimWithNote(tag3Raw, maxTag, "Tag 3", localNotes);
+                var animalType = TrimWithNote(animalTypeRaw, maxAnimalType, "Animal Type", localNotes) ?? "Cow";
+                var animalType2 = TrimWithNote(animalType2Raw, maxAnimalType, "Animal Type 2", localNotes);
+                var grade = TrimWithNote(gradeRaw, maxGrade, "Grade", localNotes);
+                var comment = TrimWithNote(commentRaw, maxComment, "Comment", localNotes);
+                var animalCtrlNo = TrimWithNote(animalControlNoRaw, maxControlNo, "Animal Control Number", localNotes);
+                var officeUse2 = TrimWithNote(officeUse2Raw, maxOfficeUse2, "Office Use 2", localNotes);
+                var state = TrimWithNote(stateRaw, maxState, "State", localNotes);
+                var buyer = TrimWithNote(buyerRaw, maxBuyer, "Buyer", localNotes);
+                var vet = TrimWithNote(vetRaw, maxVet, "Vet Name", localNotes);
+
+                if (string.IsNullOrWhiteSpace(animalType)) animalType = "Cow";
+                if (animalType.StartsWith("Str", StringComparison.OrdinalIgnoreCase)) animalType = "Steer";
+
+                var purchaseType = purchaseTypeValue.Contains("consignment", StringComparison.OrdinalIgnoreCase)
+                    ? "Consignment Bill"
+                    : "Sale Bill";
+                var safePurchaseDate = purchaseDate ?? DateTime.Today;
+
+                var inFileKey = $"{vendorSafe}|{tag1Safe}";
+                if (!inFileDupes.Add(inFileKey))
+                {
+                    vm.Rows.Add(new ExcelPreviewRow
+                    {
+                        RowNum = rowNum,
+                        VendorName = vendorSafe,
+                        TagNumber1 = tag1Safe,
+                        TagNumber2 = tag2Safe,
+                        Tag3 = tag3Safe,
+                        AnimalType = animalType,
+                        AnimalType2 = animalType2,
+                        PurchaseType = purchaseType,
+                        PurchaseDate = safePurchaseDate,
+                        LiveWeight = liveWeight,
+                        LiveRate = liveRate,
+                        KillDate = null,
+                        HotWeight = hotWeightRaw > 0 ? hotWeightRaw : null,
+                        Grade = grade,
+                        HealthScore = healthScore,
+                        Comment = comment,
+                        AnimalControlNumber = animalCtrlNo,
+                        OfficeUse2 = officeUse2,
+                        State = state,
+                        BuyerName = buyer,
+                        VetName = vet,
+                        IsCondemned = isCondemned,
+                        Status = "Duplicate",
+                        StatusNote = "Duplicate tag in uploaded file for this vendor"
+                    });
+                    return;
+                }
+
+                var vendor = vendors.FirstOrDefault(v =>
+                    v.VendorName.Equals(vendorSafe, StringComparison.OrdinalIgnoreCase));
+
+                string status = "OK";
+                string? statusNote = localNotes.Any() ? string.Join("; ", localNotes) : null;
+
+                if (vendor?.VendorID > 0)
+                {
+                    var exists = await _animalService.IsTagDuplicateAsync(tag1Safe, vendor.VendorID);
+                    if (exists)
+                    {
+                        status = "Duplicate";
+                        statusNote = string.IsNullOrEmpty(statusNote)
+                            ? "Tag already exists for this vendor"
+                            : statusNote + "; Tag already exists for this vendor";
+                    }
+                }
+
+                vm.Rows.Add(new ExcelPreviewRow
+                {
+                    RowNum = rowNum,
+                    VendorName = vendorSafe,
+                    TagNumber1 = tag1Safe,
+                    TagNumber2 = tag2Safe,
+                    Tag3 = tag3Safe,
+                    AnimalType = animalType,
+                    AnimalType2 = animalType2,
+                    PurchaseType = purchaseType,
+                    PurchaseDate = safePurchaseDate,
+                    LiveWeight = liveWeight,
+                    LiveRate = liveRate,
+                    KillDate = null,
+                    HotWeight = hotWeightRaw > 0 ? hotWeightRaw : null,
+                    Grade = grade,
+                    HealthScore = healthScore,
+                    Comment = comment,
+                    AnimalControlNumber = animalCtrlNo,
+                    OfficeUse2 = officeUse2,
+                    State = state,
+                    BuyerName = buyer,
+                    VetName = vet,
+                    IsCondemned = isCondemned,
+                    Status = status,
+                    StatusNote = statusNote,
+                });
+            }
 
             try
             {
@@ -605,154 +827,399 @@ public async Task<IActionResult> SaveMarkKilledEdits(IFormCollection form, int? 
                 await file.CopyToAsync(stream);
                 stream.Position = 0;
 
-                using var wb = new XLWorkbook(stream);
-                var ws = wb.Worksheets.First();
-
-                // Map headers by name
-                var colMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                int lastCol = ws.LastColumnUsed()?.ColumnNumber() ?? 30;
-                for (int c = 1; c <= lastCol; c++)
+                if (ext == ".xlsx")
                 {
-                    var h = ws.Cell(1, c).GetString().Trim().Replace(":", "").ToLowerInvariant();
-                    if (!string.IsNullOrEmpty(h)) colMap[h] = c;
+                    using var wb = new XLWorkbook(stream);
+                    var ws = wb.Worksheets.First();
+
+                    var colMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    int lastCol = ws.LastColumnUsed()?.ColumnNumber() ?? 30;
+                    for (int c = 1; c <= lastCol; c++)
+                    {
+                        var h = NormalizeHeader(ws.Cell(1, c).GetString());
+                        if (!string.IsNullOrEmpty(h)) colMap[h] = c;
+                    }
+
+                    int Col(params string[] names)
+                    {
+                        foreach (var n in names)
+                            if (colMap.TryGetValue(n.ToLowerInvariant(), out int c)) return c;
+                        return -1;
+                    }
+
+                    (string Value, bool FormulaFallback) ReadText(int row, int col)
+                    {
+                        if (col < 0) return ("", false);
+                        var cell = ws.Cell(row, col);
+                        if (cell == null) return ("", false);
+
+                        try
+                        {
+                            if (cell.DataType == XLDataType.Number)
+                            {
+                                var d = cell.GetDouble();
+                                var num = d == Math.Floor(d) ? ((long)d).ToString() : d.ToString(CultureInfo.InvariantCulture);
+                                return (num, false);
+                            }
+
+                            if (cell.DataType == XLDataType.Boolean) return (cell.GetBoolean().ToString(), false);
+                            if (cell.DataType == XLDataType.DateTime)
+                                return (cell.GetDateTime().ToString("MM/dd/yyyy", CultureInfo.InvariantCulture), false);
+
+                            var cached = cell.CachedValue.ToString()?.Trim();
+                            if (!string.IsNullOrEmpty(cached)) return (cached, false);
+
+                            var display = cell.GetFormattedString().Trim();
+                            bool usedFallback = cell.HasFormula && !string.IsNullOrEmpty(display);
+                            return (display, usedFallback);
+                        }
+                        catch
+                        {
+                            return (cell.GetString().Trim(), false);
+                        }
+                    }
+
+                    DateTime? ReadDate(int row, int col, out bool formulaFallback)
+                    {
+                        formulaFallback = false;
+                        if (col < 0) return null;
+
+                        var cell = ws.Cell(row, col);
+                        if (cell == null) return null;
+
+                        try
+                        {
+                            if (cell.DataType == XLDataType.DateTime) return cell.GetDateTime();
+
+                            if (cell.DataType == XLDataType.Number)
+                            {
+                                var rawNum = cell.GetDouble();
+                                if (rawNum > 0 && rawNum < 2958465) return DateTime.FromOADate(rawNum);
+                            }
+
+                            var cached = cell.CachedValue.ToString()?.Trim();
+                            if (!string.IsNullOrEmpty(cached) && DateTime.TryParse(cached, out var cachedDate))
+                                return cachedDate;
+
+                            var display = cell.GetFormattedString().Trim();
+                            if (DateTime.TryParse(display, out var displayDate))
+                            {
+                                formulaFallback = cell.HasFormula && string.IsNullOrEmpty(cached);
+                                return displayDate;
+                            }
+                        }
+                        catch
+                        {
+                        }
+
+                        return null;
+                    }
+
+                    int colAnimalType = Col("animal type");
+                    int colTag1 = Col("tag number one", "tag one", "tag 1");
+                    int colTag2 = Col("tag number two", "tag two", "tag 2");
+                    int colTag3 = Col("tag 3", "tag3");
+                    int colPurchDate = Col("purchase date");
+                    int colPurchType = Col("purchase type");
+                    int colVendor = Col("vendor");
+                    int colLiveWeight = Col("live weight");
+                    int colLiveRate = Col("live rate");
+                    int colHotWeight = Col("hot weight");
+                    int colGrade = Col("grade");
+                    int colHS = Col("h s", "hs", "health score");
+                    int colComment = Col("comments", "comment");
+                    int colACN = Col("animal control number");
+                    int colOfficeUse2 = Col("office use 2");
+                    int colState = Col("state");
+                    int colBuyer = Col("buyer");
+                    int colAnimalType2 = Col("animal type 2");
+                    int colVetName = Col("vet name");
+
+                    int lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
+                    for (int row = 2; row <= lastRow; row++)
+                    {
+                        var notes = new List<string>();
+
+                        var (tag1Raw, tag1Formula) = ReadText(row, colTag1);
+                        if (tag1Formula) notes.Add("Tag Number One used formula fallback");
+
+                        var (vendorRaw, vendorFormula) = ReadText(row, colVendor);
+                        if (vendorFormula) notes.Add("Vendor used formula fallback");
+
+                        var (purchaseTypeRaw, purchTypeFormula) = ReadText(row, colPurchType);
+                        if (purchTypeFormula) notes.Add("Purchase Type used formula fallback");
+
+                        var purchaseDate = ReadDate(row, colPurchDate, out var purchaseDateFormula);
+                        if (purchaseDateFormula) notes.Add("Purchase Date used formula fallback");
+
+                        var (liveWeightRaw, lwFormula) = ReadText(row, colLiveWeight);
+                        if (lwFormula) notes.Add("Live Weight used formula fallback");
+
+                        var (liveRateRaw, lrFormula) = ReadText(row, colLiveRate);
+                        if (lrFormula) notes.Add("Live Rate used formula fallback");
+
+                        var (hotWeightRawText, hwFormula) = ReadText(row, colHotWeight);
+                        if (hwFormula) notes.Add("Hot Weight used formula fallback");
+
+                        var (animalTypeRaw, _) = ReadText(row, colAnimalType);
+                        var (tag2Raw, _) = ReadText(row, colTag2);
+                        var (tag3Raw, _) = ReadText(row, colTag3);
+                        var (animalType2Raw, _) = ReadText(row, colAnimalType2);
+                        var (gradeRaw, _) = ReadText(row, colGrade);
+                        var (hsRaw, hsFormula) = ReadText(row, colHS);
+                        if (hsFormula) notes.Add("Health Score used formula fallback");
+
+                        var (commentRaw, _) = ReadText(row, colComment);
+                        var (acnRaw, _) = ReadText(row, colACN);
+                        var (officeUse2Raw, _) = ReadText(row, colOfficeUse2);
+                        var (stateRaw, _) = ReadText(row, colState);
+                        var (buyerRaw, _) = ReadText(row, colBuyer);
+                        var (vetRaw, _) = ReadText(row, colVetName);
+
+                        decimal liveWeight = ParseDecimal(liveWeightRaw);
+                        decimal liveRate = ParseDecimal(liveRateRaw);
+                        decimal hotWeight = ParseDecimal(hotWeightRawText);
+
+                        int? hs = null;
+                        if (int.TryParse(hsRaw, out var hsValue) && hsValue > 0) hs = hsValue;
+
+                        var commentClean = NullIfEmpty(commentRaw);
+                        bool isCond = !string.IsNullOrEmpty(commentClean)
+                            && commentClean.Contains("cond", StringComparison.OrdinalIgnoreCase);
+
+                        await AddPreviewRowAsync(
+                            row,
+                            vendorRaw,
+                            tag1Raw,
+                            purchaseTypeRaw,
+                            purchaseDate,
+                            animalTypeRaw,
+                            NullIfEmpty(tag2Raw),
+                            NullIfEmpty(tag3Raw),
+                            NullIfEmpty(animalType2Raw),
+                            liveWeight,
+                            liveRate,
+                            hotWeight,
+                            NullIfEmpty(gradeRaw),
+                            hs,
+                            commentClean,
+                            NullIfEmpty(acnRaw),
+                            NullIfEmpty(officeUse2Raw),
+                            NullIfEmpty(stateRaw),
+                            NullIfEmpty(buyerRaw),
+                            NullIfEmpty(vetRaw),
+                            isCond,
+                            notes);
+                    }
                 }
-
-                int Col(params string[] names)
+                else
                 {
-                    foreach (var n in names)
-                        if (colMap.TryGetValue(n.ToLowerInvariant(), out int c)) return c;
-                    return -1;
-                }
+                    using var workbook = new HSSFWorkbook(stream);
+                    var sheet = workbook.GetSheetAt(0);
+                    var formatter = new DataFormatter(CultureInfo.InvariantCulture);
 
-                int colAnimalType  = Col("animal type");
-                int colTag1        = Col("tag number one", "tag one", "tag 1");
-                int colTag2        = Col("tag number two", "tag two", "tag 2");
-                int colTag3        = Col("tag 3", "tag3");
-                int colPurchDate   = Col("purchase date");
-                int colPurchType   = Col("purchase type");
-                int colVendor      = Col("vendor");
-                int colLiveWeight  = Col("live weight");
-                int colLiveRate    = Col("live rate");
-                int colKillDate    = Col("kill date");
-                int colHotWeight   = Col("hot weight");
-                int colGrade       = Col("grade");
-                int colHS          = Col("h s", "hs", "health score");
-                int colComment     = Col("comments", "comment");
-                int colACN         = Col("animal control number");
-                int colOfficeUse2  = Col("office use 2");
-                int colState       = Col("state");
-                int colBuyer       = Col("buyer");
-                int colAnimalType2 = Col("animal type 2");
-                int colVetName     = Col("vet name");
-
-                int lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
-
-                decimal GetDecimal(int col, int row)
-                {
-                    if (col < 0) return 0;
-                    var cell = ws.Cell(row, col);
-                    if (cell.DataType == XLDataType.Number)
-                        return (decimal)cell.GetDouble();
-                    var v = GetCellString(cell).Replace("$", "").Replace(",", "").Trim();
-                    return decimal.TryParse(v, out var d) ? d : 0;
-                }
-
-                for (int row = 2; row <= lastRow; row++)
-                {
-                    var tag1 = colTag1 > 0 ? GetCellString(ws.Cell(row, colTag1)) : "";
-                    if (string.IsNullOrEmpty(tag1)) continue;
-
-                    vm.TotalRows++;
-
-                    var vendorName = colVendor > 0 ? GetCellString(ws.Cell(row, colVendor)) : "";
-                    if (string.IsNullOrEmpty(vendorName))
+                    var colMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    var headerRow = sheet.GetRow(0);
+                    int lastCol = headerRow?.LastCellNum ?? 30;
+                    for (int c = 0; c < lastCol; c++)
                     {
-                        vm.Rows.Add(new ExcelPreviewRow { RowNum = row, TagNumber1 = tag1, Status = "Error", StatusNote = "Missing vendor" });
-                        continue;
+                        var header = NormalizeHeader(formatter.FormatCellValue(headerRow?.GetCell(c)));
+                        if (!string.IsNullOrEmpty(header)) colMap[header] = c;
                     }
 
-                    // Purchase type
-                    var purchTypeRaw = colPurchType > 0 ? GetCellString(ws.Cell(row, colPurchType)) : "Sale Bill";
-                    var purchType    = purchTypeRaw.ToLower().Contains("consignment") ? "Consignment Bill" : "Sale Bill";
-
-                    // Purchase date
-                    DateTime purchDate = DateTime.Today;
-                    if (colPurchDate > 0)
+                    int Col(params string[] names)
                     {
-                        var pd = GetCellDate(ws.Cell(row, colPurchDate));
-                        if (pd.HasValue) purchDate = pd.Value;
+                        foreach (var n in names)
+                            if (colMap.TryGetValue(n.ToLowerInvariant(), out var c)) return c;
+                        return -1;
                     }
 
-                    // Kill date
-                    DateTime? killDate = null;
-                    if (colKillDate > 0)
+                    ICell? CellAt(int row, int col)
                     {
-                        var kd2 = GetCellDate(ws.Cell(row, colKillDate));
-                        if (kd2.HasValue && kd2.Value > PENDING_DATE && kd2.Value.Year > 2000)
-                            killDate = kd2.Value;
+                        if (col < 0) return null;
+                        var r = sheet.GetRow(row);
+                        return r?.GetCell(col, MissingCellPolicy.RETURN_BLANK_AS_NULL);
                     }
 
-                    // Animal type
-                    var animalType = colAnimalType > 0 ? GetCellString(ws.Cell(row, colAnimalType)) : "Cow";
-                    if (string.IsNullOrEmpty(animalType)) animalType = "Cow";
-                    if (animalType.StartsWith("Str", StringComparison.OrdinalIgnoreCase)) animalType = "Steer";
-
-                    // Comment / condemned
-                    var comment = colComment > 0 ? GetCellString(ws.Cell(row, colComment)) : null;
-                    bool isCond = !string.IsNullOrEmpty(comment) && comment.ToLower().Contains("cond");
-                    if (string.IsNullOrEmpty(comment)) comment = null;
-
-                    // Health score
-                    int? hs = null;
-                    if (colHS > 0)
+                    (string Value, bool FormulaFallback) ReadText(int row, int col)
                     {
-                        var hsStr = GetCellString(ws.Cell(row, colHS));
-                        if (int.TryParse(hsStr, out var hsVal) && hsVal > 0) hs = hsVal;
+                        var cell = CellAt(row, col);
+                        if (cell == null) return ("", false);
+
+                        try
+                        {
+                            switch (cell.CellType)
+                            {
+                                case CellType.Numeric:
+                                    if (DateUtil.IsCellDateFormatted(cell))
+                                        return ($"{cell.DateCellValue:MM/dd/yyyy}", false);
+                                    var n = cell.NumericCellValue;
+                                    return (Math.Abs(n % 1) < 0.0000001
+                                        ? ((long)n).ToString()
+                                        : n.ToString(CultureInfo.InvariantCulture), false);
+
+                                case CellType.Boolean:
+                                    return (cell.BooleanCellValue.ToString(), false);
+
+                                case CellType.String:
+                                    return ((cell.StringCellValue ?? "").Trim(), false);
+
+                                case CellType.Formula:
+                                    switch (cell.CachedFormulaResultType)
+                                    {
+                                        case CellType.Numeric:
+                                            if (DateUtil.IsCellDateFormatted(cell))
+                                                return ($"{cell.DateCellValue:MM/dd/yyyy}", false);
+                                            var cachedNum = cell.NumericCellValue;
+                                            return (Math.Abs(cachedNum % 1) < 0.0000001
+                                                ? ((long)cachedNum).ToString()
+                                                : cachedNum.ToString(CultureInfo.InvariantCulture), false);
+
+                                        case CellType.String:
+                                            return ((cell.StringCellValue ?? "").Trim(), false);
+
+                                        case CellType.Boolean:
+                                            return (cell.BooleanCellValue.ToString(), false);
+                                    }
+
+                                    var display = formatter.FormatCellValue(cell)?.Trim() ?? "";
+                                    return (display, !string.IsNullOrEmpty(display));
+                            }
+
+                            return ((formatter.FormatCellValue(cell) ?? "").Trim(), false);
+                        }
+                        catch
+                        {
+                            return ((formatter.FormatCellValue(cell) ?? "").Trim(), false);
+                        }
                     }
 
-                    decimal hotWtRaw = GetDecimal(colHotWeight, row);
-                    decimal liveWeight = GetDecimal(colLiveWeight, row);
-                    decimal liveRate   = GetDecimal(colLiveRate, row);
-
-                    // Check duplicate in existing DB (preview only — don't save yet)
-                    var vendor    = vendors.FirstOrDefault(v => v.VendorName.Equals(vendorName, StringComparison.OrdinalIgnoreCase));
-                    int vendorId  = vendor?.VendorID ?? 0;
-                    string status = "OK";
-                    string? note  = null;
-
-                    if (vendorId > 0)
+                    DateTime? ReadDate(int row, int col, out bool formulaFallback)
                     {
-                        bool isDup = await _animalService.IsTagDuplicateAsync(tag1, vendorId);
-                        if (isDup) { status = "Duplicate"; note = "Tag already exists for this vendor"; }
+                        formulaFallback = false;
+                        var cell = CellAt(row, col);
+                        if (cell == null) return null;
+
+                        try
+                        {
+                            if (cell.CellType == CellType.Numeric && DateUtil.IsCellDateFormatted(cell))
+                                return cell.DateCellValue;
+
+                            if (cell.CellType == CellType.Formula
+                                && cell.CachedFormulaResultType == CellType.Numeric
+                                && DateUtil.IsCellDateFormatted(cell))
+                                return cell.DateCellValue;
+
+                            var raw = (formatter.FormatCellValue(cell) ?? "").Trim();
+                            if (DateTime.TryParse(raw, out var parsed))
+                            {
+                                formulaFallback = cell.CellType == CellType.Formula;
+                                return parsed;
+                            }
+                        }
+                        catch
+                        {
+                        }
+
+                        return null;
                     }
 
-                    vm.Rows.Add(new ExcelPreviewRow
+                    int colAnimalType = Col("animal type");
+                    int colTag1 = Col("tag number one", "tag one", "tag 1");
+                    int colTag2 = Col("tag number two", "tag two", "tag 2");
+                    int colTag3 = Col("tag 3", "tag3");
+                    int colPurchDate = Col("purchase date");
+                    int colPurchType = Col("purchase type");
+                    int colVendor = Col("vendor");
+                    int colLiveWeight = Col("live weight");
+                    int colLiveRate = Col("live rate");
+                    int colHotWeight = Col("hot weight");
+                    int colGrade = Col("grade");
+                    int colHS = Col("h s", "hs", "health score");
+                    int colComment = Col("comments", "comment");
+                    int colACN = Col("animal control number");
+                    int colOfficeUse2 = Col("office use 2");
+                    int colState = Col("state");
+                    int colBuyer = Col("buyer");
+                    int colAnimalType2 = Col("animal type 2");
+                    int colVetName = Col("vet name");
+
+                    int lastRow = sheet.LastRowNum;
+                    for (int row = 1; row <= lastRow; row++)
                     {
-                        RowNum              = row,
-                        VendorName          = vendorName,
-                        TagNumber1          = tag1,
-                        TagNumber2          = colTag2 > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colTag2))) : null,
-                        Tag3                = colTag3 > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colTag3))) : null,
-                        AnimalType          = animalType,
-                        AnimalType2         = colAnimalType2 > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colAnimalType2))) : null,
-                        PurchaseType        = purchType,
-                        PurchaseDate        = purchDate,
-                        LiveWeight          = liveWeight,
-                        LiveRate            = liveRate,
-                        KillDate            = killDate,
-                        HotWeight           = hotWtRaw > 0 ? hotWtRaw : null,
-                        Grade               = colGrade > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colGrade))) : null,
-                        HealthScore         = hs,
-                        Comment             = comment,
-                        AnimalControlNumber = colACN > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colACN))) : null,
-                        OfficeUse2          = colOfficeUse2 > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colOfficeUse2))) : null,
-                        State               = colState > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colState))) : null,
-                        BuyerName           = colBuyer > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colBuyer))) : null,
-                        VetName             = colVetName > 0 ? NullIfEmpty(GetCellString(ws.Cell(row, colVetName))) : null,
-                        IsCondemned         = isCond,
-                        Status              = status,
-                        StatusNote          = note,
-                    });
+                        var notes = new List<string>();
+
+                        var (tag1Raw, tag1Formula) = ReadText(row, colTag1);
+                        if (tag1Formula) notes.Add("Tag Number One used formula fallback");
+
+                        var (vendorRaw, vendorFormula) = ReadText(row, colVendor);
+                        if (vendorFormula) notes.Add("Vendor used formula fallback");
+
+                        var (purchaseTypeRaw, purchTypeFormula) = ReadText(row, colPurchType);
+                        if (purchTypeFormula) notes.Add("Purchase Type used formula fallback");
+
+                        var purchaseDate = ReadDate(row, colPurchDate, out var purchaseDateFormula);
+                        if (purchaseDateFormula) notes.Add("Purchase Date used formula fallback");
+
+                        var (liveWeightRaw, lwFormula) = ReadText(row, colLiveWeight);
+                        if (lwFormula) notes.Add("Live Weight used formula fallback");
+
+                        var (liveRateRaw, lrFormula) = ReadText(row, colLiveRate);
+                        if (lrFormula) notes.Add("Live Rate used formula fallback");
+
+                        var (hotWeightRawText, hwFormula) = ReadText(row, colHotWeight);
+                        if (hwFormula) notes.Add("Hot Weight used formula fallback");
+
+                        var (animalTypeRaw, _) = ReadText(row, colAnimalType);
+                        var (tag2Raw, _) = ReadText(row, colTag2);
+                        var (tag3Raw, _) = ReadText(row, colTag3);
+                        var (animalType2Raw, _) = ReadText(row, colAnimalType2);
+                        var (gradeRaw, _) = ReadText(row, colGrade);
+                        var (hsRaw, hsFormula) = ReadText(row, colHS);
+                        if (hsFormula) notes.Add("Health Score used formula fallback");
+
+                        var (commentRaw, _) = ReadText(row, colComment);
+                        var (acnRaw, _) = ReadText(row, colACN);
+                        var (officeUse2Raw, _) = ReadText(row, colOfficeUse2);
+                        var (stateRaw, _) = ReadText(row, colState);
+                        var (buyerRaw, _) = ReadText(row, colBuyer);
+                        var (vetRaw, _) = ReadText(row, colVetName);
+
+                        decimal liveWeight = ParseDecimal(liveWeightRaw);
+                        decimal liveRate = ParseDecimal(liveRateRaw);
+                        decimal hotWeight = ParseDecimal(hotWeightRawText);
+
+                        int? hs = null;
+                        if (int.TryParse(hsRaw, out var hsValue) && hsValue > 0) hs = hsValue;
+
+                        var commentClean = NullIfEmpty(commentRaw);
+                        bool isCond = !string.IsNullOrEmpty(commentClean)
+                            && commentClean.Contains("cond", StringComparison.OrdinalIgnoreCase);
+
+                        await AddPreviewRowAsync(
+                            row + 1,
+                            vendorRaw,
+                            tag1Raw,
+                            purchaseTypeRaw,
+                            purchaseDate,
+                            animalTypeRaw,
+                            NullIfEmpty(tag2Raw),
+                            NullIfEmpty(tag3Raw),
+                            NullIfEmpty(animalType2Raw),
+                            liveWeight,
+                            liveRate,
+                            hotWeight,
+                            NullIfEmpty(gradeRaw),
+                            hs,
+                            commentClean,
+                            NullIfEmpty(acnRaw),
+                            NullIfEmpty(officeUse2Raw),
+                            NullIfEmpty(stateRaw),
+                            NullIfEmpty(buyerRaw),
+                            NullIfEmpty(vetRaw),
+                            isCond,
+                            notes);
+                    }
                 }
             }
             catch (Exception ex)
@@ -814,7 +1281,7 @@ public async Task<IActionResult> SaveMarkKilledEdits(IFormCollection form, int? 
                     PurchaseType        = r.PurchaseType,
                     LiveWeight          = r.LiveWeight,
                     LiveRate            = r.LiveRate,
-                    KillDate            = r.KillDate,
+                    KillDate            = null,
                     HotWeight           = r.HotWeight,
                     Grade               = r.Grade,
                     HealthScore         = r.HealthScore,
@@ -825,7 +1292,7 @@ public async Task<IActionResult> SaveMarkKilledEdits(IFormCollection form, int? 
                     BuyerName           = r.BuyerName,
                     VetName             = r.VetName,
                     IsCondemned         = r.IsCondemned,
-                    KillStatus          = r.KillDate.HasValue ? "Killed" : "Pending",
+                    KillStatus          = "Pending",
                     SaleBillRef         = billRef,
                 });
             }
