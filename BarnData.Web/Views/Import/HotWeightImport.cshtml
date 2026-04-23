@@ -1,0 +1,47 @@
+@model BarnData.Web.Models.HotWeightImportViewModel?
+@{
+    ViewData["Title"] = "Import Hot Weight Report";
+    ViewData["Subtitle"] = "Upload Hot Scale Parsed Data Excel file";
+}
+
+@if (!ViewData.ModelState.IsValid)
+{
+    <div class="alert alert-error" style="margin-bottom:14px">
+        @foreach (var e in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+        { 
+            <div>@e.ErrorMessage</div> 
+        }
+    </div>
+}
+
+<div style="max-width:600px">
+
+    <!-- Upload card -->
+    <div class="form-section" style="margin-bottom:14px">
+        <div class="form-section-title">Upload Hot Scale file</div>
+        <form method="post" enctype="multipart/form-data" asp-action="HotWeightImport">
+            @Html.AntiForgeryToken()
+            <div class="field" style="margin-bottom:14px">
+                <label class="field-label">Hot Weight Report Excel (.xlsx)</label>
+                <input type="file" name="file" accept=".xlsx" class="form-control" required />
+                <div class="field-hint">
+                    Expected columns: <code>Number</code>, <code>Side 1 Hot</code>, <code>Side 2 Hot</code>, <code>Grade</code>, <code>HealthScore</code>
+                </div>
+            </div>
+            <div style="background:var(--gray1);border-radius:6px;padding:12px 14px;font-size:12.5px;margin-bottom:14px;line-height:1.7">
+                <strong>What happens on upload:</strong>
+                <ul style="margin:6px 0 0 16px;padding:0">
+                    <li>Records matched by Animal Control Number</li>
+                    <li>HotWeight = Side1 + Side2 (both must be present)</li>
+                    <li>Variance &gt;5%, missing sides, invalid grade, or out-of-range HS → Flagged tab for review</li>
+                    <li>Records already with HotWeight → Overwrite tab for confirmation</li>
+                    <li>Preview shown before anything is saved to the database</li>
+                    <li>Uploading a new file replaces the current session</li>
+                </ul>
+            </div>
+            <button type="submit" class="btn btn-primary">Upload &amp; Preview</button>
+            <a asp-action="MarkKilled" class="btn btn-secondary" style="margin-left:8px">Go to Mark as Killed</a>
+        </form>
+    </div>
+
+</div>

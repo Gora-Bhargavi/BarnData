@@ -25,6 +25,14 @@ builder.Services.AddDbContext<BarnDataContext>(options =>
 );
 
 builder.Services.AddDistributedMemoryCache();
+
+// Raise form field limit (safety net for large grids)
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
+{
+    o.ValueCountLimit  = 32768;
+    o.ValueLengthLimit = int.MaxValue;
+    o.MultipartBodyLengthLimit = int.MaxValue;
+});
 builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromMinutes(30);

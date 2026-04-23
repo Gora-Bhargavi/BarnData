@@ -30,6 +30,10 @@
            class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" && ViewContext.RouteData.Values["action"]?.ToString() is "Excel" or "ExcelPreview" or "ExcelConfirm" ? "active" : "")">
             <span class="nav-dot"></span> Import Excel
         </a>
+        <a asp-controller="Import" asp-action="HotWeightImport"
+           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" && ViewContext.RouteData.Values["action"]?.ToString() is "HotWeightImport" or "HotWeightPreview" or "HotWeightConfirm" ? "active" : "")">
+            <span class="nav-dot"></span> Import Hot Weight Report
+        </a>
         <a asp-controller="Import" asp-action="MarkKilled"
            class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" && ViewContext.RouteData.Values["action"]?.ToString() == "MarkKilled" ? "active" : "")">
             <span class="nav-dot"></span> Mark as killed

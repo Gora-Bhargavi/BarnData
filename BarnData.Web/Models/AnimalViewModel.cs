@@ -238,6 +238,8 @@ namespace BarnData.Web.Models
         public string?  Grade        { get; set; }
         public int?     HealthScore  { get; set; }
         public bool     IsCondemned  { get; set; }
+        // Set true when pre-filled from Hot Weight import — view highlights these rows
+        public bool     HwImported   { get; set; }
     }
 
     // ── Excel Import view models ───────────────────────────────────────────

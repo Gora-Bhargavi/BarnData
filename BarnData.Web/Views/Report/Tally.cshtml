@@ -18,9 +18,13 @@
                 @foreach (var item in (IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)ViewBag.VendorList)
                 {
                     if (item.Value == vendorId?.ToString())
-                    { <option value="@item.Value" selected>@item.Text</option> }
-                    else
-                    { <option value="@item.Value">@item.Text</option> }
+                {
+                    <option value="@item.Value" selected>@item.Text</option>
+                }
+                else
+                {
+                    <option value="@item.Value">@item.Text</option>
+                }
                 }
             </select>
         </div>
@@ -146,9 +150,11 @@ else
                             <td>@(a.VetName ?? "—")</td>
                             <td>
                                 @if (a.IsCondemned)
-                                { <span class="badge" style="background:var(--red-bg);color:var(--red)">Yes</span> }
+                                { 
+                                    <span class="badge" style="background:var(--red-bg);color:var(--red)">Yes</span> }
                                 else
-                                { <span style="color:var(--gray5)">—</span> }
+                                { 
+                                    <span style="color:var(--gray5)">-</span> }
                             </td>
                         </tr>
                     }

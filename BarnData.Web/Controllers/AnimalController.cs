@@ -18,42 +18,68 @@ namespace BarnData.Web.Controllers
             _vendorService = vendorService;
         }
 
-        // INDEX — show ALL animals with status filter 
-        public async Task<IActionResult> Index(DateTime? killDate, int? vendorId, string? status)
+        // INDEX — show animals with status filter + pagination for pending
+        public async Task<IActionResult> Index(DateTime? killDate, int? vendorId, string? status, string? vendorIds, int page = 1)
         {
+            const int PageSize = 500; // show 500 per page — avoids loading 100k rows
             var vendors = await _vendorService.GetAllActiveAsync();
             IEnumerable<BarnData.Data.Entities.Animal> animals;
+            int totalCount = 0;
 
-            // Default: show all pending animals (most useful daily view)
-            if (status == "killed" && killDate.HasValue)
+            // Parse multi-vendor selection (comma-separated IDs takes priority over single vendorId)
+            List<int> multiVendorIds = new();
+            if (!string.IsNullOrEmpty(vendorIds))
+                multiVendorIds = vendorIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(v => int.TryParse(v.Trim(), out int id) ? id : 0)
+                    .Where(id => id > 0).ToList();
+            bool useMulti = multiVendorIds.Any();
+
+            var effectiveDate = killDate ?? DateTime.Today;
+
+            if (status == "killed")
             {
-                animals = await _animalService.GetByKillDateAsync(killDate.Value, vendorId);
+                animals = useMulti
+                    ? await _animalService.GetByKillDateByVendorsAsync(effectiveDate, multiVendorIds)
+                    : await _animalService.GetByKillDateAsync(effectiveDate, vendorId);
                 ViewBag.StatusFilter = "killed";
-                ViewBag.KillDate = killDate.Value.ToString("yyyy-MM-dd");
-            }
-            else if (status == "killed")
-            {
-                animals = await _animalService.GetByKillDateAsync(DateTime.Today, vendorId);
-                ViewBag.StatusFilter = "killed";
-                ViewBag.KillDate = DateTime.Today.ToString("yyyy-MM-dd");
+                ViewBag.KillDate = effectiveDate.ToString("yyyy-MM-dd");
             }
             else if (status == "all")
             {
-                animals = await _animalService.GetAllAsync(vendorId);
+                animals = useMulti
+                    ? await _animalService.GetAllByVendorsAsync(multiVendorIds)
+                    : await _animalService.GetAllAsync(vendorId);
                 ViewBag.StatusFilter = "all";
                 ViewBag.KillDate = DateTime.Today.ToString("yyyy-MM-dd");
             }
             else
             {
-                // Default: pending animals
-                animals = await _animalService.GetPendingAsync(vendorId);
+                if (useMulti)
+                {
+                    animals = await _animalService.GetPendingByVendorsAsync(multiVendorIds);
+                    totalCount = animals.Count();
+                }
+                else
+                {
+                    var (pagedAnimals, total) = await _animalService.GetPendingPagedAsync(vendorId, page, PageSize);
+                    animals = pagedAnimals;
+                    totalCount = total;
+                }
                 ViewBag.StatusFilter = "pending";
                 ViewBag.KillDate = DateTime.Today.ToString("yyyy-MM-dd");
             }
 
-            ViewBag.VendorId   = vendorId;
-            ViewBag.VendorList = new SelectList(vendors, "VendorID", "VendorName", vendorId);
-            ViewBag.TotalCount = animals.Count();
+            ViewBag.VendorId    = vendorId;
+            ViewBag.VendorIds   = vendorIds ?? "";
+            ViewBag.VendorList  = vendors.Select(v => new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem(v.VendorName, v.VendorID.ToString(), multiVendorIds.Contains(v.VendorID) || v.VendorID == vendorId));
+            ViewBag.SelectedVendorNames = useMulti
+                ? vendors.Where(v => multiVendorIds.Contains(v.VendorID)).Select(v => v.VendorName).ToList()
+                : vendorId.HasValue ? vendors.Where(v => v.VendorID == vendorId).Select(v => v.VendorName).ToList() : new List<string>();
+            if (totalCount == 0) totalCount = animals.Count();
+            ViewBag.TotalCount = totalCount;
+            ViewBag.CurrentPage = page;
+            ViewBag.PageSize = PageSize;
+            ViewBag.TotalPages = (int)Math.Ceiling((double)totalCount / PageSize);
             ViewBag.TotalLiveWeight = animals.Sum(a => a.LiveWeight);
             ViewBag.TotalHotWeight  = animals.Sum(a => a.HotWeight ?? 0);
             ViewBag.TotalCost = animals.Sum(a =>

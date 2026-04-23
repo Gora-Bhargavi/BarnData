@@ -7,8 +7,18 @@ namespace BarnData.Core.Services
         Task<IEnumerable<Animal>> GetByKillDateAsync(DateTime killDate, int? vendorId = null);
         Task<IEnumerable<Animal>> GetPendingAsync(int? vendorId = null);
         Task<IEnumerable<Animal>> GetAllAsync(int? vendorId = null);
+        // Multi-vendor overloads
+        Task<IEnumerable<Animal>> GetPendingByVendorsAsync(IEnumerable<int> vendorIds);
+        Task<IEnumerable<Animal>> GetAllByVendorsAsync(IEnumerable<int> vendorIds);
+        Task<IEnumerable<Animal>> GetByKillDateByVendorsAsync(DateTime killDate, IEnumerable<int> vendorIds);
+        // Tag-based lookup for ACN auto-match
+        Task<IEnumerable<Animal>> GetByTagsAsync(IEnumerable<string> tags);
         Task<Animal?> GetByControlNoAsync(int controlNo);
-        Task<bool> IsTagDuplicateAsync(string tag1, int vendorId, int? excludeControlNo = null);
+        Task<IEnumerable<Animal>> GetByTagSuffixAsync(string suffix);
+    Task<IEnumerable<Animal>> GetByTagPatternAsync(string pattern);
+    Task<IEnumerable<Animal>> GetAllPendingAsync();
+    Task<(IEnumerable<Animal> Items, int TotalCount)> GetPendingPagedAsync(int? vendorId, int page, int pageSize);
+    Task<bool> IsTagDuplicateAsync(string tag1, int vendorId, int? excludeControlNo = null);
         bool IsWeightOutOfRange(decimal liveWeight);
         Task<(bool Success, string ErrorMessage)> CreateAsync(Animal animal);
         Task<(int Imported, int Skipped, List<string> Errors)> BulkImportAsync(IEnumerable<Animal> animals);
@@ -19,6 +29,25 @@ namespace BarnData.Core.Services
         Task<bool> DeleteAsync(int controlNo);
         Task<TallySummary> GetTallySummaryAsync(DateTime killDate, int? vendorId = null);
         Task<IEnumerable<Animal>> GetFilteredAsync(ExportFilter filter);
+
+        // Hot Weight bulk import: match by AnimalControlNumber, apply rules
+        Task<(int Updated, int Failed, List<string> Errors)> BulkUpdateHotWeightAsync(
+            IEnumerable<HotWeightUpdateData> updates);
+
+        // Fetch animals by AnimalControlNumbers for the import preview
+        Task<IEnumerable<Animal>> GetByAnimalControlNumbersAsync(IEnumerable<string> acns);
+    }
+
+    public class HotWeightUpdateData
+    {
+        public int      ControlNo     { get; set; }   // system PK — resolved during preview
+        public string   ACN           { get; set; } = string.Empty;
+        public decimal? HotWeight     { get; set; }   // null = do not update
+        public string?  Grade         { get; set; }
+        public int?     HealthScore   { get; set; }
+        public bool     ForceOverwrite { get; set; } = false;
+        public string   ImportedBy    { get; set; } = string.Empty;
+        public string   ImportFile    { get; set; } = string.Empty;
     }
 
     //  Per-animal kill data 
@@ -86,6 +115,8 @@ namespace BarnData.Core.Services
         public decimal AvgCost   { get; set; }
     }
 
+    
+
     public class ExportFilter
     {
         public int?      VendorId      { get; set; }
@@ -96,3 +127,4 @@ namespace BarnData.Core.Services
         public DateTime? PurchDateTo   { get; set; }
     }
 }
+

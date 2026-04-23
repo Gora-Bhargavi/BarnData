@@ -3,12 +3,20 @@ using BarnData.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using System;
+using System.Data;
 
 namespace BarnData.Core.Services
 {
     public class AnimalService : IAnimalService
     {
         private readonly BarnDataContext _db;
+
+            private static string? NormalizeAcn(string? acn)
+            {
+                if (string.IsNullOrWhiteSpace(acn)) return null;
+                var v = acn.Trim();
+                return v.All(ch => ch == '0') ? null : v;
+            }
         private readonly decimal _weightMin;
         private readonly decimal _weightMax;
 
@@ -97,6 +105,61 @@ namespace BarnData.Core.Services
             return animals;
         }
 
+        // ── Multi-vendor overloads ─────────────────────────────────────────────
+        public async Task<IEnumerable<Animal>> GetPendingByVendorsAsync(IEnumerable<int> vendorIds)
+        {
+            var ids = string.Join(",", vendorIds.Select(i => i.ToString()));
+            if (string.IsNullOrEmpty(ids)) return await GetPendingAsync();
+            var sql = $@"SELECT a.* FROM tbl_barn_animal_entry a
+                WHERE a.KillStatus = 'Pending' AND a.VendorID IN ({ids})
+                ORDER BY a.VendorID, a.PurchaseDate, a.ControlNo";
+            var animals = await _db.Animals.FromSqlRaw(sql).ToListAsync();
+            await AttachVendors(animals);
+            return animals;
+        }
+
+        public async Task<IEnumerable<Animal>> GetAllByVendorsAsync(IEnumerable<int> vendorIds)
+        {
+            var ids = string.Join(",", vendorIds.Select(i => i.ToString()));
+            if (string.IsNullOrEmpty(ids)) return await GetAllAsync();
+            var sql = $@"SELECT a.* FROM tbl_barn_animal_entry a
+                WHERE a.KillStatus IN ('Pending','Killed','Verified') AND a.VendorID IN ({ids})
+                ORDER BY a.CreatedAt DESC";
+            var animals = await _db.Animals.FromSqlRaw(sql).ToListAsync();
+            await AttachVendors(animals);
+            return animals;
+        }
+
+        public async Task<IEnumerable<Animal>> GetByKillDateByVendorsAsync(DateTime killDate, IEnumerable<int> vendorIds)
+        {
+            var ids    = string.Join(",", vendorIds.Select(i => i.ToString()));
+            var dateStr = killDate.ToString("yyyy-MM-dd");
+            if (string.IsNullOrEmpty(ids)) return await GetByKillDateAsync(killDate);
+            var sql = $@"SELECT a.* FROM tbl_barn_animal_entry a
+                WHERE CAST(a.KillDate AS DATE) = '{dateStr}'
+                AND a.KillStatus = 'Killed' AND a.VendorID IN ({ids})
+                ORDER BY a.VendorID, a.ControlNo";
+            var animals = await _db.Animals.FromSqlRaw(sql).ToListAsync();
+            await AttachVendors(animals);
+            return animals;
+        }
+
+        // ── Tag-based lookup — for ACN auto-match during HW import ───────────
+        public async Task<IEnumerable<Animal>> GetByTagsAsync(IEnumerable<string> tags)
+        {
+            if (!tags.Any()) return Enumerable.Empty<Animal>();
+            // Escape single quotes and build IN list
+            var tagList = string.Join(",", tags.Select(t => "'" + t.Replace("'", "''").Trim() + "'"));
+            var sql = $@"SELECT a.* FROM tbl_barn_animal_entry a
+                WHERE a.TagNumber1 IN ({tagList})
+                   OR a.TagNumber2 IN ({tagList})
+                   OR a.Tag3 IN ({tagList})
+                ORDER BY a.ControlNo";
+            var animals = await _db.Animals.FromSqlRaw(sql).ToListAsync();
+            await AttachVendors(animals);
+            return animals;
+        }
+
         // GetByControlNoAsync 
         public async Task<Animal?> GetByControlNoAsync(int controlNo)
         {
@@ -108,7 +171,96 @@ namespace BarnData.Core.Services
             return animal;
         }
 
-        // IsTagDuplicateAsync 
+        // GetByTagSuffixAsync — finds animals whose Tag1/Tag2/Tag3 ends with the given suffix
+    public async Task<IEnumerable<Animal>> GetByTagSuffixAsync(string suffix)
+    {
+        if (string.IsNullOrWhiteSpace(suffix)) return Enumerable.Empty<Animal>();
+        var s = suffix.Trim().TrimStart('0');  // strip leading zeros for comparison
+        if (string.IsNullOrEmpty(s)) return Enumerable.Empty<Animal>();
+        var likePat = "%" + s;
+        var animals = await _db.Animals
+            .FromSqlRaw(@"SELECT a.* FROM tbl_barn_animal_entry a
+                WHERE a.TagNumber1 LIKE {0}
+                   OR a.TagNumber2 LIKE {0}
+                   OR a.Tag3       LIKE {0}
+                   OR CAST(CONVERT(bigint, CASE WHEN ISNUMERIC(a.TagNumber1)=1 THEN a.TagNumber1 ELSE NULL END) AS nvarchar) LIKE {0}",
+                likePat)
+            .ToListAsync();
+        await AttachVendors(animals);
+        return animals;
+    }
+
+    // GetByTagPatternAsync — wildcard match: '?' replaced with any digit, regex applied in-memory
+    public async Task<IEnumerable<Animal>> GetByTagPatternAsync(string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(pattern)) return Enumerable.Empty<Animal>();
+        // Build SQL LIKE pattern: ? → _ (single char wildcard in SQL)
+        var sqlLike = pattern.Replace('?', '_');
+        var animals = await _db.Animals
+            .FromSqlRaw(@"SELECT a.* FROM tbl_barn_animal_entry a
+                WHERE a.TagNumber1 LIKE {0}
+                   OR a.TagNumber2 LIKE {0}
+                   OR a.Tag3       LIKE {0}",
+                sqlLike)
+            .ToListAsync();
+        await AttachVendors(animals);
+        return animals;
+    }
+
+    // GetAllPendingAsync — pending animals for weight proximity matching (capped for performance)
+    public async Task<IEnumerable<Animal>> GetAllPendingAsync()
+    {
+        // TOP 10000 guard — weight matching only needs current kill cycle (typically <2000 animals)
+        var animals = await _db.Animals
+            .FromSqlRaw(@"SELECT TOP 10000 * FROM tbl_barn_animal_entry
+                WHERE KillStatus = 'Pending'
+                ORDER BY CreatedAt DESC")
+            .ToListAsync();
+        await AttachVendors(animals);
+        return animals;
+    }
+
+    // GetPendingPagedAsync — paginated pending list for Animal Index (avoids full-table load)
+    public async Task<(IEnumerable<Animal> Items, int TotalCount)> GetPendingPagedAsync(
+        int? vendorId, int page, int pageSize)
+    {
+        var offset = (page - 1) * pageSize;
+
+        // Count via raw ADO.NET to avoid EF scalar mapping issues
+        int total;
+        using (var cmd = _db.Database.GetDbConnection().CreateCommand())
+        {
+            cmd.CommandText = vendorId.HasValue
+                ? "SELECT COUNT(*) FROM tbl_barn_animal_entry WHERE KillStatus='Pending' AND VendorID=@vid"
+                : "SELECT COUNT(*) FROM tbl_barn_animal_entry WHERE KillStatus='Pending'";
+            if (vendorId.HasValue)
+            {
+                var p = cmd.CreateParameter(); p.ParameterName = "@vid"; p.Value = vendorId.Value; cmd.Parameters.Add(p);
+            }
+            if (cmd.Connection!.State != System.Data.ConnectionState.Open)
+                await cmd.Connection.OpenAsync();
+            total = Convert.ToInt32(await cmd.ExecuteScalarAsync() ?? 0);
+        }
+
+        var dataSql = vendorId.HasValue
+            ? @"SELECT * FROM tbl_barn_animal_entry
+                WHERE KillStatus='Pending' AND VendorID={0}
+                ORDER BY CreatedAt DESC
+                OFFSET {1} ROWS FETCH NEXT {2} ROWS ONLY"
+            : @"SELECT * FROM tbl_barn_animal_entry
+                WHERE KillStatus='Pending'
+                ORDER BY CreatedAt DESC
+                OFFSET {0} ROWS FETCH NEXT {1} ROWS ONLY";
+
+        var animals = vendorId.HasValue
+            ? await _db.Animals.FromSqlRaw(dataSql, vendorId.Value, offset, pageSize).ToListAsync()
+            : await _db.Animals.FromSqlRaw(dataSql, offset, pageSize).ToListAsync();
+
+        await AttachVendors(animals);
+        return (animals, total);
+    }
+
+    // IsTagDuplicateAsync 
         public async Task<bool> IsTagDuplicateAsync(
             string tag1, int vendorId, int? excludeControlNo = null)
         {
@@ -231,10 +383,14 @@ namespace BarnData.Core.Services
 
                 a.IsCondemned = d.IsCondemned;
 
-                //Allow clear or update of AnimalControlNumber
-                a.AnimalControlNumber = string.IsNullOrWhiteSpace(d.AnimalControlNumber)
-                    ? null
-                    : d.AnimalControlNumber.Trim();
+                //Update AnimalControlNumber only when a real value is provided.
+                // Blank / null from client means "leave unchanged" — this prevents the Flagged-for-review
+                // Pick flow (and any other partial save) from silently wiping an existing ACN.
+                var normalizedAcn = NormalizeAcn(d.AnimalControlNumber);
+                if (normalizedAcn != null)
+                {
+                a.AnimalControlNumber = normalizedAcn;
+                }
                 if (d.HotWeight.HasValue && d.HotWeight > 0)
                     a.HotWeight = d.HotWeight;
                 
@@ -290,10 +446,10 @@ namespace BarnData.Core.Services
                 a.UpdatedAt   = DateTime.Now;
                 a.IsCondemned = d.IsCondemned;
 
-                if(d.AnimalControlNumber != null)
-                    a.AnimalControlNumber = string.IsNullOrWhiteSpace(d.AnimalControlNumber)
-                        ? null
-                        : d.AnimalControlNumber.Trim();
+                // Only overwrite ACN when a real value is provided; blank means "leave unchanged".
+                var normalizedAcn = NormalizeAcn(d.AnimalControlNumber);
+                if (normalizedAcn != null)
+                a.AnimalControlNumber = normalizedAcn;
                         
                 if (d.HotWeight.HasValue && d.HotWeight > 0)
                     a.HotWeight = d.HotWeight;
@@ -522,5 +678,47 @@ namespace BarnData.Core.Services
             await AttachVendors(animals);
             return animals;
         }
+        public async Task<IEnumerable<Animal>> GetByAnimalControlNumbersAsync(IEnumerable<string> acns)
+        {
+            var acnList = acns.Where(a => !string.IsNullOrWhiteSpace(a)).Distinct().ToList();
+            if (!acnList.Any()) return Enumerable.Empty<Animal>();
+            var animals = await _db.Animals
+                .Where(a => a.AnimalControlNumber != null && acnList.Contains(a.AnimalControlNumber))
+                .ToListAsync();
+            await AttachVendors(animals);
+            return animals;
+        }
+
+        public async Task<(int Updated, int Failed, List<string> Errors)> BulkUpdateHotWeightAsync(
+            IEnumerable<HotWeightUpdateData> updates)
+        {
+            var updateList = updates.ToList();
+            if (!updateList.Any()) return (0, 0, new List<string>());
+            var ids = updateList.Select(u => u.ControlNo).Distinct().ToArray();
+            var idList = string.Join(",", ids);
+            var animals = await _db.Animals
+                .FromSqlRaw($"SELECT * FROM tbl_barn_animal_entry WHERE ControlNo IN ({idList})")
+                .ToListAsync();
+            var dict = animals.ToDictionary(a => a.ControlNo);
+            int updated = 0; int failed = 0;
+            var errors = new List<string>();
+            foreach (var upd in updateList)
+            {
+                if (!dict.TryGetValue(upd.ControlNo, out var animal))
+                { errors.Add($"ACN {upd.ACN}: Record not found."); failed++; continue; }
+                try
+                {
+                    if (upd.HotWeight.HasValue) animal.HotWeight = upd.HotWeight.Value;
+                    if (!string.IsNullOrWhiteSpace(upd.Grade)) animal.Grade = upd.Grade.Trim().ToUpper();
+                    if (upd.HealthScore.HasValue) animal.HealthScore = upd.HealthScore.Value;
+                    animal.UpdatedAt = DateTime.Now;
+                    updated++;
+                }
+                catch (Exception ex) { errors.Add($"ACN {upd.ACN}: {ex.Message}"); failed++; }
+            }
+            if (updated > 0) await _db.SaveChangesAsync();
+            return (updated, failed, errors);
+        }
+
     }
 }

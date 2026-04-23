@@ -1,153 +1,495 @@
 @model BarnData.Web.Models.ExcelImportViewModel
 @{
-    ViewData["Title"]    = "Import Preview";
-    ViewData["Subtitle"] = $"Review {Model.TotalRows} rows from {Model.FileName} before saving";
+    ViewData["Title"]    = "Import Excel";
+    ViewData["Subtitle"] = "Upload, preview, and import animal records";
 
-    int okCount   = Model.Rows.Count(r => r.Status == "OK");
-    int dupCount  = Model.Rows.Count(r => r.Status == "Duplicate");
-    int errCount  = Model.Rows.Count(r => r.Status == "Error");
+    bool hasData = Model.TotalRows > 0;
+    int okCount  = hasData ? Model.Rows.Count(r => r.Status == "OK")        : 0;
+    int dupCount = hasData ? Model.Rows.Count(r => r.Status == "Duplicate") : 0;
+    int errCount = hasData ? Model.Rows.Count(r => r.Status == "Error")     : 0;
+    var okRows   = hasData ? Model.Rows.Where(r => r.Status == "OK").ToList()        : new();
+    var dupRows  = hasData ? Model.Rows.Where(r => r.Status == "Duplicate").ToList() : new();
+    var errRows  = hasData ? Model.Rows.Where(r => r.Status == "Error").ToList()     : new();
+    var validGrades = new[] { "CT","B1","B2","CN","LB","UB","BB","BR","FB","NP","NPNP","SH" };
 }
-
-<!-- Summary -->
-<div class="summary-strip" style="margin-bottom:16px">
-    <div class="summary-stat">
-        <div class="summary-val">@Model.TotalRows</div>
-        <div class="summary-lbl">Rows found</div>
-    </div>
-    <div class="summary-divider"></div>
-    <div class="summary-stat">
-        <div class="summary-val" style="color:var(--green)">@okCount</div>
-        <div class="summary-lbl">Will import</div>
-    </div>
-    <div class="summary-divider"></div>
-    <div class="summary-stat">
-        <div class="summary-val" style="color:var(--amber)">@dupCount</div>
-        <div class="summary-lbl">Duplicates (skip)</div>
-    </div>
-    @if (errCount > 0)
-    {
-        <div class="summary-divider"></div>
-        <div class="summary-stat">
-            <div class="summary-val" style="color:var(--red)">@errCount</div>
-            <div class="summary-lbl">Errors (skip)</div>
-        </div>
-    }
-</div>
 
 @if (Model.Errors.Any())
 {
     <div class="alert alert-error" style="margin-bottom:14px">
-        @foreach (var e in Model.Errors) { <div>@e</div> }
+        @foreach (var e in Model.Errors) { 
+            <div>@e</div> }
     </div>
 }
 
-<!-- Action buttons -->
-<div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
-    @if (okCount > 0)
-    {
-        <form method="post" asp-action="ExcelConfirm">
-            @Html.AntiForgeryToken()
-            <button type="submit" class="btn btn-primary">
-                ✓ Confirm &amp; Save @okCount animal@(okCount == 1 ? "" : "s")
-            </button>
-        </form>
-    }
-    <a asp-action="Excel" class="btn btn-secondary">← Upload different file</a>
-    @if (okCount == 0)
-    {
-        <span style="font-size:12.5px;color:var(--red)">Nothing to import — all rows are duplicates or have errors.</span>
-    }
-</div>
-<div style="margin:-6px 0 12px 0;font-size:12px;color:var(--text3)">
-    Rows marked <strong>Duplicate</strong> or <strong>Error</strong> are skipped. Some <strong>OK</strong> rows may include warnings (hover the status badge).
+@*  Stat cards  *@
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+    <div class="hw-stat" id="sc0" onclick="switchTab(0)">
+        <div class="hw-stat-n">@(hasData ? Model.TotalRows.ToString() : "—")</div>
+        <div class="hw-stat-l">All rows</div>
+    </div>
+    <div class="hw-stat" id="sc1" onclick="switchTab(1)">
+        <div class="hw-stat-n" style="color:#15803d" id="ok-count">@(hasData ? okCount.ToString() : "—")</div>
+        <div class="hw-stat-l">Will import</div>
+    </div>
+    <div class="hw-stat" id="sc2" onclick="switchTab(2)">
+        <div class="hw-stat-n" style="color:#92400e">@(hasData ? dupCount.ToString() : "—")</div>
+        <div class="hw-stat-l">Duplicates</div>
+    </div>
+    <div class="hw-stat" id="sc3" onclick="switchTab(3)">
+        <div class="hw-stat-n" style="color:#b91c1c" id="err-count">@(hasData ? errCount.ToString() : "—")</div>
+        <div class="hw-stat-l">Errors</div>
+    </div>
 </div>
 
-<!-- Preview table -->
-<div class="table-card" style="overflow-x:auto">
-    <table class="data-table" style="min-width:1800px;font-size:12px;">
-        <thead>
-            <tr>
-                <th style="min-width:45px">Row</th>
-                <th style="min-width:70px">Status</th>
-                <th style="min-width:130px">Vendor</th>
-                <th style="min-width:90px">Tag 1</th>
-                <th style="min-width:90px">Tag 2</th>
-                <th style="min-width:95px">Animal Type</th>
-                <th style="min-width:95px">Purchase Type</th>
-                <th style="min-width:95px">Purchase Date</th>
-                <th class="text-right" style="min-width:75px">Live Wt</th>
-                <th class="text-right" style="min-width:75px">Live Rate</th>
-                <th style="min-width:95px">Kill Date</th>
-                <th class="text-right" style="min-width:70px">Hot Wt</th>
-                <th style="min-width:50px">Grade</th>
-                <th style="min-width:40px">HS</th>
-                <th style="min-width:140px">Comments</th>
-                <th style="min-width:110px">Animal Ctrl No.</th>
-                <th style="min-width:70px">Tag 3</th>
-                <th style="min-width:110px">Office Use 2</th>
-                <th style="min-width:45px">State</th>
-                <th style="min-width:95px">Buyer</th>
-                <th style="min-width:95px">Animal Type 2</th>
-                <th style="min-width:95px">Vet Name</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var r in Model.Rows)
+@*  Tab bar  *@
+<div class="hw-tabbar">
+    <button class="hw-tab active" id="tab0" onclick="switchTab(0)" type="button">
+        All rows <span class="hw-cnt hw-cnt-gray">@(hasData ? Model.TotalRows.ToString() : "—")</span>
+    </button>
+    <button class="hw-tab" id="tab1" onclick="switchTab(1)" type="button">
+        Will import <span class="hw-cnt hw-cnt-green" id="tab1-cnt">@(hasData ? okCount.ToString() : "—")</span>
+    </button>
+    <button class="hw-tab" id="tab2" onclick="switchTab(2)" type="button">
+        Duplicates <span class="hw-cnt hw-cnt-amber">@(hasData ? dupCount.ToString() : "—")</span>
+    </button>
+    <button class="hw-tab" id="tab3" onclick="switchTab(3)" type="button">
+        Errors <span class="hw-cnt hw-cnt-red" id="tab3-cnt">@(hasData ? errCount.ToString() : "—")</span>
+    </button>
+</div>
+
+@*  PANEL 0 — Upload + Summary  *@
+<div id="panel0" class="hw-panel">
+    @* Upload form — always visible *@
+    <div style="background:var(--gray1);border-radius:8px;padding:14px 18px;margin-bottom:@(hasData ? "14px" : "0")">
+        <div style="font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">
+            @(hasData ? "Upload a new file (replaces current session)" : "Upload Excel file to get started")
+        </div>
+        <form method="post" enctype="multipart/form-data" asp-action="Excel" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+            @Html.AntiForgeryToken()
+            <div style="flex:1;min-width:220px">
+                <input type="file" name="file" accept=".xlsx,.xls" class="form-control" required style="font-size:12.5px" />
+                <div style="font-size:11.5px;color:var(--text3);margin-top:4px">
+                    Required: <strong>Vendor</strong>, <strong>Tag Number One</strong>, <strong>Purchase Date</strong>, <strong>Purchase Type</strong>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Upload &amp; Parse →</button>
+            @if (hasData)
             {
-                var rowStyle = r.Status == "Duplicate" ? "opacity:.55;background:#fffbeb"
-                             : r.Status == "Error"     ? "opacity:.55;background:#fef2f2"
-                             : "";
-                <tr style="@rowStyle">
+                <form method="post" asp-action="ExcelClearSession" style="display:inline">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-sm"
+                            style="background:#fef2f2;border-color:#fca5a5;color:#b91c1c"
+                            onclick="return confirm('Clear the session? All parsed data will be lost.')">
+                        Clear session
+                    </button>
+                </form>
+            }
+        </form>
+    </div>
+
+    @if (!hasData)
+    {
+        <div style="font-size:12px;color:var(--text3);text-align:center;padding:14px">
+            Upload a file to see results in the tabs above.
+        </div>
+    }
+    else
+    {
+        @* Summary table *@
+        <div style="background:var(--gray1);border-radius:8px;padding:14px 18px;max-width:680px;margin-bottom:14px">
+            <table style="width:100%;font-size:13px;border-collapse:collapse">
+                <thead><tr style="border-bottom:1px solid var(--gray3)">
+                    <th style="padding:6px 10px;text-align:left;font-weight:500;color:var(--text3)">Category</th>
+                    <th style="padding:6px 10px;text-align:right;font-weight:500;color:var(--text3)">Count</th>
+                    <th style="padding:6px 10px;text-align:left;font-weight:500;color:var(--text3)">What happens</th>
+                </tr></thead>
+                <tbody>
+                    <tr style="border-bottom:0.5px solid var(--gray3)">
+                        <td style="padding:8px 10px;color:#15803d;font-weight:500">Will import</td>
+                        <td style="padding:8px 10px;text-align:right;font-weight:700" id="sum-ok">@okCount</td>
+                        <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Saved to database when you confirm</td>
+                    </tr>
+                    <tr style="border-bottom:0.5px solid var(--gray3)">
+                        <td style="padding:8px 10px;color:#92400e;font-weight:500">Duplicates</td>
+                        <td style="padding:8px 10px;text-align:right;font-weight:700">@dupCount</td>
+                        <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Automatically skipped — tag already exists</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:8px 10px;color:#b91c1c;font-weight:500">Errors</td>
+                        <td style="padding:8px 10px;text-align:right;font-weight:700" id="sum-err">@errCount</td>
+                        <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Missing required fields — fix on Errors tab</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        @if (okCount > 0)
+        {
+            <form method="post" asp-action="ExcelConfirm" style="display:inline">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-primary">
+                    ✓ Confirm &amp; Save <span id="confirm-count">@okCount</span> animal@(okCount == 1 ? "" : "s")
+                </button>
+            </form>
+        }
+        @if (okCount == 0 && errCount == 0)
+        {
+            <span style="font-size:12px;color:#b91c1c;margin-left:8px">Nothing to import — all rows are duplicates.</span>
+        }
+        else if (errCount > 0 && okCount == 0)
+        {
+            <span style="font-size:12px;color:#b91c1c;margin-left:8px">@errCount error row@(errCount==1?"":"s") — go to Errors tab to fix.</span>
+        }
+    }
+</div>
+
+@*  PANEL 1 — Will import  *@
+<div id="panel1" class="hw-panel" style="display:none">
+    @if (!hasData)
+    {
+        <div class="empty-state"><div class="empty-title">No data yet</div><div class="empty-sub">Upload a file using the All rows tab.</div></div>
+    }
+    else if (!okRows.Any())
+    {
+        <div class="empty-state"><div class="empty-title">Nothing to import</div><div class="empty-sub">All rows are duplicates or have errors.</div></div>
+    }
+    else
+    {
+        <div style="font-size:12.5px;color:var(--text3);margin-bottom:8px"><span id="ok-label">@okCount</span> rows will be saved when you confirm.</div>
+        <div class="xl-scroll-box"><div class="xl-scroll-inner" style="max-height:55vh">
+        <table class="data-table" style="min-width:1200px;font-size:12px">
+            <thead><tr>
+                <th>Row</th><th>Vendor</th><th>Tag 1</th><th>Tag 2</th>
+                <th>Animal Type</th><th>Purchase Type</th><th>Purchase Date</th>
+                <th class="text-right">Live Wt</th><th>Grade</th><th>HS</th><th>Status</th>
+            </tr></thead>
+            <tbody>
+            @foreach (var r in okRows)
+            {
+                <tr>
                     <td class="mono" style="color:var(--text3)">@r.RowNum</td>
-                    <td>
-                        @if (r.Status == "OK")
-                        {
-                            <span class="badge" style="background:var(--green-bg);color:var(--green)" title="@r.StatusNote">
-                                @(string.IsNullOrEmpty(r.StatusNote) ? "OK" : "OK*")
-                            </span>
-                        }
-                        else if (r.Status == "Duplicate")
-                        {
-                            <span class="badge badge-prog" title="@r.StatusNote">Dup</span>
-                        }
-                        else
-                        {
-                            <span class="badge" style="background:var(--red-bg);color:var(--red)" title="@r.StatusNote">Err</span>
-                        }
-                    </td>
                     <td>@r.VendorName</td>
                     <td class="mono">@r.TagNumber1</td>
                     <td class="mono">@(r.TagNumber2 ?? "—")</td>
                     <td>@r.AnimalType</td>
-                    <td>
-                        <span class="badge @(r.PurchaseType == "Consignment Bill" ? "badge-cons" : "badge-sale")">
-                            @(r.PurchaseType == "Consignment Bill" ? "Cons." : "Sale")
-                        </span>
-                    </td>
+                    <td>@r.PurchaseType</td>
                     <td>@r.PurchaseDate.ToString("MM/dd/yyyy")</td>
-                    <td class="text-right mono">@r.LiveWeight.ToString("N1")</td>
-                    <td class="text-right mono">$@r.LiveRate.ToString("N4")</td>
-                    <td>@(r.KillDate.HasValue ? r.KillDate.Value.ToString("MM/dd/yyyy") : "—")</td>
-                    <td class="text-right mono">@(r.HotWeight?.ToString("N1") ?? "—")</td>
+                    <td class="text-right">@(r.LiveWeight > 0 ? r.LiveWeight.ToString("N1") : "—")</td>
                     <td>@(r.Grade ?? "—")</td>
-                    <td class="text-center">@(r.HealthScore?.ToString() ?? "—")</td>
-                    <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@r.Comment">@(r.Comment ?? "—")</td>
-                    <td class="mono">@(r.AnimalControlNumber ?? "—")</td>
-                    <td class="mono">@(r.Tag3 ?? "—")</td>
-                    <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@r.OfficeUse2">@(r.OfficeUse2 ?? "—")</td>
-                    <td>@(r.State ?? "—")</td>
-                    <td>@(r.BuyerName ?? "—")</td>
-                    <td>@(r.AnimalType2 ?? "—")</td>
-                    <td>@(r.VetName ?? "—")</td>
+                    <td>@(r.HealthScore?.ToString() ?? "—")</td>
+                    <td><span class="badge" style="background:#dcfce7;color:#15803d;font-size:11px">
+                        @(string.IsNullOrEmpty(r.StatusNote) ? "OK" : "OK*")
+                        </span></td>
                 </tr>
             }
-        </tbody>
-    </table>
+            </tbody>
+        </table>
+        </div></div>
+        <div style="margin-top:12px">
+            <form method="post" asp-action="ExcelConfirm" style="display:inline">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-primary">✓ Confirm &amp; Save @okCount animals</button>
+            </form>
+        </div>
+    }
+</div>
+
+@*  PANEL 2 — Duplicates  *@
+<div id="panel2" class="hw-panel" style="display:none">
+    @if (!hasData)
+    {
+        <div class="empty-state"><div class="empty-title">No data yet</div><div class="empty-sub">Upload a file using the All rows tab.</div></div>
+    }
+    else if (!dupRows.Any())
+    {
+        <div class="empty-state"><div class="empty-title">No duplicates</div></div>
+    }
+    else
+    {
+        <div style="background:#fefce8;border:1px solid #fcd34d;border-radius:6px;padding:10px 14px;margin-bottom:10px;font-size:12.5px;color:#92400e">
+            <strong>@dupCount duplicate rows will be skipped automatically.</strong> These tags already exist for the same vendor.
+        </div>
+        <div class="xl-scroll-box"><div class="xl-scroll-inner" style="max-height:55vh">
+        <table class="data-table" style="min-width:700px;font-size:12px">
+            <thead><tr>
+                <th>Row</th><th>Vendor</th><th>Tag 1</th><th>Tag 2</th>
+                <th>Animal Type</th><th>Purchase Date</th>
+                <th style="background:#3d1515;color:#fca5a5">Reason skipped</th>
+            </tr></thead>
+            <tbody>
+            @foreach (var r in dupRows)
+            {
+                <tr style="background:#fefce8">
+                    <td class="mono" style="color:var(--text3)">@r.RowNum</td>
+                    <td>@r.VendorName</td>
+                    <td class="mono">@r.TagNumber1</td>
+                    <td class="mono">@(r.TagNumber2 ?? "—")</td>
+                    <td>@(string.IsNullOrEmpty(r.AnimalType) ? "—" : r.AnimalType)</td>
+                    <td>@(r.PurchaseDate == default ? "—" : r.PurchaseDate.ToString("MM/dd/yyyy"))</td>
+                    <td style="color:#92400e;font-size:11.5px">@r.StatusNote</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        </div></div>
+    }
+</div>
+
+@*  PANEL 3 — Errors (editable)  *@
+<div id="panel3" class="hw-panel" style="display:none">
+    @if (!hasData)
+    {
+        <div class="empty-state"><div class="empty-title">No data yet</div><div class="empty-sub">Upload a file using the All rows tab.</div></div>
+    }
+    else if (!errRows.Any())
+    {
+        <div class="empty-state"><div class="empty-title">No errors</div><div class="empty-sub">All rows parsed successfully.</div></div>
+    }
+    else
+    {
+        <div id="err-save-confirm" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:10px 14px;margin-bottom:10px;font-size:12.5px;color:#15803d">
+            <strong>Row added to import.</strong> <span id="err-save-msg"></span>
+        </div>
+        <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:10px;font-size:12.5px;color:#b91c1c">
+            <strong id="err-banner-count">@errCount row@(errCount==1?"":"s") have</strong> missing required fields.
+            Fill in the <strong>★ required</strong> fields (red border). Click "Add to import" to include the fixed row.
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 0 10px;flex-wrap:wrap">
+            <span style="font-size:12.5px;color:var(--text2)"><strong id="err-fixed-count">0</strong> fixed and ready</span>
+            <div style="margin-left:auto">
+                <button type="button" id="add-all-btn" class="btn btn-primary btn-sm" disabled onclick="addAllFixed()">Add all fixed →</button>
+            </div>
+        </div>
+        <div class="xl-scroll-box"><div class="xl-scroll-inner" style="max-height:52vh">
+        <table class="data-table" id="err-table" style="min-width:1200px;font-size:12px">
+            <thead><tr>
+                <th style="width:32px;position:sticky;left:0;z-index:5;background:#1e2f47"><input type="checkbox" onchange="selAllErr(this.checked)"></th>
+                <th style="position:sticky;left:32px;z-index:5;background:#1e2f47;border-right:2px solid #162236">Row</th>
+                <th style="background:#3d1515;color:#fca5a5">Vendor ★</th>
+                <th style="background:#3d1515;color:#fca5a5">Tag 1 ★</th>
+                <th style="background:#3d1515;color:#fca5a5">Purchase Type ★</th>
+                <th style="background:#3d1515;color:#fca5a5">Purchase Date ★</th>
+                <th style="background:#162236;color:#9ae6b4">Tag 2</th>
+                <th style="background:#162236;color:#9ae6b4">Animal Type</th>
+                <th style="background:#162236;color:#9ae6b4">Live Wt</th>
+                <th style="background:#162236;color:#9ae6b4">Grade</th>
+                <th style="background:#162236;color:#9ae6b4">HS</th>
+                <th style="background:#162236;color:#9ae6b4">Comments</th>
+                <th>Error reason</th>
+                <th>Status</th>
+                <th style="position:sticky;right:0;z-index:4;background:#1e2f47;border-left:2px solid #162236;min-width:130px">Actions</th>
+            </tr></thead>
+            <tbody id="err-body">
+            @foreach (var r in errRows)
+            {
+                <tr class="err-row" data-rownum="@r.RowNum" data-fixed="0" data-c="0" style="background:#fef2f2">
+                    <td style="text-align:center;position:sticky;left:0;z-index:2;background:inherit">
+                        <input type="checkbox" class="err-chk" data-rownum="@r.RowNum" disabled onchange="updErrCounts()">
+                    </td>
+                    <td class="mono" style="position:sticky;left:32px;z-index:2;background:inherit;border-right:2px solid var(--gray3);font-weight:600;color:var(--text3)">@r.RowNum</td>
+                    <td><input type="text" class="err-vendor err-req" value="@r.VendorName" placeholder="Vendor…"
+                               oninput="chkErrRow(this.closest('tr'))"
+                               style="width:120px;padding:3px 5px;font-size:11.5px;border:1.5px solid @(string.IsNullOrEmpty(r.VendorName) ? "#fca5a5" : "#86efac");border-radius:4px;background:@(string.IsNullOrEmpty(r.VendorName) ? "#fef2f2" : "#f0fdf4")"></td>
+                    <td><input type="text" class="err-tag1 err-req" value="@r.TagNumber1" placeholder="Tag 1…"
+                               oninput="chkErrRow(this.closest('tr'))"
+                               style="width:80px;padding:3px 5px;font-size:11.5px;border:1.5px solid @(string.IsNullOrEmpty(r.TagNumber1) ? "#fca5a5" : "#86efac");border-radius:4px;background:@(string.IsNullOrEmpty(r.TagNumber1) ? "#fef2f2" : "#f0fdf4")"></td>
+                    <td><select class="err-ptype err-req" onchange="chkErrRow(this.closest('tr'))"
+                                data-val="@r.PurchaseType"
+                                style="padding:3px 4px;font-size:11.5px;border:1.5px solid @(string.IsNullOrEmpty(r.PurchaseType) ? "#fca5a5" : "#86efac");border-radius:4px;background:@(string.IsNullOrEmpty(r.PurchaseType) ? "#fef2f2" : "#f0fdf4")">
+                        <option value="">Select…</option>
+                        <option value="Sale Bill">Sale Bill</option>
+                        <option value="Consignment Bill">Consignment Bill</option>
+                    </select></td>
+                    <td><input type="date" class="err-pdate err-req"
+                               value="@(r.PurchaseDate == default ? "" : r.PurchaseDate.ToString("yyyy-MM-dd"))"
+                               onchange="chkErrRow(this.closest('tr'))"
+                               style="width:108px;padding:3px 5px;font-size:11.5px;border:1.5px solid @(r.PurchaseDate == default ? "#fca5a5" : "#86efac");border-radius:4px;background:@(r.PurchaseDate == default ? "#fef2f2" : "#f0fdf4")"></td>
+                    <td><input type="text" class="err-tag2" value="@(r.TagNumber2 ?? "")" placeholder="Tag 2…"
+                               style="width:70px;padding:3px 5px;font-size:11.5px;border:1px solid var(--gray3);border-radius:4px"></td>
+                    <td><select class="err-atype" data-val="@(r.AnimalType ?? "Cow")"
+                                style="padding:3px 4px;font-size:11.5px;border:1px solid var(--gray3);border-radius:4px">
+                        <option value="Cow">Cow</option>
+                        <option value="Bull">Bull</option>
+                        <option value="Steer">Steer</option>
+                        <option value="Heifer">Heifer</option>
+                    </select></td>
+                    <td><input type="number" class="err-livewt" value="@(r.LiveWeight > 0 ? r.LiveWeight.ToString("0.##") : "")" placeholder="lbs"
+                               style="width:68px;padding:3px 5px;font-size:11.5px;border:1px solid var(--gray3);border-radius:4px"></td>
+                    <td><select class="err-grade" data-val="@(r.Grade ?? "")"
+                                style="width:62px;padding:3px 4px;font-size:11.5px;border:1px solid var(--gray3);border-radius:4px">
+                        <option value="">—</option>
+                        @foreach (var g in validGrades) 
+                        { 
+                            <option value="@g">@g</option> 
+                        }
+                    </select></td>
+                    <td><input type="number" class="err-hs" min="1" max="5" value="@(r.HealthScore?.ToString() ?? "")" placeholder="1-5"
+                               style="width:42px;padding:3px 5px;font-size:11.5px;border:1px solid var(--gray3);border-radius:4px"></td>
+                    <td><input type="text" class="err-comment" value="@(r.Comment ?? "")" placeholder="Comments…"
+                               style="width:100px;padding:3px 5px;font-size:11.5px;border:1px solid var(--gray3);border-radius:4px"></td>
+                    <td style="color:#b91c1c;font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@r.StatusNote">@r.StatusNote</td>
+                    <td><span class="err-status badge" style="background:#fee2e2;color:#b91c1c;font-size:11px;white-space:nowrap">Error</span></td>
+                    <td style="position:sticky;right:0;z-index:2;background:#fff;border-left:2px solid var(--gray3);padding:5px 8px;white-space:nowrap">
+                        <button type="button" class="err-add-btn btn btn-sm"
+                                style="background:#f0fdf4;color:#15803d;border-color:#86efac;font-size:11px;padding:2px 8px;margin-bottom:3px;display:block;width:100%"
+                                disabled onclick="addErrRow(this)">Add to import</button>
+                        <button type="button" class="btn btn-sm"
+                                style="background:#fef2f2;color:#b91c1c;border-color:#fca5a5;font-size:11px;padding:2px 8px;display:block;width:100%"
+                                onclick="delErrRow(this)">Delete</button>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        </div></div>
+    }
 </div>
 
 @section Scripts {
 <style>
-    .badge-sale { background:#dbeafe; color:#1e40af; }
-    .badge-cons { background:#fef3c7; color:#92400e; }
+.hw-stat{cursor:pointer;border-radius:8px;padding:12px;text-align:center;background:var(--gray1);border:2px solid transparent;transition:border-color .15s}
+.hw-stat:hover,.hw-stat.active{border-color:#2563eb}
+.hw-stat-n{font-size:22px;font-weight:600;font-family:monospace}
+.hw-stat-l{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-top:3px}
+.hw-tabbar{display:flex;border-bottom:2px solid var(--gray3);margin-bottom:0;background:var(--gray1)}
+.hw-tab{padding:9px 16px;font-size:13px;font-weight:500;border:none;background:none;color:var(--text3);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;white-space:nowrap}
+.hw-tab.active{color:#1e2f47;border-bottom-color:#2563eb;font-weight:600}
+.hw-cnt{display:inline-block;margin-left:5px;padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600}
+.hw-cnt-gray{background:#e2e8f0;color:#475569}
+.hw-cnt-green{background:#dcfce7;color:#15803d}
+.hw-cnt-amber{background:#fef3c7;color:#92400e}
+.hw-cnt-red{background:#fee2e2;color:#b91c1c}
+.hw-panel{padding:14px 0}
+.err-row.row-ready td{background:#eff6ff}
+.err-row.row-ready td[style*="right:0"]{background:#fff !important}
+.err-row.row-done td{background:#f0fdf4;opacity:.75}
+.err-row.row-done td[style*="right:0"]{background:#fff !important}
 </style>
+<script>
+var AF_EXCEL = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+
+function switchTab(n) {
+    for (var i = 0; i < 4; i++) {
+        var p = document.getElementById('panel' + i);
+        var t = document.getElementById('tab'   + i);
+        var s = document.getElementById('sc'    + i);
+        if (p) p.style.display = i === n ? '' : 'none';
+        if (t) t.classList.toggle('active', i === n);
+        if (s) s.classList.toggle('active', i === n);
+    }
+}
+
+function selAllErr(v) {
+    document.querySelectorAll('.err-chk:not(:disabled)').forEach(function(c) { c.checked = v; });
+}
+
+function updErrCounts() {
+    var fixed = document.querySelectorAll('.err-row[data-fixed="1"]').length;
+    var fc = document.getElementById('err-fixed-count'); if (fc) fc.textContent = fixed;
+    var ab = document.getElementById('add-all-btn'); if (ab) ab.disabled = fixed === 0;
+}
+
+function chkErrRow(tr) {
+    if (!tr) return;
+    var vendor = (tr.querySelector('.err-vendor')?.value || '').trim();
+    var tag1   = (tr.querySelector('.err-tag1')?.value   || '').trim();
+    var ptype  = (tr.querySelector('.err-ptype')?.value  || '').trim();
+    var pdate  = (tr.querySelector('.err-pdate')?.value  || '').trim();
+    var allOk  = !!(vendor && tag1 && ptype && pdate);
+    tr.dataset.fixed = allOk ? '1' : '0';
+    ['.err-vendor','.err-tag1','.err-ptype','.err-pdate'].forEach(function(sel) {
+        var inp = tr.querySelector(sel); if (!inp) return;
+        var filled = (inp.value || '').trim().length > 0;
+        inp.style.borderColor = filled ? '#86efac' : '#fca5a5';
+        inp.style.background  = filled ? '#f0fdf4' : '#fef2f2';
+    });
+    var st  = tr.querySelector('.err-status');
+    var btn = tr.querySelector('.err-add-btn');
+    var chk = tr.querySelector('.err-chk');
+    if (allOk) {
+        tr.className = 'err-row row-ready';
+        if (st)  { st.textContent = 'Ready'; st.style.cssText = 'background:#eff6ff;color:#1e40af;font-size:11px;white-space:nowrap;border-radius:4px;padding:1px 6px;font-weight:600'; }
+        if (btn) btn.disabled = false;
+        if (chk) chk.disabled = false;
+    } else {
+        tr.className = 'err-row'; tr.style.background = '#fef2f2';
+        if (st)  { st.textContent = 'Error'; st.style.cssText = 'background:#fee2e2;color:#b91c1c;font-size:11px;white-space:nowrap;border-radius:4px;padding:1px 6px;font-weight:600'; }
+        if (btn) btn.disabled = true;
+        if (chk) { chk.disabled = true; chk.checked = false; }
+    }
+    updErrCounts();
+}
+
+async function addErrRow(btn) {
+    var tr = btn.closest('tr'); if (!tr) return;
+    var payload = {
+        rowNum: parseInt(tr.dataset.rownum),
+        vendorName:    tr.querySelector('.err-vendor')?.value || '',
+        tagNumber1:    tr.querySelector('.err-tag1')?.value   || '',
+        purchaseType:  tr.querySelector('.err-ptype')?.value  || '',
+        purchaseDate:  tr.querySelector('.err-pdate')?.value  || null,
+        tagNumber2:    tr.querySelector('.err-tag2')?.value   || '',
+        animalType:    tr.querySelector('.err-atype')?.value  || 'Cow',
+        liveWeight:    parseFloat(tr.querySelector('.err-livewt')?.value)  || 0,
+        liveRate:      0,
+        grade:         tr.querySelector('.err-grade')?.value  || '',
+        healthScore:   parseInt(tr.querySelector('.err-hs')?.value) || null,
+        comment:       tr.querySelector('.err-comment')?.value || '',
+        animalControlNumber: '', state: ''
+    };
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+        var res  = await fetch('/Import/ExcelFixErrorRow', { method:'POST', headers:{'Content-Type':'application/json','RequestVerificationToken':AF_EXCEL}, body:JSON.stringify(payload) });
+        var data = await res.json();
+        if (data.success) {
+            tr.className = 'err-row row-done'; tr.dataset.fixed = '0';
+            var st = tr.querySelector('.err-status');
+            if (st) { st.textContent = 'Added ✓'; st.style.cssText = 'background:#dcfce7;color:#15803d;font-size:11px;white-space:nowrap;border-radius:4px;padding:1px 6px;font-weight:600'; }
+            btn.textContent = 'Added ✓';
+            tr.querySelectorAll('input,select').forEach(function(i) { i.disabled = true; });
+            var chk = tr.querySelector('.err-chk'); if (chk) { chk.disabled = true; chk.checked = false; }
+            updateCounts(data.okCount, data.errCount);
+            var msg = document.getElementById('err-save-msg'); if (msg) msg.textContent = data.message;
+            var banner = document.getElementById('err-save-confirm'); if (banner) { banner.style.display='block'; setTimeout(function(){ banner.style.display='none'; }, 5000); }
+        } else { btn.disabled=false; btn.textContent='Add to import'; alert('Error: '+data.message); }
+    } catch(e) { btn.disabled=false; btn.textContent='Add to import'; alert('Network error: '+e.message); }
+    updErrCounts();
+}
+
+async function addAllFixed() {
+    document.querySelectorAll('.err-row[data-fixed="1"] .err-add-btn:not(:disabled)').forEach(function(btn) { addErrRow(btn); });
+}
+
+async function delErrRow(btn) {
+    var tr = btn.closest('tr'); if (!tr) return;
+    if (btn.dataset.confirming === '1') {
+        try {
+            var res  = await fetch('/Import/ExcelDeleteRow', { method:'POST', headers:{'Content-Type':'application/json','RequestVerificationToken':AF_EXCEL}, body:JSON.stringify({rowNum:parseInt(tr.dataset.rownum)}) });
+            var data = await res.json();
+            if (data.success) { tr.remove(); updateCounts(data.okCount, data.errCount); updErrCounts(); }
+            else alert(data.message);
+        } catch(e) { alert('Error: '+e.message); }
+        return;
+    }
+    btn.dataset.confirming = '1'; var orig = btn.textContent; var origStyle = btn.getAttribute('style') || '';
+    btn.textContent = 'Confirm?';
+    btn.style.cssText = 'background:#b91c1c;color:#fff;border:1px solid #991b1b;font-size:11px;padding:2px 8px;display:block;width:100%;cursor:pointer;border-radius:4px;font-weight:600';
+    setTimeout(function() { if (btn.dataset.confirming==='1') { btn.dataset.confirming='0'; btn.textContent=orig; btn.setAttribute('style',origStyle); } }, 3000);
+}
+
+function updateCounts(ok, err) {
+    ['ok-count','tab1-cnt','sum-ok','ok-label','confirm-count'].forEach(function(id){var el=document.getElementById(id);if(el)el.textContent=ok;});
+    ['err-count','tab3-cnt','sum-err'].forEach(function(id){var el=document.getElementById(id);if(el)el.textContent=err;});
+    var b=document.getElementById('err-banner-count'); if(b) b.textContent=err+(err===1?' row has':' rows have');
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Set select values from data-val (avoids RZ1031 Razor tag helper issues)
+    document.querySelectorAll('select[data-val]').forEach(function(sel) {
+        var val = sel.dataset.val || '';
+        if (val) sel.value = val;
+    });
+    document.querySelectorAll('.err-row').forEach(function(tr) { chkErrRow(tr); });
+    updErrCounts();
+});
+</script>
 }
