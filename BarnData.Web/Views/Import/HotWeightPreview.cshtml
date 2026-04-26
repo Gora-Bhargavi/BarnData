@@ -13,6 +13,22 @@
     var validGrades      = new[] { "CT","B1","B2","CN","LB","UB","BB","BR","FB","NP","NPNP","SH" };
 }
 
+@* Phase 2c — banner shown when preview was restored from staging *@
+@if (ViewBag.RestoredFromStaging != null && (bool)ViewBag.RestoredFromStaging == true)
+{
+    <div class="alert" style="margin-bottom:14px;background:#EFF6FF;border:1px solid #93c5fd;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:12.5px">
+        <span style="font-size:16px">↻</span>
+        <div style="flex:1">
+            <strong>Restored from saved batch.</strong>
+            <span style="color:var(--text3)"> Your Hot Weight preview was reloaded from the server — no need to re-upload.</span>
+        </div>
+        <form method="post" asp-action="HotWeightClearSession" style="margin:0">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn btn-secondary btn-sm" onclick="return confirm('Clear the staged Hot Weight batch? You will need to re-upload to continue.');">Clear staged batch</button>
+        </form>
+    </div>
+}
+
 @* ── Page header ── *@
 <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
     <div>
@@ -170,25 +186,25 @@
             </div>
         </div>
         <div class="xl-scroll-box"><div class="xl-scroll-inner auto-fill-scroll">
-        <table class="data-table" style="min-width:1900px;font-size:12px">
+        <table class="data-table" data-colfilter-table style="min-width:1900px;font-size:12px">
     <thead><tr>
         <th style="width:32px"><input type="checkbox" id="p1-all" onchange="selAll('p1',this.checked)" checked></th>
-        <th>ACN</th>
-        <th>LOT</th>
-        <th>Type</th>
-        <th>BackTag</th>
-        <th>Tag1</th>
-        <th>Tag2</th>
-        <th>Program</th>
-        <th>Origin</th>
-        <th class="text-right">LiveWeight</th>
-        <th class="text-right">Side1 (lbs)</th>
-        <th class="text-right">Side2 (lbs)</th>
-        <th class="text-right" style="background:#162236;color:#9ae6b4">HotTotal</th>
-        <th style="background:#162236;color:#9ae6b4">Grade</th>
-        <th style="background:#162236;color:#9ae6b4">Grade2</th>
-        <th style="background:#162236;color:#9ae6b4">HealthScore</th>
-        <th>Status</th>
+        <th data-colfilter="text">ACN</th>
+        <th data-colfilter="text">LOT</th>
+        <th data-colfilter="text">Type</th>
+        <th data-colfilter="text">BackTag</th>
+        <th data-colfilter="text">Tag1</th>
+        <th data-colfilter="text">Tag2</th>
+        <th data-colfilter="text">Program</th>
+        <th data-colfilter="text">Origin</th>
+        <th data-colfilter="number" class="text-right">LiveWeight</th>
+        <th data-colfilter="number" class="text-right">Side1 (lbs)</th>
+        <th data-colfilter="number" class="text-right">Side2 (lbs)</th>
+        <th data-colfilter="number" class="text-right" style="background:#162236;color:#9ae6b4">HotTotal</th>
+        <th data-colfilter="text" style="background:#162236;color:#9ae6b4">Grade</th>
+        <th data-colfilter="text" style="background:#162236;color:#9ae6b4">Grade2</th>
+        <th data-colfilter="number" style="background:#162236;color:#9ae6b4">HealthScore</th>
+        <th data-colfilter="text">Status</th>
     </tr></thead>
     <tbody>
     @foreach (var r in readyDisplayRows)
@@ -449,17 +465,17 @@
             They were skipped automatically — no action needed.
         </div>
         <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <table data-colfilter-table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead>
                 <tr>
-                    <th style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">ACN</th>
-                    <th style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:right;font-size:11px">Side1</th>
-                    <th style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:right;font-size:11px">Side2</th>
-                    <th style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:right;font-size:11px">HotWeight</th>
-                    <th style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">Grade</th>
-                    <th style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:center;font-size:11px">HS</th>
-                    <th style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">Match</th>
-                    <th style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">DB values</th>
+                    <th data-colfilter="text" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">ACN</th>
+                    <th data-colfilter="number" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:right;font-size:11px">Side1</th>
+                    <th data-colfilter="number" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:right;font-size:11px">Side2</th>
+                    <th data-colfilter="number" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:right;font-size:11px">HotWeight</th>
+                    <th data-colfilter="text" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">Grade</th>
+                    <th data-colfilter="number" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:center;font-size:11px">HS</th>
+                    <th data-colfilter="text" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">Match</th>
+                    <th data-colfilter="text" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">DB values</th>
                 </tr>
             </thead>
             <tbody>
@@ -504,6 +520,7 @@
 </div>
 
 @section Scripts {
+<script src="~/js/column-filter.js" asp-append-version="true"></script>
 <style>
 /* Compact single-row tab bar: tabs + counts combined (no separate stat-card grid) */
 /* Single-row merged card-tabs: big count + label, whole card is the tab button */

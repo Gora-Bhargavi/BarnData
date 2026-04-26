@@ -19,6 +19,9 @@ namespace BarnData.Core.Services
     Task<IEnumerable<Animal>> GetAllPendingAsync();
     Task<(IEnumerable<Animal> Items, int TotalCount)> GetPendingPagedAsync(int? vendorId, int page, int pageSize);
     Task<bool> IsTagDuplicateAsync(string tag1, int vendorId, int? excludeControlNo = null);
+
+    // fast duplicate detection during Excel upload.
+        Task<HashSet<(string Tag, int VendorId)>> GetAllTagVendorKeysAsync();
         bool IsWeightOutOfRange(decimal liveWeight);
         Task<(bool Success, string ErrorMessage)> CreateAsync(Animal animal);
         Task<(int Imported, int Skipped, List<string> Errors)> BulkImportAsync(IEnumerable<Animal> animals);

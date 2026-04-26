@@ -21,6 +21,22 @@
     </div>
 }
 
+@* Phase 2c — banner shown when preview was restored from staging *@
+@if (ViewBag.RestoredFromStaging != null && (bool)ViewBag.RestoredFromStaging == true)
+{
+    <div class="alert" style="margin-bottom:14px;background:#EFF6FF;border:1px solid #93c5fd;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:12.5px">
+        <span style="font-size:16px">↻</span>
+        <div style="flex:1">
+            <strong>Restored from saved batch.</strong>
+            <span style="color:var(--text3)"> Your preview was reloaded from the server — no need to re-upload.</span>
+        </div>
+        <form method="post" asp-action="ExcelClearSession" style="margin:0">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn btn-secondary btn-sm" onclick="return confirm('Clear the staged preview? You will need to re-upload to continue.');">Clear staged batch</button>
+        </form>
+    </div>
+}
+
 @*  Stat cards  *@
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
     <div class="hw-stat" id="sc0" onclick="switchTab(0)">
@@ -156,11 +172,19 @@
     {
         <div style="font-size:12.5px;color:var(--text3);margin-bottom:8px"><span id="ok-label">@okCount</span> rows will be saved when you confirm.</div>
         <div class="xl-scroll-box"><div class="xl-scroll-inner" style="max-height:55vh">
-        <table class="data-table" style="min-width:1200px;font-size:12px">
+        <table class="data-table" data-colfilter-table style="min-width:1200px;font-size:12px">
             <thead><tr>
-                <th>Row</th><th>Vendor</th><th>Tag 1</th><th>Tag 2</th>
-                <th>Animal Type</th><th>Purchase Type</th><th>Purchase Date</th>
-                <th class="text-right">Live Wt</th><th>Grade</th><th>HS</th><th>Status</th>
+                <th data-colfilter="number">Row</th>
+                <th data-colfilter="text">Vendor</th>
+                <th data-colfilter="text">Tag 1</th>
+                <th data-colfilter="text">Tag 2</th>
+                <th data-colfilter="text">Animal Type</th>
+                <th data-colfilter="text">Purchase Type</th>
+                <th data-colfilter="date">Purchase Date</th>
+                <th data-colfilter="number" class="text-right">Live Wt</th>
+                <th data-colfilter="text">Grade</th>
+                <th data-colfilter="number">HS</th>
+                <th data-colfilter="text">Status</th>
             </tr></thead>
             <tbody>
             @foreach (var r in okRows)
@@ -209,11 +233,15 @@
             <strong>@dupCount duplicate rows will be skipped automatically.</strong> These tags already exist for the same vendor.
         </div>
         <div class="xl-scroll-box"><div class="xl-scroll-inner" style="max-height:55vh">
-        <table class="data-table" style="min-width:700px;font-size:12px">
+        <table class="data-table" data-colfilter-table style="min-width:700px;font-size:12px">
             <thead><tr>
-                <th>Row</th><th>Vendor</th><th>Tag 1</th><th>Tag 2</th>
-                <th>Animal Type</th><th>Purchase Date</th>
-                <th style="background:#3d1515;color:#fca5a5">Reason skipped</th>
+                <th data-colfilter="number">Row</th>
+                <th data-colfilter="text">Vendor</th>
+                <th data-colfilter="text">Tag 1</th>
+                <th data-colfilter="text">Tag 2</th>
+                <th data-colfilter="text">Animal Type</th>
+                <th data-colfilter="date">Purchase Date</th>
+                <th data-colfilter="text" style="background:#3d1515;color:#fca5a5">Reason skipped</th>
             </tr></thead>
             <tbody>
             @foreach (var r in dupRows)
@@ -345,6 +373,7 @@
 </div>
 
 @section Scripts {
+<script src="~/js/column-filter.js" asp-append-version="true"></script>
 <style>
 .hw-stat{cursor:pointer;border-radius:8px;padding:12px;text-align:center;background:var(--gray1);border:2px solid transparent;transition:border-color .15s}
 .hw-stat:hover,.hw-stat.active{border-color:#2563eb}

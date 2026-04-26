@@ -1,0 +1,91 @@
+@*
+    _VendorPicker.cshtml  —  redesigned multi-vendor selector.
+
+    Usage from a parent view:
+        @await Html.PartialAsync("_VendorPicker", new BarnData.Web.Models.VendorPickerModel {
+            Id          = "mk",                                     // prefix, must be unique per page
+            HiddenName  = "vendorIds",                              // name attr for the hidden input submitted with the form
+            Vendors     = (IEnumerable<SelectListItem>)ViewBag.VendorList,
+            SelectedIds = ViewBag.VendorIds as string,
+            TotalCount  = Model.Animals?.Count ?? 0,
+            Label       = "Filter by vendor"
+        })
+
+    Requires in your layout (or in a @@section Styles / Scripts block):
+        <link rel="stylesheet" href="~/css/vendor-picker.css" />
+        <script src="~/js/vendor-picker.js"></script>
+
+    On Apply, the hidden input is updated with a comma-separated vendor id list,
+    AND a DOM event `vp:apply` is fired so you can auto-submit the form:
+
+        document.addEventListener('vp:apply', function (e) {
+            if (e.detail.id === 'mk') document.getElementById('myForm').submit();
+        });
+*@
+@model BarnData.Web.Models.VendorPickerModel
+@{
+    var id            = Model.Id;
+    var selectedSet   = (Model.SelectedIds ?? "")
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(s => s.Trim())
+                        .Where(s => int.TryParse(s, out _))
+                        .ToHashSet();
+    var vendors       = Model.Vendors?.ToList() ?? new List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>();
+    var selectedCount = vendors.Count(v => selectedSet.Contains(v.Value));
+}
+
+<div class="vp" id="@(id)-vp">
+
+    <div style="font-size:11px;color:var(--text3);margin-bottom:3px">@Model.Label</div>
+
+    <div class="vp-trigger" id="@(id)-trigger" onclick="VP_toggle('@id')"
+         role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();VP_toggle('@id');}">
+        <span class="vp-label" id="@(id)-label">
+            @(selectedCount == 0
+                ? $"All vendors ({Model.TotalCount})"
+                : (selectedCount == vendors.Count
+                    ? "All vendors selected"
+                    : $"{selectedCount} of {vendors.Count} vendors selected"))
+        </span>
+        <span class="vp-chev">▾</span>
+    </div>
+
+    <input type="hidden" name="@Model.HiddenName" id="@(id)-hidden" value="@Model.SelectedIds" />
+
+    <div class="vp-panel" id="@(id)-panel" role="listbox" aria-label="Vendors">
+        <div class="vp-head">
+            <div class="vp-head-title">Select vendors</div>
+            <div class="vp-search-wrap">
+                <span class="vp-search-icon">⌕</span>
+                <input type="text" class="vp-search" id="@(id)-search"
+                       placeholder="Type to filter vendors…"
+                       oninput="VP_filter('@id', this.value)"
+                       onclick="event.stopPropagation()" />
+            </div>
+        </div>
+
+        <div class="vp-chips" id="@(id)-chips"></div>
+
+        <div class="vp-grid" id="@(id)-grid">
+            @foreach (var v in vendors)
+            {
+                var isSel = selectedSet.Contains(v.Value);
+                <label class="vp-item @(isSel ? "vp-sel" : "")" data-vendor-name="@v.Text">
+                    <input type="checkbox" class="@(id)-chk" value="@v.Value" data-name="@v.Text"
+                           @(isSel ? "checked" : "")
+                           onchange="VP_onChange('@id')" />
+                    <span class="vp-item-name">@v.Text</span>
+                </label>
+            }
+        </div>
+
+        <div class="vp-foot">
+            <button type="button" class="vp-link" onclick="VP_selectAll('@id', true)">Select all</button>
+            <button type="button" class="vp-link" onclick="VP_selectAll('@id', false)">Clear</button>
+            <span class="vp-spacer" id="@(id)-count">@selectedCount selected</span>
+            <button type="button" class="vp-btn" onclick="VP_cancel('@id')">Cancel</button>
+            <button type="button" class="vp-btn vp-btn-primary" onclick="VP_apply('@id')">Apply</button>
+        </div>
+    </div>
+</div>

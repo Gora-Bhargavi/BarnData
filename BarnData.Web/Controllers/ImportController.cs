@@ -16,12 +16,19 @@ namespace BarnData.Web.Controllers
     {
         private readonly IAnimalService _animalService;
         private readonly IVendorService _vendorService;
+        private readonly IAnimalQueryService _animalQueryService;
+        private readonly IImportStagingService _stagingService;
         private readonly ILogger<ImportController> _logger;
 
-        public ImportController(IAnimalService animalService, IVendorService vendorService, ILogger<ImportController> logger)
+        public ImportController(IAnimalService animalService, IVendorService vendorService,
+                                 IAnimalQueryService animalQueryService,
+                                 IImportStagingService stagingService,
+                                 ILogger<ImportController> logger)
         {
             _animalService = animalService;
             _vendorService = vendorService;
+            _animalQueryService = animalQueryService;
+            _stagingService = stagingService;
             _logger = logger;
         }
 
@@ -320,7 +327,7 @@ namespace BarnData.Web.Controllers
             return View("SaleBillResult", vm);
         }
 
-        // ── AJAX: Save edits (only edited rows — no form size limit) ──────────────
+        // AJAX: Save edits (only edited rows - no form size limit) 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> SaveEditsApi([FromBody] SaveEditsRequest req)
@@ -362,7 +369,7 @@ return Json(new
 });
         }
 
-        // ── AJAX: Mark as killed (only selected rows — no form size limit) ──────────
+        // AJAX: Mark as killed (only selected rows — no form size limit) 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> MarkKilledApi([FromBody] MarkKilledRequest req)
@@ -394,10 +401,8 @@ return Json(new
             foreach (var r in req.Rows)
             {
                 if (!r.PurchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase)) continue;
-                if (r.HotWeight > 0 && r.LiveWeight <= 0)
-                    validationErrors.Add($"Ctrl No {r.ControlNo}: Live Wt required for consignment.");
-                else if (r.HotWeight > 0 && r.LiveWeight > 0 && r.HotWeight > r.LiveWeight)
-                    validationErrors.Add($"Ctrl No {r.ControlNo}: Hot Wt cannot exceed Live Wt.");
+                if (r.HotWeight > 0 && r.LiveWeight > 0 && r.HotWeight > r.LiveWeight)
+                    validationErrors.Add($"Ctrl No {r.ControlNo}: Hot Wt ({r.HotWeight:N1}) cannot exceed Live Wt ({r.LiveWeight:N1}).");
             }
             if (validationErrors.Any())
                 return Json(new { success = false, message = string.Join(" ", validationErrors.Take(3)) });
@@ -550,6 +555,141 @@ return Json(new
             return View(vm);
         }
 
+        //  MARK AS KILLED — FAST, PAGINATED  (Phase 2b)
+        public async Task<IActionResult> MarkKilledFast(
+            string? vendorIds,
+            int page = 1,
+            int pageSize = 100,
+            string? q = null)
+        {
+            // Sanity: reasonable page size limits
+            if (page < 1) page = 1;
+            if (pageSize < 10) pageSize = 10;
+            if (pageSize > 500) pageSize = 500;
+
+            // Parse optional vendor filter
+            List<int> vendorIdList = new();
+            if (!string.IsNullOrEmpty(vendorIds))
+            {
+                vendorIdList = vendorIds
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(v => int.TryParse(v.Trim(), out var id) ? id : 0)
+                    .Where(id => id > 0)
+                    .ToList();
+            }
+
+            // Single paged, JOINed query — uses IX_Animal_KillStatus_VendorID
+            var (pending, totalCount) = await _animalQueryService.GetPendingPagedAsync(
+                vendorIdList.Count > 0 ? vendorIdList : null,
+                page,
+                pageSize,
+                string.IsNullOrWhiteSpace(q) ? null : q);
+
+            // Vendor list for the picker
+            var vendors = await _vendorService.GetAllActiveAsync();
+            ViewBag.VendorIds = vendorIds ?? "";
+            ViewBag.VendorList2 = vendors.Select(v =>
+                new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem(
+                    v.VendorName,
+                    v.VendorID.ToString(),
+                    vendorIdList.Contains(v.VendorID)));
+            ViewBag.SelectedVendorNames = vendorIdList.Count > 0
+                ? vendors.Where(v => vendorIdList.Contains(v.VendorID))
+                        .Select(v => v.VendorName).ToList()
+                : new List<string>();
+
+            // Hot Weight pre-fill (same logic as the legacy MarkKilled action)
+            var hwLoaded = (TempData["HWLoaded"] as string == "1")
+                        || (HttpContext.Session.GetString("HWLoaded") == "1");
+            var hwJson = TempData.Peek("HWPreview") as string
+                    ?? HttpContext.Session.GetString("HWPreview");
+            HttpContext.Session.Remove("HWLoaded");
+            var hwLookup = new Dictionary<int, HotWeightPreviewRow>();
+
+            if (hwLoaded && !string.IsNullOrEmpty(hwJson))
+            {
+                try
+                {
+                    var hwVm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(hwJson);
+                    if (hwVm != null)
+                    {
+                        foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue))
+                            hwLookup[r.ControlNo] = r;
+                        foreach (var r in hwVm.FlaggedRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue))
+                            hwLookup[r.ControlNo] = r;
+                        foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && !string.IsNullOrEmpty(r.NewAnimalControlNumber)))
+                            if (!hwLookup.ContainsKey(r.ControlNo)) hwLookup[r.ControlNo] = r;
+                        TempData["HWLoadedCount"] = hwLookup.Count.ToString();
+                        TempData["HWFlaggedCount"] = hwVm.FlaggedRows.Count(r => !hwLookup.ContainsKey(r.ControlNo)).ToString();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[MKFast-GET] Exception deserializing HWPreview JSON");
+                }
+            }
+
+            // Build the same MarkKilledViewModel the legacy page uses, so we can
+            // reuse PendingAnimalRow / MarkKilledViewModel shape and keep the save
+            // endpoints fully compatible.
+            var vm = new MarkKilledViewModel
+            {
+                KillDate = DateTime.Today,
+                VendorId = vendorIdList.Count == 1 ? vendorIdList[0] : (int?)null,
+                VendorList = vendors.Select(v =>
+                    new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem(v.VendorName, v.VendorID.ToString())),
+                Animals = pending.Select(a =>
+                {
+                    hwLookup.TryGetValue(a.ControlNo, out var hw);
+                    return new PendingAnimalRow
+                    {
+                        ControlNo           = a.ControlNo,
+                        VendorName          = a.Vendor?.VendorName ?? "",
+                        Tag1                = a.TagNumber1,
+                        Tag2                = a.TagNumber2,
+                        Tag3                = a.Tag3,
+                        AnimalType          = a.AnimalType,
+                        AnimalType2         = a.AnimalType2,
+                        LiveWeight          = a.LiveWeight,
+                        LiveRate            = a.LiveRate,
+                        PurchaseType        = a.PurchaseType,
+                        PurchaseDate        = a.PurchaseDate,
+                        AnimalControlNumber = (hw != null && !string.IsNullOrEmpty(hw.NewAnimalControlNumber))
+                                                ? hw.NewAnimalControlNumber
+                                                : a.AnimalControlNumber,
+                        Comment             = hw != null && !string.IsNullOrEmpty(hw.TrimComment)
+                                                ? (string.IsNullOrEmpty(a.Comment)
+                                                    ? hw.TrimComment
+                                                    : a.Comment + " " + hw.TrimComment)
+                                                : a.Comment,
+                        State               = a.State,
+                        BuyerName           = a.BuyerName,
+                        VetName             = a.VetName,
+                        OfficeUse2          = a.OfficeUse2,
+                        ProgramCode         = a.ProgramCode,
+                        Selected            = false,
+                        IsCondemned         = a.IsCondemned,
+                        HotWeight           = hw != null ? hw.NewHotWeight : a.HotWeight,
+                        Grade               = hw != null ? hw.NewGrade : a.Grade,
+                        HealthScore         = hw != null ? hw.NewHealthScore : a.HealthScore,
+                        HwImported          = hw != null,
+                    };
+                }).ToList()
+            };
+
+            // Paging info for the view
+            ViewBag.CurrentPage = page;
+            ViewBag.PageSize    = pageSize;
+            ViewBag.TotalCount  = totalCount;
+            ViewBag.TotalPages  = (int)Math.Ceiling((double)totalCount / pageSize);
+            ViewBag.SearchTerm  = q ?? "";
+
+            return View("MarkKilledFast", vm);
+        }
+
+
+
+
         //Adding Post method to handle SaveMarkedEdits
         [HttpPost]
         [ValidateAntiForgeryToken]
@@ -622,21 +762,18 @@ return Json(new
     }
 
     //Consignment validation: If hot weight entered, live weight is required and must be >= Hot weight
-    var validationErrors = new List<string>();
+        var validationErrors = new List<string>();
         foreach (var id in editedIds)
         {
             var purchaseType = form[$"purchaseType_{id}"].FirstOrDefault() ?? "";
             var isConsignment = purchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase);
+            if (!isConsignment) continue;
 
-            bool hasHot = decimal.TryParse(form[$"hotWeight_{id}"], out var hot) && hot > 0;
+            bool hasHot  = decimal.TryParse(form[$"hotWeight_{id}"], out var hot) && hot > 0;
             bool hasLive = decimal.TryParse(form[$"liveWeight_{id}"], out var live) && live > 0;
 
-            if(!isConsignment) continue;
-
-            if(hasHot && !hasLive)
-                validationErrors.Add($"Ctrl No {id}: Live Wt is required for consignment when Hot Wt is entered.");
-            else if (hasHot && hasLive && hot > live)
-                validationErrors.Add($"Ctrl No {id}: Hot Wt ({hot:N1}) cannot exceed Live Wt ({live:N1})."); 
+            if (hasHot && hasLive && hot > live)
+                validationErrors.Add($"Ctrl No {id}: Hot Wt ({hot:N1}) cannot exceed Live Wt ({live:N1}).");
         }
 
             if (validationErrors.Any())
@@ -757,18 +894,21 @@ return Json(new
 
 
         // HOT WEIGHT IMPORT — GET
-        public IActionResult HotWeightImport()
+        public async Task<IActionResult> HotWeightImport()
         {
-            // Always render HotWeightPreview - upload zone lives inside the page
-            // If session has parsed data, restore it; otherwise show empty tabs
-            var sessionJson = HttpContext.Session.GetString("HWPreview");
+            var json = await StagingBridge.ReadAsync(
+                HttpContext.Session, _stagingService,
+                StagingBridge.Types.HotWeight,
+                StagingBridge.GetUserKey(HttpContext));
+
             HotWeightImportViewModel? vm = null;
-            if (!string.IsNullOrEmpty(sessionJson))
+            if (!string.IsNullOrEmpty(json))
             {
-                try { vm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(sessionJson); }
-                catch { /* corrupt session — show empty tabs */ }
+                try { vm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(json); }
+                catch { /* corrupt payload — show empty tabs */ }
             }
-            // Pass empty vm so the view always shows the 4 tabs
+
+            if (vm != null) ViewBag.RestoredFromStaging = true;
             return View("HotWeightPreview", vm ?? new HotWeightImportViewModel());
         }
 
@@ -1026,13 +1166,6 @@ var acnGrouped = acnResults
                     vm.Errors.Add($"Database error during ACN lookup: {acnEx.Message}");
                     return View("HotWeightPreview", vm);
                 }
-
-                // Exact tag lookup — build index from DB
-                // FIX 1: Also add EID suffixes (lengths 7,6,5,4,3) for backTag/tag1/tag2
-                // so one DB call fetches everything. DB stores short hand-entered tags
-                // (e.g. '8622') while HotScale reports the full EID ('840003315078622').
-                // Adding suffix variants to the exact-match IN-list brings the DB short
-                // tags back in a single round trip.
                 static bool IsEidShaped(string t) =>
                     !string.IsNullOrEmpty(t) && t.Length >= 10
                     && t.All(char.IsDigit)
@@ -1090,10 +1223,6 @@ var acnGrouped = acnResults
                     if (tagIndex.TryGetValue(padded, out var m3)) return m3;
                     return new();
                 }
-
-                //For non-ACN matching we should only target records that do not already
-                // For non-ACN matching we should only target records that do not already
-                // have an assigned AnimalControlNumber.
                 List<BarnData.Data.Entities.Animal> PrepareTagCandidates(
                     List<BarnData.Data.Entities.Animal> hits,
                     string context,
@@ -1111,23 +1240,6 @@ var acnGrouped = acnResults
                     return unassigned;
                 }
 
-                // ── NEW: EID suffix matcher ──
-                // Applied when a HotScale tag (backTag/tag1/tag2) is EID-shaped
-                // (≥10 digits, all-numeric, starts 840/124). Walks suffix lengths
-                // 7 → 6 → 5 → 4 → 3 against tagIndex; stops at the first length
-                // that yields ≥1 unassigned candidate.
-                //   0 hits at length N  → shrink by 1, retry.
-                //   1 hit               → auto-match (return that animal).
-                //   2+ hits             → weight tiebreaker:
-                //       diff per candidate:
-                //         if db.LiveWeight > 0 AND file.LiveWeight > 0
-                //              → |db.LiveWeight − file.LiveWeight|
-                //         else → |db.LiveWeight − (file.Side1 + file.Side2)|
-                //         if neither available → diff = decimal.MaxValue
-                //       single-closest wins (no min/max thresholds, per staff rule).
-                //       If two candidates tie on distance → flag for picker.
-                // Returns (match, candidateListIfAmbiguous, usedSuffix). Exactly one
-                // of match/candidates is non-null on any non-empty result.
                 (BarnData.Data.Entities.Animal? match,
                  List<BarnData.Data.Entities.Animal>? candidates,
                  string usedSuffix,
@@ -1166,7 +1278,7 @@ var acnGrouped = acnResults
                                 return Math.Abs(a.LiveWeight - fileLiveWt.Value);
                             if (a.LiveWeight > 0 && fileHotTotal > 0)
                                 return Math.Abs(a.LiveWeight - fileHotTotal);
-                            return decimal.MaxValue; // cannot compare — won't win, won't uniquely lose either
+                            return decimal.MaxValue; // cannot compare - won't win, won't uniquely lose either
                         }
 
                         var scored = unassigned
@@ -1198,9 +1310,7 @@ var acnGrouped = acnResults
                     return (null, null, "", ""); // no hits at any length
                 }
 
-                // Multi-signal best-match scorer 
-                // Scores each candidate on: vendor code match + live weight proximity
-                // + purchase type match. Returns the single best if clearly ahead.
+                
                 (BarnData.Data.Entities.Animal? animal, string reason) WeightPickFromCandidates(
                     List<BarnData.Data.Entities.Animal> candidates, decimal? fileLiveWt, string context,
                     string vendorCode = "", string filePurchaseType = "")
@@ -1324,13 +1434,13 @@ var acnGrouped = acnResults
                     string flagReason  = "";
                     List<HwCandidate>? _candidateBuffer = null;
 
-                    // ── STEP 1: Direct ACN match ──────────────────────────────────
+                    //Direct ACN match 
                     if (!string.IsNullOrEmpty(acn))
                         acnAnimals.TryGetValue(acn, out animal);
 
                     
                     
-                    // ── STEP 2: EID-shaped BackTag — suffix ladder 7→3 with weight tiebreaker ──
+                    //EID-shaped BackTag  suffix ladder 7→3 with weight tiebreaker 
                     if (animal == null && IsEidShaped(backTag))
                     {
                         var (m, cands, sfx, rsn) = FindByEidSuffix(backTag, liveWt, s1, s2, "BackTag");
@@ -1348,7 +1458,7 @@ var acnGrouped = acnResults
                         // 0 hits at every length → fall through to later match steps
                     }
 
-                    // ── STEP 2b: EID-shaped Tag1 — same suffix ladder ──
+                     
                     // HotScale often puts the full 15-digit EID in Tag1 while DB stores
                     // only the hand-entered last 3–7 digits (e.g. '8622').
                     if (animal == null && IsEidShaped(tag1))
@@ -1367,7 +1477,7 @@ var acnGrouped = acnResults
                         }
                     }
 
-                    // ── STEP 2c: EID-shaped Tag2 — same suffix ladder ──
+                    //EID-shaped Tag2 — same suffix ladder 
                     if (animal == null && IsEidShaped(tag2))
                     {
                         var (m, cands, sfx, rsn) = FindByEidSuffix(tag2, liveWt, s1, s2, "Tag2");
@@ -1384,7 +1494,7 @@ var acnGrouped = acnResults
                         }
                     }
 
-                    // ── STEP 3: Lot prefix — [digits][LETTERS][4digits] → strip, use suffix ──
+                    //Lot prefix - [digits][LETTERS][4digits] → strip, use suffix
                     if (animal == null && !string.IsNullOrEmpty(backTag))
                     {
                         var lotMatch = System.Text.RegularExpressions.Regex.Match(backTag, @"^(\d+)([A-Z]+)(\d{4})$");
@@ -1467,7 +1577,7 @@ var acnGrouped = acnResults
                         }
                     }
 
-                    // ── STEP 4: Exact BackTag match (with leading-zero variant) ──
+                    //Exact BackTag match (with leading-zero variant) 
                     if (animal == null && !string.IsNullOrEmpty(backTag) && !backTag.Contains('?'))
                     {
                         var btHitsAll = ExactTagLookup(backTag);
@@ -1500,7 +1610,7 @@ var acnGrouped = acnResults
                         }
                     }
 
-                    // ── STEP 5: Alpha-prefix tag — try exact then numeric suffix (B917→917, K52→52) ──
+                    // Alpha-prefix tag try exact then numeric suffix 
                     if (animal == null && !string.IsNullOrEmpty(backTag))
                     {
                         var alphaMatch = System.Text.RegularExpressions.Regex.Match(backTag, @"^([A-Z]+)(\d+)$");
@@ -1538,7 +1648,7 @@ var acnGrouped = acnResults
                         }
                     }
 
-                    // ── STEP 6: Tag1/Tag2 from file (ear/rt/slow = tag note, still search) ──
+                    // Tag1/Tag2 from file (ear/rt/slow = tag note, still search) 
                     if (animal == null && !string.IsNullOrEmpty(tag1))
                     {
                         var skipWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ear", "rt", "slow", "nt", "none", "no tag" };
@@ -1607,7 +1717,7 @@ var acnGrouped = acnResults
                         }
                     }
 
-                    // ── STEP 7: Wildcard ? match ──────────────────────────────────
+                    // Wildcard ? match 
                     if (animal == null && !string.IsNullOrEmpty(backTag) && backTag.Contains('?'))
                     {
                         var wcHitsAll = (await _animalService.GetByTagPatternAsync(backTag)).ToList();
@@ -1646,7 +1756,7 @@ var acnGrouped = acnResults
                         }
                     }
 
-                    //  STEP 8: Live Weight proximity fallback 
+                    //  Live Weight proximity fallback 
                     if (animal == null && liveWt.HasValue && liveWt.Value > 0)
                     {
                         if (pendingAnimals == null)
@@ -1754,8 +1864,8 @@ var acnGrouped = acnResults
                     _candidateBuffer = null;
                     continue;
                     DoneMatch:
-                    // Dedup — silently skip if we already matched this animal
-                    // (hot scale machine sometimes writes 2 rows per animal — both have same BackTag)
+                    // Dedup - silently skip if we already matched this animal
+                    // (hot scale machine sometimes writes 2 rows per animal - both have same BackTag)
                     if (matchedControlNos.Contains(animal.ControlNo))
                     {
                         vm.TotalInExcel--;   // don't count the silent duplicate in total
@@ -1817,7 +1927,7 @@ var acnGrouped = acnResults
                             var variance = Math.Abs(s1!.Value - s2!.Value) / ((s1!.Value + s2!.Value) / 2);
                             if (variance > 0.05m)
                             {
-                                // NOT flagged — set trim comment and auto-load
+                                // NOT flagged - set trim comment and auto-load
                                 // LTrim = left side (Side1) was trimmed more; RTrim = right side (Side2)
                                 row.TrimComment = s1!.Value < s2!.Value ? "LTrim" : "RTrim";
                             }
@@ -1873,10 +1983,10 @@ var acnGrouped = acnResults
                     if (sidesClean)
                         row.NewHotWeight = s1!.Value + s2!.Value;
 
-                    // ── Duplicate detection ────────────────────────────────────
+                    // Duplicate detection 
                     // A row is a DUPLICATE if the animal already has data in DB AND
                     // HotWeight + Grade + HealthScore + ACN all match the incoming file exactly.
-                    // If any field differs → not a dup → goes to Ready (allow overwrite).
+                    // If any field differs -> not a dup -> goes to Ready (allow overwrite).
                     bool hasExisting = animal.HotWeight.HasValue && animal.HotWeight.Value > 0;
                     if (hasExisting && !flags.Any())
                     {
@@ -1897,7 +2007,7 @@ var acnGrouped = acnResults
 
                         if (hwMatch && gradeMatch && hsMatch && acnMatch)
                         {
-                            // Exact duplicate — route to Dup tab
+                            // Exact duplicate - route to Dup tab
                             row.Status    = "Dup";
                             row.FlagReason = $"Duplicate — DB already has HotWeight {dbHW:N1} lbs, Grade {dbGrade}, HS {dbHS}";
                             vm.DupRows.Add(row);
@@ -1907,7 +2017,7 @@ var acnGrouped = acnResults
                         }
                         else
                         {
-                            // Data changed — allow overwrite — note what's different
+                            // Data changed - allow overwrite - note what's different
                             var diffs = new List<string>();
                             if (!hwMatch)    diffs.Add($"HW {dbHW:N1}→{incomingHW:N1}");
                             if (!gradeMatch) diffs.Add($"Grade {dbGrade}→{incomingGrade}");
@@ -1940,7 +2050,13 @@ var acnGrouped = acnResults
                 }
                 var hwJson = System.Text.Json.JsonSerializer.Serialize(vm);
                 TempData["HWPreview"] = hwJson;
-                HttpContext.Session.SetString("HWPreview", hwJson);
+                //HttpContext.Session.SetString("HWPreview", hwJson);
+                await StagingBridge.WriteAsync(
+                    HttpContext.Session, _stagingService,
+                    StagingBridge.Types.HotWeight,
+                    StagingBridge.GetUserKey(HttpContext),
+                    hwJson,
+                    sourceFileName: file?.FileName);
                 _logger.LogInformation("[HW-IMPORT] Parsed: TotalInExcel={Total}, AutoRows={Auto}, FlaggedRows={Flagged}, JsonLength={Len}",
                     vm.TotalInExcel, vm.AutoRows.Count, vm.FlaggedRows.Count, hwJson.Length);
                 _logger.LogInformation("[HW-IMPORT] Sample AutoRow ControlNos: {Ids}",
@@ -1955,7 +2071,7 @@ var acnGrouped = acnResults
             return View("HotWeightPreview", vm);
         }
 
-        // HOT WEIGHT — LOAD SELECTED ROWS INTO MARK AS KILLED (no DB write yet)
+        // HOT WEIGHT - LOAD SELECTED ROWS INTO MARK AS KILLED (no DB write yet)
         [HttpPost]
         [ValidateAntiForgeryToken]
         public IActionResult HotWeightLoadToMarkKilled([FromForm] string? selectedControlNos, [FromForm] string? fixedFlaggedJson)
@@ -2009,7 +2125,7 @@ var acnGrouped = acnResults
                                 {
                                     existing.ControlNo = fix.ControlNo;
                                     if (!string.IsNullOrWhiteSpace(fix.AnimalControlNumber))
-    existing.AnimalControlNumber = fix.AnimalControlNumber.Trim();
+                                    existing.AnimalControlNumber = fix.AnimalControlNumber.Trim();
                                     existing.Side1 = fix.Side1;
                                     existing.Side2 = fix.Side2;
                                     existing.NewHotWeight = fix.Side1 + fix.Side2;
@@ -2053,7 +2169,7 @@ var acnGrouped = acnResults
                         }
                         else
                         {
-                            // "Load all" — mark every OK (non-Loaded) row as Loaded
+                            // "Load all" - mark every OK (non-Loaded) row as Loaded
                             loadedIds = masterVm.AutoRows
                                 .Where(r => r.Status == "OK")
                                 .Select(r => r.ControlNo).ToHashSet();
@@ -2075,12 +2191,16 @@ var acnGrouped = acnResults
             return RedirectToAction("MarkKilled");
         }
 
-        // HOT WEIGHT — CLEAR SESSION
+        // HOT WEIGHT - CLEAR SESSION
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult HotWeightClearSession()
+        public async Task<IActionResult> HotWeightClearSession()
         {
-            HttpContext.Session.Remove("HWPreview");
+            await StagingBridge.ClearAsync(
+                HttpContext.Session, _stagingService,
+                StagingBridge.Types.HotWeight,
+                StagingBridge.GetUserKey(HttpContext));
+
             HttpContext.Session.Remove("HWLoaded");
             TempData.Remove("HWPreview");
             TempData.Remove("HWLoaded");
@@ -2088,10 +2208,10 @@ var acnGrouped = acnResults
             return RedirectToAction(nameof(HotWeightImport));
         }
 
-        // EXCEL PREVIEW — AJAX: Fix an error row and move to OK
+        // EXCEL PREVIEW - AJAX-
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult ExcelFixErrorRow([FromBody] ExcelFixRowRequest req)
+    public async Task<IActionResult> ExcelFixErrorRow([FromBody] ExcelFixRowRequest req)
     {
         var json = HttpContext.Session.GetString("ExcelPreview")
                 ?? TempData.Peek("ExcelPreview") as string;
@@ -2141,8 +2261,13 @@ var acnGrouped = acnResults
 
             // Save updated session
             var updated = System.Text.Json.JsonSerializer.Serialize(vm);
-            HttpContext.Session.SetString("ExcelPreview", updated);
+            //HttpContext.Session.SetString("ExcelPreview", updated);
             TempData["ExcelPreview"] = updated;
+            await StagingBridge.WriteAsync(
+                HttpContext.Session, _stagingService,
+                StagingBridge.Types.Excel,
+                StagingBridge.GetUserKey(HttpContext),
+                updated);
 
             int okCount  = vm.Rows.Count(r => r.Status == "OK");
             int errCount = vm.Rows.Count(r => r.Status == "Error");
@@ -2160,7 +2285,7 @@ var acnGrouped = acnResults
     // EXCEL PREVIEW — AJAX: Delete a row from the session
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult ExcelDeleteRow([FromBody] ExcelDeleteRowRequest req)
+    public async Task<IActionResult> ExcelDeleteRow([FromBody] ExcelDeleteRowRequest req)
     {
         var json = HttpContext.Session.GetString("ExcelPreview")
                 ?? TempData.Peek("ExcelPreview") as string;
@@ -2176,8 +2301,14 @@ var acnGrouped = acnResults
             if (removed == 0) return Json(new { success = false, message = $"Row {req.RowNum} not found." });
 
             var updated = System.Text.Json.JsonSerializer.Serialize(vm);
-            HttpContext.Session.SetString("ExcelPreview", updated);
+            //HttpContext.Session.SetString("ExcelPreview", updated);
             TempData["ExcelPreview"] = updated;
+            //also persist updated preview to staging so the fix survives close
+            await StagingBridge.WriteAsync(
+                HttpContext.Session, _stagingService,
+                StagingBridge.Types.Excel,
+                StagingBridge.GetUserKey(HttpContext),
+                updated);
 
             int okCount  = vm.Rows.Count(r => r.Status == "OK");
             int errCount = vm.Rows.Count(r => r.Status == "Error");
@@ -2268,7 +2399,7 @@ var acnGrouped = acnResults
         }
 
         // EXCEL IMPORT — CLEAR SESSION
-        [HttpPost]
+        /*[HttpPost]
         [ValidateAntiForgeryToken]
         public IActionResult ExcelClearSession()
         {
@@ -2276,6 +2407,34 @@ var acnGrouped = acnResults
             TempData.Remove("ExcelPreview");
             TempData["SuccessMessage"] = "Excel import session cleared.";
             return RedirectToAction(nameof(Excel));
+        }*/
+
+        public async Task<IActionResult> ExcelPreview()
+        {
+            var json = await StagingBridge.ReadAsync(
+                HttpContext.Session, _stagingService,
+                StagingBridge.Types.Excel,
+                StagingBridge.GetUserKey(HttpContext));
+
+            if (string.IsNullOrEmpty(json))
+            {
+                TempData["InfoMessage"] = "No Excel preview available. Upload a file to begin.";
+                return RedirectToAction(nameof(Excel));
+            }
+
+            ExcelImportViewModel? vm = null;
+            try { vm = System.Text.Json.JsonSerializer.Deserialize<ExcelImportViewModel>(json); }
+            catch { vm = null; }
+
+            if (vm == null || vm.Rows == null || !vm.Rows.Any())
+            {
+                TempData["InfoMessage"] = "Staged Excel preview was empty. Please re-upload.";
+                return RedirectToAction(nameof(Excel));
+            }
+
+            // Show a banner indicating the preview was restored
+            ViewBag.RestoredFromStaging = true;
+            return View("ExcelPreview", vm);
         }
 
         //  EXCEL IMPORT — POST (parse & preview) 
@@ -2299,6 +2458,7 @@ var acnGrouped = acnResults
             var vm = new ExcelImportViewModel { FileName = file.FileName };
             var vendors = (await _vendorService.GetAllActiveAsync()).ToList();
             var inFileDupes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var existingTagVendorKeys = await _animalService.GetAllTagVendorKeysAsync();
 
             const int maxVendorName = 150;
             const int maxTag = 50;
@@ -2468,7 +2628,8 @@ var acnGrouped = acnResults
 
                 if (vendor?.VendorID > 0)
                 {
-                    var exists = await _animalService.IsTagDuplicateAsync(tag1Safe, vendor.VendorID);
+                    // in-memory lookup against preloaded set.
+                    var exists = existingTagVendorKeys.Contains((tag1Safe.Trim(), vendor.VendorID));
                     if (exists)
                     {
                         status = "Duplicate";
@@ -2917,7 +3078,12 @@ var acnGrouped = acnResults
             // Store preview in TempData (for confirm) and Session (for AJAX fix/delete)
             var excelJson = System.Text.Json.JsonSerializer.Serialize(vm);
             TempData["ExcelPreview"] = excelJson;
-            HttpContext.Session.SetString("ExcelPreview", excelJson);
+            await StagingBridge.WriteAsync(
+                HttpContext.Session, _stagingService,
+                StagingBridge.Types.Excel,
+                StagingBridge.GetUserKey(HttpContext),
+                excelJson,
+                sourceFileName: file.FileName);
             return View("ExcelPreview", vm);
         }
 
@@ -2991,8 +3157,28 @@ var acnGrouped = acnResults
 
             TempData["SuccessMessage"] =
                 $"Import complete: {imported} animals saved, {skipped + dupeCount} skipped.";
+            
+            //mark staging batch as cleared so it doesn't restore next time
+            await StagingBridge.ClearAsync(
+                HttpContext.Session, _stagingService,
+                StagingBridge.Types.Excel,
+                StagingBridge.GetUserKey(HttpContext));
 
             return RedirectToAction("Index", "Animal", new { status = "pending" });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ExcelClearSession()
+        {
+            await StagingBridge.ClearAsync(
+                HttpContext.Session, _stagingService,
+                StagingBridge.Types.Excel,
+                StagingBridge.GetUserKey(HttpContext));
+
+            TempData.Remove("ExcelPreview");
+            TempData["SuccessMessage"] = "Excel import session cleared.";
+            return RedirectToAction(nameof(Excel));
         }
     
     }

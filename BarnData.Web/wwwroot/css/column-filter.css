@@ -1,0 +1,175 @@
+/* ============================================================================
+   column-filter.css  (v2)
+   
+   Paired with column-filter.js v2. Key visual changes:
+   - Funnel icon is fully opaque by default so it reads on dark-navy headers
+   - Whole TH gets a hover background + cursor so users know it's clickable
+   - Popover uses z-index 9999 to sit above sticky-column stacking contexts
+   ========================================================================== */
+
+/* Whole TH is a click target when it has a filter */
+th.cf-clickable {
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    position: relative;
+}
+th.cf-clickable:hover {
+    /* Slightly brighter navy so the user sees "this is clickable" */
+    background: #2a3f5c !important;
+}
+th.cf-clickable:focus-visible {
+    outline: 2px solid #9ae6b4;
+    outline-offset: -2px;
+}
+
+/* Funnel icon — visible by default on dark navy headers */
+.cf-icon {
+    display: inline-block;
+    margin-left: 6px;
+    vertical-align: middle;
+    line-height: 0;
+    color: #ffffff;          /* fully opaque white on navy */
+    opacity: 0.9;
+    pointer-events: none;    /* click always goes through to the TH */
+}
+th.cf-clickable:hover .cf-icon {
+    opacity: 1;
+    color: #9ae6b4;
+}
+th.cf-filtered .cf-icon {
+    color: #9ae6b4;
+    opacity: 1;
+}
+
+/* Green underline on filtered headers */
+th.cf-filtered::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 2px;
+    background: #22c55e;
+}
+
+/* Hide rows filtered out */
+tr.cf-hidden { display: none !important; }
+
+/* Popover */
+.cf-pop {
+    position: fixed;
+    width: 268px;
+    background: #fff;
+    border: 1px solid var(--gray4, #cbd5e1);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(15, 27, 45, 0.18);
+    z-index: 9999;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 12.5px;
+    font-weight: 400;
+    color: var(--text2, #334155);
+    text-align: left;
+    line-height: 1.5;
+}
+.cf-sort {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--gray3, #e2e8f0);
+}
+.cf-sort-item {
+    padding: 7px 14px;
+    cursor: pointer;
+    outline: none;
+}
+.cf-sort-item:hover,
+.cf-sort-item:focus { background: var(--gray1, #f8fafc); }
+
+.cf-search-wrap {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--gray3, #e2e8f0);
+}
+.cf-search {
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid var(--gray4, #cbd5e1);
+    border-radius: 5px;
+    font-size: 12px;
+    outline: none;
+    box-sizing: border-box;
+    font-family: inherit;
+}
+.cf-search:focus {
+    border-color: var(--blue, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.cf-list {
+    padding: 4px 0;
+    max-height: 220px;
+    overflow-y: auto;
+}
+.cf-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 14px;
+    cursor: pointer;
+    user-select: none;
+}
+.cf-item:hover { background: var(--gray1, #f8fafc); }
+.cf-item input {
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--blue, #2563eb);
+    flex-shrink: 0;
+}
+.cf-item span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cf-item-all {
+    font-weight: 500;
+    border-bottom: 1px solid var(--gray3, #e2e8f0);
+    padding-bottom: 7px;
+    margin-bottom: 4px;
+}
+
+.cf-foot {
+    padding: 8px 10px;
+    border-top: 1px solid var(--gray3, #e2e8f0);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--gray1, #f8fafc);
+    border-radius: 0 0 10px 10px;
+}
+.cf-foot-spacer { flex: 1; }
+.cf-btn {
+    padding: 5px 12px;
+    font-size: 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: 500;
+    font-family: inherit;
+    border: 1px solid var(--gray4, #cbd5e1);
+    background: #fff;
+    color: var(--text2, #334155);
+}
+.cf-btn:hover { border-color: var(--gray5, #94a3b8); }
+.cf-btn-primary {
+    background: var(--blue, #2563eb);
+    border-color: var(--blue, #2563eb);
+    color: #fff;
+}
+.cf-btn-primary:hover {
+    background: var(--blue-dark, #1d4ed8);
+    border-color: var(--blue-dark, #1d4ed8);
+}
+.cf-btn-clear {
+    border: none;
+    background: transparent;
+    color: var(--blue, #2563eb);
+    padding: 5px 8px;
+}
+.cf-btn-clear:hover {
+    background: var(--blue-light, #dbeafe);
+}

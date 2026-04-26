@@ -1,0 +1,399 @@
+@model IEnumerable<BarnData.Data.Entities.Animal>
+@{
+    var statusFilter = ViewBag.StatusFilter as string ?? "pending";
+    var killDateStr  = ViewBag.KillDate as string ?? DateTime.Today.ToString("yyyy-MM-dd");
+    ViewData["Title"] = statusFilter == "pending" ? "Pending animals"
+                      : statusFilter == "killed"  ? "Killed animals — " + killDateStr
+                      : "All animals";
+    ViewData["Subtitle"] = statusFilter == "pending"
+        ? "Animals imported but not yet killed — go to Mark as killed to set kill date"
+        : statusFilter == "killed" ? "Animals killed on " + killDateStr
+        : "All animal records";
+}
+
+<!-- Status tabs -->
+<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--gray3)">
+    <a asp-action="Index" asp-route-status="pending"
+       style="padding:8px 18px;font-size:13px;font-weight:500;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;
+              @(statusFilter == "pending" ? "color:var(--blue);border-bottom-color:var(--blue)" : "color:var(--text3)")">
+        Pending
+    </a>
+    <a asp-action="Index" asp-route-status="killed" asp-route-killDate="@killDateStr"
+       style="padding:8px 18px;font-size:13px;font-weight:500;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;
+              @(statusFilter == "killed" ? "color:var(--blue);border-bottom-color:var(--blue)" : "color:var(--text3)")">
+        Killed
+    </a>
+    <a asp-action="Index" asp-route-status="all"
+       style="padding:8px 18px;font-size:13px;font-weight:500;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-2px;
+              @(statusFilter == "all" ? "color:var(--blue);border-bottom-color:var(--blue)" : "color:var(--text3)")">
+        All records
+    </a>
+</div>
+
+<!-- Filter bar with search + multi-vendor -->
+<div class="filter-bar">
+    <form method="get" asp-action="Index" class="filter-form" id="animal-filter-form">
+        <input type="hidden" name="status" value="@statusFilter" />
+        <input type="hidden" name="vendorIds" id="vendorIds-input" value="@ViewBag.VendorIds" />
+        @if (statusFilter == "killed")
+        {
+            <div class="filter-field">
+                <label>Kill date</label>
+                <input type="date" name="killDate" value="@killDateStr" class="form-control-sm" />
+            </div>
+        }
+        <!-- Multi-vendor selector -->
+        <div class="filter-field" style="position:relative">
+            <label>Vendors</label>
+            <div id="vendor-chips" onclick="toggleVendorDrop()" class="form-control-sm"
+                 style="cursor:pointer;min-height:30px;display:flex;flex-wrap:wrap;align-items:center;gap:3px;min-width:220px;padding:3px 8px">
+                @{
+                    var selectedNames = ViewBag.SelectedVendorNames as List<string> ?? new List<string>();
+                }
+                @if (!selectedNames.Any())
+                {
+                    <span style="color:var(--text3);font-size:12px">All vendors ▾</span>
+                }
+                else
+                {
+                    foreach (var name in selectedNames)
+                    {
+                        <span class="vendor-chip">@name <span onclick="removeVendor(this,event)" data-name="@name" style="cursor:pointer;color:var(--blue)">×</span></span>
+                    }
+                    <span style="color:var(--text3);font-size:11px;margin-left:2px">▾</span>
+                }
+            </div>
+                    <div id="vendor-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid var(--gray3);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);min-width:260px;padding:6px 0">
+            <div style="padding:6px 12px;font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--gray3)">Select vendors</div>
+            <div style="padding:6px 10px;border-bottom:1px solid var(--gray3)">
+                <input type="text" id="vendor-search-input" placeholder="Type to filter…"
+                    oninput="filterVendorList(this.value)"
+                    onclick="event.stopPropagation()"
+                    style="width:100%;padding:4px 8px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;outline:none;box-sizing:border-box">
+            </div>
+            <div id="vendor-list-scroll" style="max-height:220px;overflow-y:auto;padding:4px 0">
+                @foreach (var v in (IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)ViewBag.VendorList)
+                {
+                    <label style="display:flex;align-items:center;gap:8px;padding:6px 14px;cursor:pointer;font-size:12.5px;color:var(--text2)" onmouseenter="this.style.background='var(--gray1)'" onmouseleave="this.style.background=''">
+                        <input type="checkbox" class="vendor-chk" value="@v.Value" data-name="@v.Text" @(v.Selected ? "checked" : "") onchange="updateVendorChips()">
+                        @v.Text
+                    </label>
+                }
+            </div>
+            <div style="padding:8px 12px;border-top:1px solid var(--gray3);display:flex;gap:6px">
+                <button type="button" onclick="selectAllVendors(true)" class="btn btn-secondary btn-sm">All</button>
+                <button type="button" onclick="selectAllVendors(false)" class="btn btn-secondary btn-sm">None</button>
+                <button type="submit" class="btn btn-primary btn-sm" style="margin-left:auto">Apply</button>
+            </div>
+        </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+    </form>
+
+    <div class="filter-actions">
+        <!-- Search box -->
+        <div style="display:flex;align-items:center;gap:0;background:#fff;border:1.5px solid var(--gray3);border-radius:6px;padding:0 10px;height:30px;width:280px">
+            <span style="color:var(--text3);margin-right:6px;font-size:14px">⌕</span>
+            <input type="text" id="animal-search" placeholder="Search any field…"
+                   oninput="searchAnimals()"
+                   style="border:none;outline:none;font-size:12.5px;width:100%;background:transparent;color:var(--text)">
+        </div>
+        <a asp-action="Create" class="btn btn-primary">+ New animal record</a>
+        @if (statusFilter == "pending")
+        {
+            <a asp-controller="Import" asp-action="MarkKilled" class="btn btn-secondary">Mark as killed →</a>
+        }
+        @if (statusFilter == "killed")
+        {
+            <a asp-controller="Report" asp-action="Tally" asp-route-killDate="@killDateStr" class="btn btn-secondary">
+                View tally report
+            </a>
+        }
+    </div>
+</div>
+
+
+<!-- Summary strip -->
+<div class="summary-strip" style="margin-bottom:16px">
+    <div class="summary-stat">
+        <div class="summary-val">@ViewBag.TotalCount</div>
+        <div class="summary-lbl">Animals</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">@(((decimal)ViewBag.TotalLiveWeight).ToString("N1"))</div>
+        <div class="summary-lbl">Total live wt (lbs)</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">@(((decimal)ViewBag.TotalCost).ToString("N1"))</div>
+        <div class="summary-lbl">Total cost</div>
+    </div>
+    @if (statusFilter == "killed")
+    {
+        <div class="summary-divider"></div>
+        <div class="summary-stat">
+            <div class="summary-val">@(((decimal)ViewBag.TotalHotWeight).ToString("N2"))</div>
+            <div class="summary-lbl">Total hot wt (lbs)</div>
+        </div>
+    }
+</div>
+
+@if (!Model.Any())
+{
+    <div class="empty-state">
+        <div class="empty-title">
+            @(statusFilter == "pending" ? "No pending animals"
+              : statusFilter == "killed" ? "No animals killed on " + killDateStr
+              : "No animal records")
+        </div>
+        <div class="empty-sub">
+            @(statusFilter == "pending"
+                ? "Import a sale bill to add animals, or add them manually."
+                : statusFilter == "killed"
+                    ? "No animals were marked as killed on this date."
+                    : "No records found.")
+        </div>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+            <a asp-controller="Import" asp-action="SaleBill" class="btn btn-primary">Import sale bill</a>
+            <a asp-action="Create" class="btn btn-secondary">Add manually</a>
+        </div>
+    </div>
+}
+else
+{
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <span id="search-count" style="font-size:12px;color:var(--blue);font-weight:500"></span>
+    </div>
+    <div class="table-card">
+    <div class="xl-scroll-box">
+    <div class="xl-scroll-inner">
+        <table class="data-table" style="min-width:2100px;font-size:12px;">
+            <thead>
+                <tr>
+                    <th class="sticky-col" style="min-width:70px;left:0">Ctrl No.</th>
+                    <th class="sticky-col" style="min-width:130px;left:70px">Vendor</th>
+                    <th style="min-width:100px">Animal Type</th>
+                    <th style="min-width:90px">Tag 1</th>
+                    <th style="min-width:90px">Tag 2</th>
+                    <th style="min-width:100px">Purchase Date</th>
+                    <th style="min-width:100px">Purchase Type</th>
+                    <th class="text-right" style="min-width:75px">Live Wt</th>
+                    <th class="text-right" style="min-width:75px">Live Rate</th>
+                    <th style="min-width:95px">Kill Date</th>
+                    <th class="text-right" style="min-width:70px;background:#162236;color:#9ae6b4">Hot Wt</th>
+                    <th style="min-width:50px;background:#162236;color:#9ae6b4">Grade</th>
+                    <th style="min-width:40px;background:#162236;color:#9ae6b4">HS</th>
+                    <th style="min-width:160px">Comments</th>
+                    <th style="min-width:115px">Animal Ctrl No.</th>
+                    <th style="min-width:70px">Tag 3</th>
+                    <th style="min-width:120px">Office Use 2</th>
+                    <th style="min-width:45px">State</th>
+                    <th style="min-width:100px">Buyer</th>
+                    <th style="min-width:100px">Animal Type 2</th>
+                    <th style="min-width:100px">Vet Name</th>
+                    <th style="min-width:130px">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in Model)
+                {
+                    <tr class="@(a.IsCondemned ? "row-condemned" : "")"
+                        data-s="@($"{a.ControlNo} {a.Vendor?.VendorName} {a.TagNumber1} {a.TagNumber2} {a.Tag3} {a.AnimalControlNumber} {a.Grade} {a.HealthScore} {a.Comment} {a.State} {a.HotWeight?.ToString("N1")}".ToLower().Trim())">
+                        <td class="mono sticky-col" style="left:0">@a.ControlNo</td>
+                        <td class="sticky-col" style="left:70px;font-weight:500">@(a.Vendor?.VendorName ?? "—")</td>
+                        <td>@a.AnimalType</td>
+                        <td class="mono">@a.TagNumber1</td>
+                        <td class="mono">@(a.TagNumber2 ?? "—")</td>
+                        <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
+                        <td>
+                            <span class="badge @(a.PurchaseType == "Consignment Bill" ? "badge-cons" : "badge-sale")">
+                                @(a.PurchaseType == "Consignment Bill" ? "Cons." : "Sale")
+                            </span>
+                        </td>
+                        <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
+                        <td class="text-right mono">$@a.LiveRate.ToString("N4")</td>
+                        <td>@(a.KillDate.HasValue ? a.KillDate.Value.ToString("MM/dd/yyyy") : "—")</td>
+                        <td class="text-right mono" style="@(a.HotWeight.HasValue ? "color:#1e40af;font-weight:500" : "")">@(a.HotWeight?.ToString("N1") ?? "—")</td>
+                        <td>@if (a.Grade != null) { <span class="badge badge-grade">@a.Grade</span> } else { <span>—</span> }</td>
+                        <td class="text-center" style="@(a.HealthScore.HasValue ? "color:#1e40af;font-weight:500" : "")">@(a.HealthScore?.ToString() ?? "—")</td>
+                        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.Comment">@(a.Comment ?? "—")</td>
+                        <td class="mono">@(a.AnimalControlNumber ?? "—")</td>
+                        <td class="mono">@(a.Tag3 ?? "—")</td>
+                        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.OfficeUse2">@(a.OfficeUse2 ?? "—")</td>
+                        <td>@(a.State ?? "—")</td>
+                        <td>@(a.BuyerName ?? "—")</td>
+                        <td>@(a.AnimalType2 ?? "—")</td>
+                        <td>@(a.VetName ?? "—")</td>
+                        <td class="actions-cell" style="white-space:nowrap">
+                            <a asp-action="Edit" asp-route-id="@a.ControlNo" class="btn btn-sm btn-secondary">Edit</a>
+                            <a asp-action="Detail" asp-route-id="@a.ControlNo" class="btn btn-sm btn-ghost">View</a>
+                            @if (a.KillStatus != "Flagged")
+                            {
+                                <form method="post" asp-action="Delete"
+                                      asp-route-id="@a.ControlNo"
+                                      asp-route-killDate="@killDateStr"
+                                      style="display:inline"
+                                      onsubmit="return confirm('Remove animal #@a.ControlNo?')">
+                                    @Html.AntiForgeryToken()
+                                    <button type="submit" class="btn btn-sm btn-danger-ghost">Del</button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+            @if (statusFilter == "killed")
+            {
+                <tfoot>
+                    <tr class="table-total-row">
+                        <td colspan="8" class="text-right total-label">Totals</td>
+                        <td></td>
+                        <td></td>
+                        <td class="text-right mono">@Model.Sum(a => a.HotWeight ?? 0).ToString("N1")</td>
+                        <td colspan="11"></td>
+                    </tr>
+                </tfoot>
+            }
+        </table>
+    </div>
+    </div>
+    </div>
+}
+
+@* ── Pagination (pending only) ── *@
+@if (ViewBag.StatusFilter == "pending" && ViewBag.TotalPages > 1)
+{
+    <div style="display:flex;align-items:center;gap:8px;padding:12px 0;flex-wrap:wrap">
+        <span style="font-size:12.5px;color:var(--text3)">
+            Page <strong>@ViewBag.CurrentPage</strong> of <strong>@ViewBag.TotalPages</strong>
+            · Showing @((ViewBag.CurrentPage-1)*ViewBag.PageSize+1)–@(Math.Min((int)ViewBag.CurrentPage*(int)ViewBag.PageSize,(int)ViewBag.TotalCount))
+            of <strong>@ViewBag.TotalCount</strong> pending records
+        </span>
+        <div style="display:flex;gap:4px;margin-left:auto">
+            @if ((int)ViewBag.CurrentPage > 1)
+            {
+                <a href="?status=pending&page=1@(ViewBag.VendorId != null ? "&vendorId="+ViewBag.VendorId : "")" class="btn btn-secondary btn-sm">« First</a>
+                <a href="?status=pending&page=@((int)ViewBag.CurrentPage-1)@(ViewBag.VendorId != null ? "&vendorId="+ViewBag.VendorId : "")" class="btn btn-secondary btn-sm">‹ Prev</a>
+            }
+            @for (int p = Math.Max(1,(int)ViewBag.CurrentPage-2); p <= Math.Min((int)ViewBag.TotalPages,(int)ViewBag.CurrentPage+2); p++)
+            {
+                <a href="?status=pending&page=@p@(ViewBag.VendorId != null ? "&vendorId="+ViewBag.VendorId : "")"
+                   class="btn @(p==(int)ViewBag.CurrentPage ? "btn-primary" : "btn-secondary") btn-sm">@p</a>
+            }
+            @if ((int)ViewBag.CurrentPage < (int)ViewBag.TotalPages)
+            {
+                <a href="?status=pending&page=@((int)ViewBag.CurrentPage+1)@(ViewBag.VendorId != null ? "&vendorId="+ViewBag.VendorId : "")" class="btn btn-secondary btn-sm">Next ›</a>
+                <a href="?status=pending&page=@ViewBag.TotalPages@(ViewBag.VendorId != null ? "&vendorId="+ViewBag.VendorId : "")" class="btn btn-secondary btn-sm">Last »</a>
+            }
+        </div>
+    </div>
+}
+
+@section Scripts {
+<style>
+    .badge-sale { background:#dbeafe; color:#1e40af; }
+    .badge-cons { background:#fef3c7; color:#92400e; }
+    .vendor-chip { background:#eff6ff;color:#1e40af;border-radius:20px;padding:1px 7px;font-size:11.5px;display:inline-flex;align-items:center;gap:3px; }
+    #vendor-dropdown label:hover { background:var(--gray1); }
+    .xl-scroll-inner thead .sticky-col { background: #1e2f47 !important; color:#fff !important; z-index: 4 !important; }
+    .xl-scroll-inner .sticky-col { background: #fff; }
+    .row-condemned .sticky-col { background: #fef2f2 !important; }
+</style>
+<script>
+// ── Search ──────────────────────────────────────────────────────────
+function searchAnimals() {
+    var q = (document.getElementById('animal-search')?.value || '').toLowerCase().trim();
+    var rows = document.querySelectorAll('.data-table tbody tr');
+    var vis = 0;
+    rows.forEach(function(r) {
+        var show = !q || (r.dataset.s || '').includes(q);
+        r.style.display = show ? '' : 'none';
+        if (show) vis++;
+    });
+    var c = document.getElementById('search-count');
+    if (c) c.textContent = q ? vis + ' of ' + rows.length + ' shown' : '';
+}
+
+// ── Multi-vendor dropdown ────────────────────────────────────────────
+var vendorDropOpen = false;
+function toggleVendorDrop() {
+    vendorDropOpen = !vendorDropOpen;
+    var dd = document.getElementById('vendor-dropdown');
+    if (dd) dd.style.display = vendorDropOpen ? 'block' : 'none';
+}
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#vendor-chips') && !e.target.closest('#vendor-dropdown')) {
+        var dd = document.getElementById('vendor-dropdown');
+        if (dd) { dd.style.display = 'none'; vendorDropOpen = false; }
+        var si = document.getElementById('vendor-search-input');
+        if (si) { si.value = ''; filterVendorList(''); }
+    }
+});
+function updateVendorChips() {
+    var checked = [...document.querySelectorAll('.vendor-chk:checked')];
+    var chips = document.getElementById('vendor-chips');
+    var ids = checked.map(function(c) { return c.value; }).join(',');
+    document.getElementById('vendorIds-input').value = ids;
+    if (!chips) return;
+    chips.innerHTML = '';
+    if (!checked.length) {
+        chips.innerHTML = '<span style="color:var(--text3);font-size:12px">All vendors ▾</span>';
+    } else {
+        checked.forEach(function(c) {
+            var sp = document.createElement('span');
+            sp.className = 'vendor-chip';
+            // Build chip: "<n> × " — × removes just this vendor.
+            var label = document.createTextNode(c.dataset.name + ' ');
+            var x = document.createElement('span');
+            x.textContent = '×';
+            x.style.cssText = 'cursor:pointer;color:var(--blue);margin-left:2px';
+            x.setAttribute('data-vendor-id', c.value);
+            x.addEventListener('click', function(e) { removeVendorById(c.value, e); });
+            sp.appendChild(label);
+            sp.appendChild(x);
+            chips.appendChild(sp);
+        });
+        var arr = document.createElement('span');
+        arr.style.cssText = 'color:var(--text3);font-size:11px;margin-left:2px';
+        arr.textContent = '▾';
+        chips.appendChild(arr);
+    }
+}
+function removeVendorById(id, e) {
+    e.stopPropagation();
+    var chk = document.querySelector('.vendor-chk[value="' + id + '"]');
+    if (chk) { chk.checked = false; updateVendorChips(); }
+}
+function removeVendor(el, e) {
+    e.stopPropagation();
+    var name = el.dataset.name;
+    var chk = document.querySelector('.vendor-chk[data-name="' + name + '"]');
+    if (chk) { chk.checked = false; updateVendorChips(); }
+    document.getElementById('animal-filter-form').submit();
+}
+function selectAllVendors(val) {
+    document.querySelectorAll('.vendor-chk').forEach(function(c) { c.checked = val; });
+    updateVendorChips();
+}
+function filterVendorList(q) {
+    q = q.toLowerCase().trim();
+    document.querySelectorAll('#vendor-list-scroll label').forEach(function(lbl) {
+        var name = lbl.textContent.toLowerCase().trim();
+        lbl.style.display = (!q || name.startsWith(q)) ? '' : 'none';
+    });
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    if (!window.BarnNav) return;
+    var table = document.querySelector(".table-card .data-table");
+    if (!table) return;
+    BarnNav.registerGrid({
+        container: table,
+        rowSelector: "tbody tr",
+        cellSelector: ".actions-cell a, .actions-cell button",
+        wrap: true
+    });
+});
+</script>
+}

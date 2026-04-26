@@ -43,6 +43,10 @@ builder.Services.AddSession(options =>
 //  2. Services (business logic) 
 builder.Services.AddScoped<IAnimalService, AnimalService>();
 builder.Services.AddScoped<IVendorService, VendorService>();
+// NEW — paginated, JOINed query service (Issue #1 perf fix)
+builder.Services.AddScoped<IAnimalQueryService, AnimalQueryService>();
+// NEW — persistent Excel / Hot-Weight import staging (Issue #2)
+builder.Services.AddScoped<IImportStagingService, ImportStagingService>();
 
 //  3. MVC 
 builder.Services

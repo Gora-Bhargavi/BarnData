@@ -18,26 +18,77 @@ namespace BarnData.Web.Controllers
             _vendorService = vendorService;
         }
 
-        //  PAGE 1: KILLED ANIMALS LIST 
-        public async Task<IActionResult> Tally(DateTime? killDate, int? vendorId)
+        // Phase 2e — parse a comma-separated vendor ids string (e.g. "3,7,12") into a list.
+        // Returns an empty list for null/empty input.
+        private static List<int> ParseVendorIds(string? vendorIds)
         {
-            var date    = killDate ?? DateTime.Today;
-            var vendors = await _vendorService.GetAllActiveAsync();
-            var filter  = new ExportFilter
+            if (string.IsNullOrWhiteSpace(vendorIds)) return new List<int>();
+            return vendorIds
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => int.TryParse(s.Trim(), out var id) ? id : 0)
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList();
+        }
+
+        // Phase 2e — load animals for a kill-date tally honoring either legacy
+        // single-vendor id OR new multi-vendor ids. If both are supplied,
+        // multi wins. If neither, returns all vendors for that kill date.
+        private async Task<List<Animal>> LoadKilledAsync(DateTime date, int? legacyVendorId, List<int> multiIds)
+        {
+            // Multi-vendor path
+            if (multiIds.Count > 0)
             {
-                Status   = "Killed",
-                VendorId = vendorId,
+                var results = new List<Animal>();
+                foreach (var vid in multiIds)
+                {
+                    var filter = new ExportFilter
+                    {
+                        Status       = "Killed",
+                        VendorId     = vid,
+                        KillDateFrom = date,
+                        KillDateTo   = date,
+                    };
+                    results.AddRange(await _animalService.GetFilteredAsync(filter));
+                }
+                // De-dupe defensively by ControlNo in case a bug ever made an animal appear for two vendors.
+                return results
+                    .GroupBy(a => a.ControlNo)
+                    .Select(g => g.First())
+                    .ToList();
+            }
+
+            // Legacy single-vendor path (back-compat for bookmarked URLs)
+            var single = new ExportFilter
+            {
+                Status       = "Killed",
+                VendorId     = legacyVendorId,
                 KillDateFrom = date,
                 KillDateTo   = date,
             };
-            var animals = (await _animalService.GetFilteredAsync(filter)).ToList();
+            return (await _animalService.GetFilteredAsync(single)).ToList();
+        }
+
+        //  PAGE 1: KILLED ANIMALS LIST 
+        public async Task<IActionResult> Tally(DateTime? killDate, int? vendorId, string? vendorIds)
+        {
+            var date    = killDate ?? DateTime.Today;
+            var vendors = await _vendorService.GetAllActiveAsync();
+            var multi   = ParseVendorIds(vendorIds);
+            var animals = await LoadKilledAsync(date, vendorId, multi);
 
             ViewBag.KillDate   = date;
             ViewBag.KillDateStr = date.ToString("yyyy-MM-dd");
             ViewBag.VendorId   = vendorId;
+            ViewBag.VendorIds  = vendorIds ?? "";
             ViewBag.VendorList = vendors.Select(v =>
                 new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem(
-                    v.VendorName, v.VendorID.ToString()));
+                    v.VendorName, v.VendorID.ToString(),
+                    multi.Contains(v.VendorID) || v.VendorID == vendorId));
+            ViewBag.SelectedVendorNames = (multi.Count > 0
+                    ? vendors.Where(v => multi.Contains(v.VendorID))
+                    : vendors.Where(v => v.VendorID == vendorId))
+                .Select(v => v.VendorName).ToList();
             ViewBag.TotalCount     = animals.Count;
             ViewBag.TotalCondemned = animals.Count(a => a.IsCondemned);
             ViewBag.TotalPassed    = animals.Count(a => !a.IsCondemned);
@@ -102,17 +153,11 @@ namespace BarnData.Web.Controllers
         }
 
         //  EXPORT EXCEL — PAGE 1 (killed list)
-        public async Task<IActionResult> ExportKilledExcel(DateTime? killDate, int? vendorId)
+        public async Task<IActionResult> ExportKilledExcel(DateTime? killDate, int? vendorId, string? vendorIds)
         {
-            var date   = killDate ?? DateTime.Today;
-            var filter = new ExportFilter
-            {
-                Status       = "Killed",
-                VendorId     = vendorId,
-                KillDateFrom = date,
-                KillDateTo   = date,
-            };
-            var animals = (await _animalService.GetFilteredAsync(filter)).ToList();
+            var date    = killDate ?? DateTime.Today;
+            var multi   = ParseVendorIds(vendorIds);
+            var animals = await LoadKilledAsync(date, vendorId, multi);
             var bytes   = BuildExcel(animals, $"Killed animals — {date:MM/dd/yyyy}");
             return File(bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -120,17 +165,11 @@ namespace BarnData.Web.Controllers
         }
 
         //  EXPORT PDF — PAGE 1 
-        public async Task<IActionResult> ExportKilledPdf(DateTime? killDate, int? vendorId)
+        public async Task<IActionResult> ExportKilledPdf(DateTime? killDate, int? vendorId, string? vendorIds)
         {
-            var date   = killDate ?? DateTime.Today;
-            var filter = new ExportFilter
-            {
-                Status       = "Killed",
-                VendorId     = vendorId,
-                KillDateFrom = date,
-                KillDateTo   = date,
-            };
-            var animals = (await _animalService.GetFilteredAsync(filter)).ToList();
+            var date    = killDate ?? DateTime.Today;
+            var multi   = ParseVendorIds(vendorIds);
+            var animals = await LoadKilledAsync(date, vendorId, multi);
 
             ViewBag.KillDate       = date;
             ViewBag.TotalCount     = animals.Count;

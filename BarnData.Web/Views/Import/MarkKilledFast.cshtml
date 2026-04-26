@@ -1,0 +1,719 @@
+@model BarnData.Web.Models.MarkKilledViewModel
+@{
+    ViewData["Title"]    = "Mark animals as killed (fast)";
+    ViewData["Subtitle"] = $"Page {ViewBag.CurrentPage} of {ViewBag.TotalPages} · {ViewBag.TotalCount} pending total";
+    var todayStr = DateTime.Today.ToString("yyyy-MM-dd");
+    var grades   = new[] { "","CT","B1","B2","CN","LB","UB","BB","BR","SL","FB","NP","NPNP","SH","UB" };
+    int curPage  = (int)ViewBag.CurrentPage;
+    int totPages = (int)ViewBag.TotalPages;
+    int pgSize   = (int)ViewBag.PageSize;
+    int totCount = (int)ViewBag.TotalCount;
+    string vendorIds = ViewBag.VendorIds as string ?? "";
+    string searchTerm = ViewBag.SearchTerm as string ?? "";
+}
+
+<div class="alert alert-info" style="margin-bottom:14px">
+    <strong>How this works:</strong>
+    Update inline fields, then click <strong>Save edits</strong> to store partial changes without marking killed.
+    For consignment rows, if Hot Wt is entered then Live Wt is required and Hot Wt cannot be greater than Live Wt.
+    Use row checkboxes only for animals you want to finalize, then click <strong>Mark selected as killed</strong>.
+</div>
+
+@{
+    var hwCount   = TempData["HWLoadedCount"]  as string;
+    var hwFlagged = TempData["HWFlaggedCount"] as string;
+}
+@if (!string.IsNullOrEmpty(hwCount) && hwCount != "0")
+{
+    <div class="alert" style="margin-bottom:14px;background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:18px">✓</span>
+        <div>
+            <strong>Hot Weight data loaded from import.</strong>
+            <span style="color:var(--text3)"> @hwCount records pre-filled with HotWeight, Grade, and HealthScore (highlighted in blue below).</span>
+            @if (!string.IsNullOrEmpty(hwFlagged) && hwFlagged != "0")
+            {
+                <span style="color:var(--amber)"> @hwFlagged flagged records were not loaded — enter those manually.</span>
+            }
+        </div>
+        <a asp-action="HotWeightImport" style="margin-left:auto;font-size:12px;white-space:nowrap">Upload different file</a>
+    </div>
+}
+
+<form id="mkForm" method="post" asp-action="MarkKilled">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="VendorId" value="@Model.VendorId" />
+
+    <!-- Kill date + vendor filter + actions -->
+    <div class="form-section" style="margin-bottom:12px">
+        <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+            <div class="field">
+                <label class="field-label">Kill date <span class="req">*</span></label>
+                <input id="killDateInput" name="killDate" type="date" value="@todayStr"
+                       class="form-control" style="width:180px" />
+            </div>
+            <div class="field" style="min-width:260px">
+                @* Phase 2d — redesigned multi-vendor picker *@
+                @await Html.PartialAsync("_VendorPicker", new BarnData.Web.Models.VendorPickerModel {
+                    Id          = "mk",
+                    HiddenName  = "vendorIds",
+                    Vendors     = (IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)(ViewBag.VendorList2 ?? new List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>()),
+                    SelectedIds = ViewBag.VendorIds as string,
+                    TotalCount  = totCount,
+                    Label       = "Filter by vendor"
+                })
+            </div>
+            <!-- Search -->
+            <div class="field">
+                <label class="field-label">Search</label>
+                <div style="display:flex;align-items:center;background:#fff;border:1.5px solid var(--gray3);border-radius:6px;padding:0 10px;height:34px;width:230px">
+                    <span style="color:var(--text3);margin-right:6px;font-size:14px">⌕</span>
+                    <input type="text" id="mk-search" placeholder="Search any field…"
+                           oninput="searchMk()"
+                           style="border:none;outline:none;font-size:12.5px;width:100%;background:transparent">
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;padding-bottom:2px;flex-wrap:wrap;align-items:flex-end">
+                <button type="button" onclick="saveEdits()" class="btn btn-secondary">Save edits</button>
+                <button type="button" onclick="saveAllHwData()" id="saveHwBtn" class="btn btn-secondary" style="display:none;background:#eff6ff;border-color:#93c5fd;color:#1e40af">Save HW data</button>
+                <button type="button" onclick="selectAll(true)"  class="btn btn-secondary btn-sm">Select all</button>
+                <button type="button" onclick="selectAll(false)" class="btn btn-secondary btn-sm">Deselect all</button>
+                <button type="button" onclick="selectCompleteRows()" class="btn btn-secondary btn-sm">Select complete rows</button>
+                <button type="button" onclick="toggleCompleteOnly()" id="btnCompleteOnly" class="btn btn-secondary btn-sm">Show complete only</button>
+                <button type="button" onclick="markCompleteKilled()" class="btn btn-primary">Mark complete as killed →</button>
+                <button type="button" onclick="markKilled()" class="btn btn-primary">Mark selected as killed →</button>
+            </div>
+        </div>
+    </div>
+
+    @if (!Model.Animals.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-title">No pending animals</div>
+            <div class="empty-sub">All animals have a kill date, or no bills have been imported yet.</div>
+            <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+                <a asp-controller="Import" asp-action="SaleBill" class="btn btn-primary">Import a sale bill</a>
+                <a asp-controller="Report" asp-action="Tally" class="btn btn-secondary">View tally report</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="table-card">
+            <div style="padding:10px 14px;border-bottom:1px solid var(--gray3);display:flex;justify-content:space-between;align-items:center;font-size:12.5px;background:var(--gray1)">
+                <span>
+                    Showing
+                    <strong>@(((curPage - 1) * pgSize) + 1)</strong>–<strong>@Math.Min(curPage * pgSize, totCount)</strong>
+                    of <strong>@totCount</strong> pending animals
+                    <span style="font-size:11px;color:var(--text3);margin-left:6px"><span class="hw-dot"></span> blue = HW data loaded</span>
+                </span>
+                <span id="selectedCount" style="font-size:11.5px;color:var(--blue);font-weight:500">0 selected</span>
+                <span id="completeCount" style="font-size:11.5px;color:#15803d;font-weight:500;margin-left:10px">0 complete</span>
+            </div>
+
+            <div class="xl-scroll-box">
+            <div class="xl-scroll-inner" id="scrollMain">
+                <table class="data-table" data-colfilter-table id="mainTable" style="min-width:3200px;font-size:12px;">
+                    <thead>
+                        <tr>
+                            <th style="width:36px;position:sticky;left:0;z-index:5;background:#1e2f47">
+                                <input type="checkbox" id="selectAllChk" onchange="selectAll(this.checked)" />
+                            </th>
+                            <th data-colfilter="number" class="sticky-col sticky-col-1" style="min-width:65px">Ctrl No.</th>
+                            <th data-colfilter="text" style="min-width:95px">Animal Type</th>
+                            <th data-colfilter="text" style="min-width:90px">Tag 1</th>
+                            <th data-colfilter="text" style="min-width:90px">Tag 2</th>
+                            <th data-colfilter="date" style="min-width:95px">Purchase Date</th>
+                            <th data-colfilter="text" style="min-width:95px">Purchase Type</th>
+                            <th data-colfilter="text" style="min-width:130px">Vendor</th>
+                            <th data-colfilter="number" class="text-right" style="min-width:75px">Live Wt</th>
+                            <th data-colfilter="number" class="text-right" style="min-width:75px">Live Rate</th>
+                            <th data-colfilter="date" style="min-width:95px">Kill Date</th>
+                            <th data-colfilter="number" class="text-right" style="min-width:75px">Hot Wt</th>
+                            <th data-colfilter="text" style="min-width:55px">Grade</th>
+                            <th data-colfilter="number" style="min-width:40px">HS</th>
+                            <th data-colfilter="text" style="min-width:160px">Comments</th>
+                            <th data-colfilter="text" style="min-width:110px">Animal Ctrl No.</th>
+                            <th data-colfilter="text" style="min-width:70px">Tag 3</th>
+                            <th data-colfilter="text" style="min-width:120px">Office Use 2</th>
+                            <th data-colfilter="text" style="min-width:45px">State</th>
+                            <th data-colfilter="text" style="min-width:100px">Buyer</th>
+                            <th data-colfilter="text" style="min-width:100px">Animal Type 2</th>
+                            <th data-colfilter="text" style="min-width:100px">Vet Name</th>
+                            <th data-colfilter="number" class="text-right" style="min-width:75px">Fetal Blood</th>
+                            <th style="min-width:95px;background:#162236;color:#9ae6b4">Animal Ctrl No ✎</th>
+                            <th style="min-width:95px;background:#162236;color:#9ae6b4">State ✎</th>
+                            <th style="min-width:130px;background:#162236;color:#9ae6b4">Vet Name ✎</th>
+                            <th style="min-width:140px;background:#162236;color:#9ae6b4">Office Use 2 ✎</th>
+                            <th style="min-width:190px;background:#162236;color:#9ae6b4">Comments ✎</th>
+                            <th style="min-width:105px;background:#162236;color:#9ae6b4">Live Wt ✎</th>
+                            <th style="min-width:95px;background:#162236;color:#9ae6b4">Kill Date ✎</th>
+                            <th style="min-width:95px;background:#162236;color:#9ae6b4">Hot Wt ✎</th>
+                            <th style="min-width:90px;background:#162236;color:#9ae6b4">Grade ✎</th>
+                            <th style="min-width:75px;background:#162236;color:#9ae6b4">HS ✎</th>
+                            <th style="min-width:95px;background:#3d1515;color:#fca5a5">Condemned ✎</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in Model.Animals)
+                        {
+                            <tr class="animal-row @(a.HwImported ? "hw-imported-row" : "")"
+                                id="row-@a.ControlNo"
+                                data-s="@($"{a.ControlNo} {a.VendorName} {a.Tag1} {a.Tag2} {a.AnimalControlNumber} {a.Grade} {a.HealthScore} {a.Comment}".ToLower().Trim())"
+                                data-id="@a.ControlNo"
+                                data-purchase-type="@a.PurchaseType"
+                                data-orig-live="@a.LiveWeight.ToString("0.0")"
+                                data-orig-acn="@(a.AnimalControlNumber ?? "")"
+                                data-orig-hw="@(a.HotWeight?.ToString("0.0") ?? "")"
+                                data-orig-grade="@(a.Grade ?? "")"
+                                data-orig-hs="@(a.HealthScore?.ToString() ?? "")"
+                                data-orig-state="@(a.State ?? "")"
+                                data-orig-vet="@(a.VetName ?? "")"
+                                data-orig-office="@(a.OfficeUse2 ?? "")"
+                                data-orig-comment="@(a.Comment ?? "")"
+                                data-orig-condemned="@(a.IsCondemned ? "1" : "0")"
+                                data-hw-imported="@(a.HwImported ? "1" : "0")">
+                                <td style="position:sticky;left:0;z-index:2;background:#fff;text-align:center">
+                                    <input type="checkbox"
+                                           value="@a.ControlNo"
+                                           class="animal-chk"
+                                           onchange="highlightRow(this); updateCount()" />
+                                </td>
+                                <td class="mono sticky-col sticky-col-1">@a.ControlNo</td>
+                                <td>@a.AnimalType</td>
+                                <td class="mono">@a.Tag1</td>
+                                <td class="mono">@(a.Tag2 ?? "—")</td>
+                                <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
+                                <td>
+                                    <span class="badge @(a.PurchaseType == "Consignment Bill" ? "badge-cons" : "badge-sale")">
+                                        @(a.PurchaseType == "Consignment Bill" ? "Cons." : "Sale")
+                                    </span>
+                                </td>
+                                <td style="font-weight:500">@a.VendorName</td>
+                                <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
+                                <td class="text-right mono">$@a.LiveRate.ToString("N4")</td>
+                                <td>—</td>
+                                <td class="text-right mono" style="@(a.HotWeight.HasValue ? "color:#1e40af;font-weight:500" : "")">@(a.HotWeight?.ToString("N1") ?? "—")</td>
+                                <td>@if (a.Grade != null) { <span class="badge badge-grade">@a.Grade</span> } else { <span>—</span> }</td>
+                                <td class="text-center" style="@(a.HealthScore.HasValue ? "color:#1e40af;font-weight:500" : "")">@(a.HealthScore?.ToString() ?? "—")</td>
+                                <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.Comment">@(a.Comment ?? "—")</td>
+                                <td class="mono">@(a.AnimalControlNumber ?? "—")</td>
+                                <td class="mono">@(a.Tag3 ?? "—")</td>
+                                <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.OfficeUse2">@(a.OfficeUse2 ?? "—")</td>
+                                <td>@(a.State ?? "—")</td>
+                                <td>@(a.BuyerName ?? "—")</td>
+                                <td>@(a.AnimalType2 ?? "—")</td>
+                                <td>@(a.VetName ?? "—")</td>
+                                <td class="text-right mono">—</td>
+                                <!-- Editable fields -->
+                                <td style="background:#f0fdf4">
+                                    <input type="text" name="animalCtrlNo_@a.ControlNo"
+                                           value="@a.AnimalControlNumber" placeholder="Animal Ctrl No"
+                                           oninput="markEdited(@a.ControlNo)"
+                                           style="width:120px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    <input type="text" name="state_@a.ControlNo"
+                                           value="@(a.State ?? "")" placeholder="State"
+                                           oninput="markEdited(@a.ControlNo)"
+                                           style="width:90px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    <input type="text" name="vetName_@a.ControlNo"
+                                           value="@(a.VetName ?? "")" placeholder="Vet Name"
+                                           oninput="markEdited(@a.ControlNo)"
+                                           style="width:130px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    <input type="text" name="officeUse2_@a.ControlNo"
+                                           value="@(a.OfficeUse2 ?? "")" placeholder="Office Use 2"
+                                           oninput="markEdited(@a.ControlNo)"
+                                           style="width:140px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    <input type="text" name="comment_@a.ControlNo"
+                                           value="@(a.Comment ?? "")" placeholder="Comments"
+                                           oninput="markEdited(@a.ControlNo)"
+                                           style="width:190px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    <input type="number" name="liveWeight_@a.ControlNo"
+                                           value="@a.LiveWeight.ToString("0.0")" step="0.1" min="0"
+                                           oninput="markEdited(@a.ControlNo)"
+                                           style="width:105px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    <input type="date" name="killDate_@a.ControlNo" value=""
+                                           onchange="markEdited(@a.ControlNo)"
+                                           style="width:114px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    <input type="number" name="hotWeight_@a.ControlNo"
+                                           value="@(a.HotWeight?.ToString("0.0") ?? "")"
+                                           step="0.1" min="0" placeholder="lbs"
+                                           oninput="markEdited(@a.ControlNo)"
+                                           style="width:82px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:@(a.HwImported ? "#dbeafe" : "#fff")" />
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    <select name="grade_@a.ControlNo"
+                                            onchange="markEdited(@a.ControlNo)"
+                                            style="width:72px;padding:3px 4px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:@(a.HwImported ? "#dbeafe" : "#fff")">
+                                        @foreach (var g in grades.Distinct())
+                                        {
+                                            <option value="@g" selected="@(string.Equals(g, a.Grade, StringComparison.OrdinalIgnoreCase) ? "selected" : null)">
+                                                @(string.IsNullOrEmpty(g) ? "—" : g)
+                                            </option>
+                                        }
+                                    </select>
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    <input type="number" name="healthScore_@a.ControlNo"
+                                           value="@(a.HealthScore?.ToString() ?? "")"
+                                           min="1" max="5" placeholder="1-5"
+                                           oninput="markEdited(@a.ControlNo)"
+                                           style="width:58px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:@(a.HwImported ? "#dbeafe" : "#fff")" />
+                                </td>
+                                <td style="background:#fef2f2;text-align:center">
+                                    <input type="checkbox" name="condemned_@a.ControlNo"
+                                           value="true"
+                                           @(a.IsCondemned ? "checked" : null)
+                                           onchange="markEdited(@a.ControlNo)"
+                                           style="width:16px;height:16px;cursor:pointer"
+                                           title="Mark as condemned" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            </div>
+        </div>
+
+        @* Phase 2b pagination controls *@
+        @if (totPages > 1)
+        {
+            <div style="display:flex;align-items:center;gap:8px;padding:12px 0;flex-wrap:wrap;font-size:12.5px;color:var(--text3)">
+                <span>
+                    Page <strong>@curPage</strong> of <strong>@totPages</strong>
+                    · Showing @(((curPage - 1) * pgSize) + 1)–@Math.Min(curPage * pgSize, totCount)
+                    of <strong>@totCount</strong>
+                </span>
+                <div style="display:flex;gap:4px;margin-left:auto">
+                    @{
+                        string VendorQs() => string.IsNullOrEmpty(vendorIds) ? "" : $"&vendorIds={vendorIds}";
+                        string SearchQs() => string.IsNullOrEmpty(searchTerm) ? "" : $"&q={Uri.EscapeDataString(searchTerm)}";
+                        string PageQs(int p) => $"?page={p}&pageSize={pgSize}{VendorQs()}{SearchQs()}";
+                    }
+                    @if (curPage > 1)
+                    {
+                        <a href="@PageQs(1)" class="btn btn-secondary btn-sm">« First</a>
+                        <a href="@PageQs(curPage - 1)" class="btn btn-secondary btn-sm">‹ Prev</a>
+                    }
+                    @for (int p = Math.Max(1, curPage - 2); p <= Math.Min(totPages, curPage + 2); p++)
+                    {
+                        <a href="@PageQs(p)"
+                           class="btn @(p == curPage ? "btn-primary" : "btn-secondary") btn-sm">@p</a>
+                    }
+                    @if (curPage < totPages)
+                    {
+                        <a href="@PageQs(curPage + 1)" class="btn btn-secondary btn-sm">Next ›</a>
+                        <a href="@PageQs(totPages)" class="btn btn-secondary btn-sm">Last »</a>
+                    }
+                </div>
+            </div>
+        }
+
+        <div class="form-actions" style="margin-top:12px">
+            <button type="button" onclick="saveEdits()" class="btn btn-secondary">Save edits</button>
+            <button type="button" onclick="saveAllHwData()" id="saveHwBtn2" class="btn btn-secondary" style="display:none;background:#eff6ff;border-color:#93c5fd;color:#1e40af">Save HW data</button>
+            <button type="button" onclick="markKilled()" class="btn btn-primary">Mark selected as killed</button>
+            <a asp-controller="Animal" asp-action="Index" asp-route-status="pending" class="btn btn-secondary">View animal list</a>
+            <button type="button" onclick="markCompleteKilled()" class="btn btn-primary">Mark complete as killed</button>
+            <span class="form-actions-note" id="footerCount">0 selected</span>
+        </div>
+    }
+</form>
+
+@section Scripts {
+<script src="~/js/column-filter.js" asp-append-version="true"></script>
+<script src="~/js/vendor-picker.js" asp-append-version="true"></script>
+<style>
+    .badge-sale { background:#dbeafe; color:#1e40af; }
+    .badge-cons { background:#fef3c7; color:#92400e; }
+    .vendor-chip { background:#eff6ff;color:#1e40af;border-radius:20px;padding:1px 7px;font-size:11.5px;display:inline-flex;align-items:center;gap:3px; }
+    tr.selected-row td { background: #eff6ff !important; }
+    tr.selected-row td.sticky-col { background: #eff6ff !important; }
+    tr.edited-row td { background: #fffbeb !important; }
+    tr.edited-row td.sticky-col { background: #fffbeb !important; }
+    tr.hw-imported-row td { background: #EFF6FF; }
+    tr.hw-imported-row td.sticky-col { background: #EFF6FF; }
+    tr.hw-imported-row.selected-row td { background: #DBEAFE !important; }
+    tr.hw-imported-row.edited-row td { background: #FEF9C3 !important; }
+    /* Dark sticky headers inside xl-scroll-box */
+    .xl-scroll-inner thead th { background: #1e2f47 !important; color: #fff !important; }
+    .xl-scroll-inner thead th.sticky-col { background: #1e2f47 !important; color: #fff !important; z-index: 5 !important; }
+    .xl-scroll-inner thead .sticky-col-6 { background: #162236 !important; color: #9ae6b4 !important; z-index: 5 !important; }
+    .hw-dot { display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563eb;margin-right:3px; }
+</style>
+<script>
+const AF_TOKEN = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+
+function readRow(tr) {
+    const id = tr.dataset.id;
+    return {
+        controlNo:           parseInt(id),
+        purchaseType:        tr.dataset.purchaseType || '',
+        animalControlNumber: (tr.querySelector(`input[name="animalCtrlNo_${id}"]`)?.value || '').trim(),
+        killDate:            tr.querySelector(`input[name="killDate_${id}"]`)?.value || '',
+        liveWeight:          parseFloat(tr.querySelector(`input[name="liveWeight_${id}"]`)?.value) || 0,
+        hotWeight:           parseFloat(tr.querySelector(`input[name="hotWeight_${id}"]`)?.value) || 0,
+        grade:               tr.querySelector(`select[name="grade_${id}"]`)?.value || '',
+        healthScore:         parseInt(tr.querySelector(`input[name="healthScore_${id}"]`)?.value) || 0,
+        isCondemned:         !!tr.querySelector(`input[name="condemned_${id}"][type="checkbox"]`)?.checked,
+        state:               (tr.querySelector(`input[name="state_${id}"]`)?.value || '').trim(),
+        vetName:             (tr.querySelector(`input[name="vetName_${id}"]`)?.value || '').trim(),
+        officeUse2:          (tr.querySelector(`input[name="officeUse2_${id}"]`)?.value || '').trim(),
+        comment:             (tr.querySelector(`input[name="comment_${id}"]`)?.value || '').trim(),
+    };
+}
+
+let completeOnlyMode = false;
+
+function isCompleteForKill(row) {
+const acnOk = !!(row.animalControlNumber || '').trim();
+const hwOk = row.hotWeight > 0;
+const gradeOk = !!(row.grade || '').trim();
+const hsOk = Number.isInteger(row.healthScore) && row.healthScore >= 1 && row.healthScore <= 5;
+return acnOk && hwOk && gradeOk && hsOk;
+}
+
+function getAllAnimalRows() {
+return [...document.querySelectorAll('tr.animal-row')];
+}
+
+function getCompleteRows() {
+return getAllAnimalRows().filter(tr => isCompleteForKill(readRow(tr)));
+}
+
+function refreshCompleteCount() {
+const n = getCompleteRows().length;
+const el = document.getElementById('completeCount');
+if (el) el.textContent = n + ' complete';
+}
+
+function applyRowFilters() {
+var q = (document.getElementById('mk-search')?.value || '').toLowerCase().trim();
+getAllAnimalRows().forEach(function(r) {
+var bySearch = !q || (r.dataset.s || '').includes(q);
+var byComplete = !completeOnlyMode || isCompleteForKill(readRow(r));
+r.style.display = (bySearch && byComplete) ? '' : 'none';
+});
+
+var btn = document.getElementById('btnCompleteOnly');
+if (btn) btn.textContent = completeOnlyMode ? 'Show all rows' : 'Show complete only';
+}
+
+function selectCompleteRows() {
+getAllAnimalRows().forEach(function(tr) {
+var chk = tr.querySelector('.animal-chk');
+if (!chk) return;
+chk.checked = isCompleteForKill(readRow(tr));
+highlightRow(chk);
+});
+updateCount();
+}
+
+function toggleCompleteOnly() {
+completeOnlyMode = !completeOnlyMode;
+applyRowFilters();
+}
+
+async function markCompleteKilled() {
+const killDate = document.getElementById('killDateInput')?.value || '';
+const selected = [...document.querySelectorAll('.animal-chk:checked')]
+.map(chk => chk.closest('tr.animal-row')).filter(Boolean).map(readRow);
+
+const completeSelected = selected.filter(isCompleteForKill);
+if (!completeSelected.length) {
+    showMsg('No complete rows selected. Need ACN, Hot Wt, Grade, HS.', true);
+    return;
+}
+
+const btns = document.querySelectorAll('button[onclick="markCompleteKilled()"]');
+btns.forEach(b => { b.disabled = true; b.textContent = 'Saving…'; });
+
+try {
+    const res = await fetch('/Import/MarkKilledApi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': AF_TOKEN },
+        body: JSON.stringify({ killDate, rows: completeSelected })
+    });
+    const data = await res.json();
+    if (data.success && data.redirect) {
+        window.location.href = data.redirect;
+    } else {
+        showMsg(data.message || 'Mark complete failed.', true);
+        btns.forEach(b => { b.disabled = false; b.textContent = 'Mark complete as killed'; });
+    }
+} catch (e) {
+    showMsg('Error: ' + e.message, true);
+    btns.forEach(b => { b.disabled = false; b.textContent = 'Mark complete as killed'; });
+}
+}
+
+function isEdited(tr) {
+    const d = tr.dataset;
+    const r = readRow(tr);
+    if (d.hwImported === '1' && (r.hotWeight > 0 || r.grade || r.healthScore > 0)) return true;
+    const origLive = parseFloat(d.origLive) || 0;
+    if (r.liveWeight > 0 && r.liveWeight !== origLive) return true;
+    if (r.hotWeight > 0 && String(r.hotWeight.toFixed(1)) !== d.origHw) return true;
+    if (r.grade && r.grade !== d.origGrade) return true;
+    if (r.healthScore > 0 && String(r.healthScore) !== d.origHs) return true;
+    if (r.animalControlNumber !== (d.origAcn || '')) return true;
+    if (r.state !== (d.origState || '')) return true;
+    if (r.vetName !== (d.origVet || '')) return true;
+    if (r.officeUse2 !== (d.origOffice || '')) return true;
+    if (r.comment !== (d.origComment || '')) return true;
+    if (r.isCondemned !== (d.origCondemned === '1')) return true;
+    return false;
+}
+
+function showMsg(msg, isError) {
+    let el = document.getElementById('ajax-msg');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'ajax-msg';
+        el.style.cssText = 'position:fixed;top:60px;right:20px;z-index:9999;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:500;box-shadow:0 2px 8px rgba(0,0,0,.15);transition:opacity .5s';
+        document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.background = isError ? '#fee2e2' : '#dcfce7';
+    el.style.color       = isError ? '#b91c1c' : '#15803d';
+    el.style.border      = `1px solid ${isError ? '#fca5a5' : '#86efac'}`;
+    el.style.opacity     = '1';
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.style.opacity = '0', 4000);
+}
+
+async function saveEdits() {
+    const rows = [...document.querySelectorAll('tr.animal-row')].filter(isEdited).map(readRow);
+    if (!rows.length) { showMsg('No changes detected — nothing to save.', false); return; }
+
+    const btns = document.querySelectorAll('button[onclick="saveEdits()"]');
+    btns.forEach(b => { b.disabled = true; b.textContent = 'Saving…'; });
+
+    try {
+        const res  = await fetch('/Import/SaveEditsApi', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': AF_TOKEN },
+            body:    JSON.stringify({ rows })
+        });
+        const data = await res.json();
+        showMsg(data.message, !data.success);
+        if (data.success) {
+            document.querySelectorAll('tr.animal-row').forEach(tr => {
+                const r = readRow(tr);
+                if (r.hotWeight > 0) tr.dataset.origHw = r.hotWeight.toFixed(1);
+                tr.dataset.origGrade    = r.grade;
+                tr.dataset.origHs      = r.healthScore || '';
+                tr.dataset.origLive    = r.liveWeight;
+                tr.dataset.origAcn     = r.animalControlNumber;
+                tr.dataset.origState   = r.state;
+                tr.dataset.origVet     = r.vetName;
+                tr.dataset.origOffice  = r.officeUse2;
+                tr.dataset.origComment = r.comment;
+                tr.dataset.origCondemned = r.isCondemned ? '1' : '0';
+                tr.dataset.hwImported  = '0';
+                tr.classList.remove('edited-row', 'hw-imported-row');
+            });
+        }
+    } catch (e) {
+        showMsg('Save failed: ' + e.message, true);
+    } finally {
+        btns.forEach(b => { b.disabled = false; b.textContent = 'Save edits'; });
+    }
+}
+
+async function markKilled() {
+    const killDate = document.getElementById('killDateInput')?.value || '';
+    const selected = [...document.querySelectorAll('.animal-chk:checked')]
+        .map(chk => chk.closest('tr.animal-row')).filter(Boolean).map(readRow);
+
+    if (!selected.length) { showMsg('Select at least one animal to mark as killed.', true); return; }
+
+    const btns = document.querySelectorAll('button[onclick="markKilled()"]');
+    btns.forEach(b => { b.disabled = true; b.textContent = 'Saving…'; });
+
+    try {
+        const res  = await fetch('/Import/MarkKilledApi', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': AF_TOKEN },
+            body:    JSON.stringify({ killDate, rows: selected })
+        });
+        const data = await res.json();
+        if (data.success && data.redirect) {
+            window.location.href = data.redirect;
+        } else {
+            showMsg(data.message, !data.success);
+            btns.forEach(b => { b.disabled = false; b.textContent = 'Mark selected as killed →'; });
+        }
+    } catch (e) {
+        showMsg('Error: ' + e.message, true);
+        btns.forEach(b => { b.disabled = false; b.textContent = 'Mark selected as killed →'; });
+    }
+}
+
+function selectAll(val) {
+    document.querySelectorAll('.animal-chk').forEach(c => { c.checked = val; highlightRow(c); });
+    var chk = document.getElementById('selectAllChk');
+    if (chk) chk.checked = val;
+    updateCount();
+}
+function highlightRow(chk) {
+    var row = chk.closest('tr');
+    if (!row) return;
+    if (chk.checked) row.classList.add('selected-row');
+    else row.classList.remove('selected-row');
+}
+function updateCount() {
+    var n = document.querySelectorAll('.animal-chk:checked').length;
+    var txt = n + ' animal' + (n !== 1 ? 's' : '') + ' selected';
+    var el1 = document.getElementById('selectedCount');
+    var el2 = document.getElementById('footerCount');
+    if (el1) el1.textContent = txt;
+    if (el2) el2.textContent = txt;
+}
+function markEdited(id) {
+    var row = document.getElementById('row-' + id);
+    if (row) row.classList.add('edited-row');
+    refreshCompleteCount();
+    if(completeOnlyMode) applyRowFilters();
+}
+
+//  MK Search 
+function searchMk() {
+    applyRowFilters();
+}
+
+// ── Vendor picker (Phase 2d) ─────────────────────────────────────────
+// The new picker fires 'vp:apply' on Apply. We navigate to a GET of
+// /Import/MarkKilledFast with the chosen vendor ids — do NOT submit
+// the surrounding mkForm (that POSTs to MarkKilled and would actually
+// kill animals).
+document.addEventListener('vp:apply', function (e) {
+    if (!e.detail || e.detail.id !== 'mk') return;
+    var ids = e.detail.vendorIds || '';
+    window.location = '/Import/MarkKilledFast?page=1&vendorIds=' + encodeURIComponent(ids);
+});
+
+// Show Save HW data button if HW rows exist
+document.addEventListener('DOMContentLoaded', function() {
+    var hwRows = document.querySelectorAll('tr.animal-row[data-hw-imported="1"]');
+    if (hwRows.length > 0) {
+        var btn = document.getElementById('saveHwBtn');
+        if (btn) {
+            btn.style.display = 'inline-flex';
+            btn.textContent   = 'Save HW data (' + hwRows.length + ')';
+            btn.onclick = saveAllHwData;
+        }
+    }
+});
+
+/*async function saveAllHwData() {
+    var rows = [...document.querySelectorAll('tr.animal-row[data-hw-imported="1"]')].map(readRow)
+        .filter(function(r){ return r.hotWeight > 0 || r.grade || r.healthScore > 0; });
+    if (!rows.length) { showMsg('No HW import data found.', true); return; }
+    var btn = document.getElementById('saveHwBtn');
+    if (btn) { btn.disabled=true; btn.textContent='Saving…'; }
+    try {
+        var res = await fetch('/Import/SaveEditsApi', {
+            method:'POST',
+            headers:{'Content-Type':'application/json','RequestVerificationToken':AF_TOKEN},
+            body:JSON.stringify({rows:rows})
+        });
+        var data = await res.json();
+        showMsg(data.message, !data.success);
+        if (data.success) {
+            document.querySelectorAll('tr.animal-row[data-hw-imported="1"]').forEach(function(tr){
+                tr.dataset.hwImported='0';
+                tr.classList.remove('hw-imported-row','edited-row');
+            });
+            if (btn) btn.style.display='none';
+        }
+    } catch(e) { showMsg('Error: '+e.message, true); }
+    finally { if (btn) { btn.disabled=false; btn.textContent='Save HW data'; } }
+}*/
+
+// Save all HW-imported rows regardless of change detection
+async function saveAllHwData() {
+    const rows = [...document.querySelectorAll('tr.animal-row[data-hw-imported="1"]')].map(readRow)
+        .filter(r => r.hotWeight > 0 || r.grade || r.healthScore > 0);
+    if (!rows.length) { showMsg('No HW import data found to save.', true); return; }
+
+    const btns = document.querySelectorAll('#saveHwBtn,#saveHwBtn2');
+    btns.forEach(b => { b.disabled = true; b.textContent = 'Saving…'; });
+
+    try {
+        const res  = await fetch('/Import/SaveEditsApi', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': AF_TOKEN },
+            body:    JSON.stringify({ rows })
+        });
+        const data = await res.json();
+        showMsg(data.message, !data.success);
+        if (data.success) {
+            // Clear hw-imported flag on all rows
+            document.querySelectorAll('tr.animal-row[data-hw-imported="1"]').forEach(tr => {
+                tr.dataset.hwImported = '0';
+                tr.classList.remove('hw-imported-row', 'edited-row');
+            });
+            btns.forEach(b => b.style.display = 'none');
+        }
+    } catch(e) {
+        showMsg('Save failed: ' + e.message, true);
+    } finally {
+        btns.forEach(b => { b.disabled = false; b.textContent = 'Save HW data'; });
+    }
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    // Show "Save HW data" button if any HW-imported rows exist
+    var hwRows = document.querySelectorAll('tr.animal-row[data-hw-imported="1"]');
+    if (hwRows.length > 0) {
+        document.querySelectorAll('#saveHwBtn,#saveHwBtn2').forEach(b => {
+            b.style.display = 'inline-flex';
+            b.textContent = 'Save HW data (' + hwRows.length + ' rows)';
+        });
+    }
+    refreshCompleteCount();
+    applyRowFilters();
+    if (!window.BarnNav) return;
+    var table = document.getElementById("mainTable");
+    if (!table) return;
+    BarnNav.registerGrid({
+        container: table,
+        rowSelector: "tbody tr.animal-row",
+        cellSelector: [
+            "input[name^='animalCtrlNo_']",
+            "input[name^='liveWeight_']",
+            "input[name^='killDate_']",
+            "input[name^='hotWeight_']",
+            "select[name^='grade_']",
+            "input[name^='healthScore_']",
+            "input[type='checkbox'][name^='condemned_']"
+        ].join(","),
+        wrap: true,
+        onRowFocus: function (rowEl) {
+            if (!rowEl) return;
+            var chk = rowEl.querySelector(".animal-chk");
+            if (chk && !chk.checked) {
+                chk.checked = true;
+                if (typeof highlightRow === "function") highlightRow(chk);
+                if (typeof updateCount === "function") updateCount();
+                refreshCompleteCount();
+            }
+        }
+    });
+});
+</script>
+}

@@ -15,7 +15,7 @@
 <div style="display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start">
 
     <!-- ── LEFT: FORM ──────────────────────────────────────────────────── -->
-    <div>
+    <div class="compact-form">
         <form method="post" asp-action="Create" novalidate id="animalForm">
             @Html.AntiForgeryToken()
 
@@ -73,7 +73,7 @@
             <!-- ── SECTION B: TAGS ──────────────────────────────────────── -->
             <div class="form-section" style="margin-bottom:8px;padding:12px 14px">
                 <div class="form-section-title">Tag identification</div>
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px 12px">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px 10px">
 
                     <div class="field">
                         <label asp-for="TagNumber1" class="field-label">Tag 1 <span class="req">*</span></label>
@@ -104,7 +104,7 @@
             <!-- ── SECTION C: ANIMAL & WEIGHT ───────────────────────────── -->
             <div class="form-section" style="margin-bottom:8px;padding:12px 14px">
                 <div class="form-section-title">Animal &amp; weight</div>
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr 1fr;gap:8px 12px">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px 10px">
 
                     <div class="field">
                         <label asp-for="AnimalType" class="field-label">Animal type <span class="req">*</span></label>
@@ -181,10 +181,14 @@
             <!-- ── SECTION D: GRADING & OFFICE ─────────────────────────── -->
             <div class="form-section" style="margin-bottom:8px;padding:12px 14px">
                 <div class="form-section-title">Grading &amp; office</div>
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr;gap:8px 12px">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px 10px">
 
                     <div class="field">
                         <label asp-for="Grade" class="field-label">Grade</label>
+                        <input asp-for="Grade" type="text" class="form-control" placeholder="Grade" />
+                    </div>
+
+                    <div class="field">
                         <label asp-for="State" class="field-label">State</label>
                         <input asp-for="State" type="text" class="form-control" maxlength="2" placeholder="2-letter" />
                     </div>
@@ -199,18 +203,18 @@
                         <input asp-for="VetName" type="text" class="form-control" placeholder="If condemned" />
                     </div>
 
-                    <div class="field" style="grid-column:span 4">
+                    <div class="field" style="grid-column:span 3">
                         <label asp-for="Comment" class="field-label">Comment</label>
                         <input asp-for="Comment" type="text" class="form-control"
                                placeholder="FB=fetal blood, rt=retag, HT=heavy hind, COND=condemned" />
                     </div>
 
-                    <div class="field" style="grid-column:span 2">
+                    <div class="field">
                         <label asp-for="OfficeUse2" class="field-label">Office use 2</label>
                         <input asp-for="OfficeUse2" type="text" class="form-control" placeholder="Internal notes" />
                     </div>
 
-                    <div class="field" style="grid-column:span 2;display:flex;align-items:flex-end;padding-bottom:4px">
+                    <div class="field" style="grid-column:span 4;display:flex;align-items:flex-end;padding-bottom:4px">
                         <label class="checkbox-label">
                             <input asp-for="IsCondemned" type="checkbox" />
                             Mark as condemned

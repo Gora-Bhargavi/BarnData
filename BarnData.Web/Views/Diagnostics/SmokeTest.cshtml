@@ -1,0 +1,124 @@
+@*
+    _PhaseOneSmokeTest.cshtml
+    
+    Drop this view in and hit it at /Home/SmokeTest (see HomeController patch
+    in PHASE1_INSTALL.md) to verify:
+      - vendor-picker.css loads
+      - column-filter.css loads
+      - vendor-picker.js works (open, filter, select, apply, cancel)
+      - column-filter.js works (sort + checkbox filter on each column type)
+      - /Staging/Excel returns {"hasStaging":false} when no batch exists
+    
+    You can delete this view once Phase 2 is live.
+*@
+@{
+    ViewData["Title"] = "Phase 1 smoke test";
+    Layout = "_Layout";
+}
+
+@*
+    NOTE: vendor-picker.css and column-filter.css are loaded globally from _Layout.cshtml
+    (see PHASE1_INSTALL.md step "Layout patch"). No Styles section needed here.
+*@
+
+<h2 style="margin-bottom:14px">Phase 1 smoke test</h2>
+
+<div class="form-section" style="margin-bottom:20px">
+    <div class="form-section-title">1. Vendor picker</div>
+
+    @{
+        var demoVendors = new List<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>
+        {
+            new("KIMBALL B",          "1"),
+            new("PARIS B",            "2"),
+            new("PARIS C",            "3"),
+            new("PARIS TX 91 B",      "4"),
+            new("PARIS TX 97 B",      "5"),
+            new("CORSICANA TX 97 B",  "6"),
+            new("SCOTTSBURG ABFB",    "7"),
+            new("SCOTTSBURG ABFC",    "8"),
+            new("PAUL HOWARD",        "9"),
+            new("LENNY KRISTO",      "10"),
+        };
+    }
+    @await Html.PartialAsync("_VendorPicker", new BarnData.Web.Models.VendorPickerModel
+    {
+        Id         = "smoke",
+        HiddenName = "vendorIds",
+        Vendors    = demoVendors,
+        TotalCount = 10,
+        Label      = "Filter by vendor"
+    })
+
+    <div id="smoke-apply-log" style="margin-top:8px;font-size:12px;color:var(--text3)">
+        Click Apply and the selection will appear here.
+    </div>
+</div>
+
+<div class="form-section" style="margin-bottom:20px">
+    <div class="form-section-title">2. Column filter on a sample data table</div>
+
+    <div class="table-card">
+        <table class="data-table" data-colfilter-table style="font-size:12.5px">
+            <thead>
+                <tr>
+                    <th data-colfilter="number">Ctrl No.</th>
+                    <th data-colfilter="text">Vendor</th>
+                    <th data-colfilter="text">Tag 1</th>
+                    <th data-colfilter="text">Animal Type</th>
+                    <th data-colfilter="text">Purchase Type</th>
+                    <th data-colfilter="date">Purchase Date</th>
+                    <th data-colfilter="number" class="text-right">Live Wt</th>
+                    <th data-colfilter="text">Grade</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td class="mono">11981</td><td>PARIS B</td>          <td class="mono">2773</td><td>Bull</td><td>Sale</td>    <td>03/05/2026</td><td class="text-right mono">1,955.0</td><td>RT</td><td>—</td></tr>
+                <tr><td class="mono">11982</td><td>PARIS B</td>          <td class="mono">3/12</td><td>Cow</td> <td>Sale</td>    <td>03/05/2026</td><td class="text-right mono">1,820.0</td><td>B1</td><td>—</td></tr>
+                <tr><td class="mono">11983</td><td>PARIS B</td>          <td class="mono">7426</td><td>Bull</td><td>Sale</td>    <td>03/05/2026</td><td class="text-right mono">1,735.0</td><td>RT</td><td>—</td></tr>
+                <tr><td class="mono">11985</td><td>KIMBALL B</td>        <td class="mono">4671</td><td>Bull</td><td>Sale</td>    <td>04/13/2026</td><td class="text-right mono">1,985.0</td><td>RT</td><td>—</td></tr>
+                <tr><td class="mono">12091</td><td>KIMBALL B</td>        <td class="mono">3103</td><td>Cow</td> <td>Cons.</td>   <td>04/06/2026</td><td class="text-right mono">1,765.0</td><td>LB</td><td>—</td></tr>
+                <tr><td class="mono">12234</td><td>CORSICANA TX 97 B</td><td class="mono">4693</td><td>Bull</td><td>Sale</td>    <td>04/13/2026</td><td class="text-right mono">1,805.0</td><td>CT</td><td>—</td></tr>
+                <tr><td class="mono">12236</td><td>SCOTTSBURG ABFB</td>  <td class="mono">3110</td><td>Bull</td><td>Sale</td>    <td>04/20/2026</td><td class="text-right mono">1,865.0</td><td>B2</td><td>—</td></tr>
+                <tr><td class="mono">12237</td><td>SCOTTSBURG ABFB</td>  <td class="mono">2244</td><td>Cow</td> <td>Cons.</td>   <td>04/20/2026</td><td class="text-right mono">1,725.0</td><td>LB</td><td>—</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="form-section" style="margin-bottom:20px">
+    <div class="form-section-title">3. Staging endpoint</div>
+    <div style="font-size:12px;margin-bottom:8px">
+        Calls <code>/Staging/Excel</code> — should return
+        <code>{"hasStaging":false}</code> when no batch exists for your cookie.
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm" onclick="checkStaging()">Check /Staging/Excel</button>
+    <pre id="smoke-staging-out"
+         style="margin-top:8px;background:var(--gray1);padding:10px;border-radius:6px;font-size:12px;color:var(--text2);max-height:240px;overflow:auto"></pre>
+</div>
+
+@section Scripts {
+    <script src="~/js/vendor-picker.js" asp-append-version="true"></script>
+    <script src="~/js/column-filter.js" asp-append-version="true"></script>
+    <script>
+        document.addEventListener('vp:apply', function (e) {
+            if (e.detail.id !== 'smoke') return;
+            var log = document.getElementById('smoke-apply-log');
+            log.textContent = 'Applied: ids=[' + e.detail.vendorIds + ']  count=' + e.detail.count;
+            log.style.color = 'var(--green)';
+        });
+        async function checkStaging() {
+            var out = document.getElementById('smoke-staging-out');
+            out.textContent = 'Loading…';
+            try {
+                var res = await fetch('/Staging/Excel');
+                var js  = await res.json();
+                out.textContent = JSON.stringify(js, null, 2);
+            } catch (err) {
+                out.textContent = 'Error: ' + err.message;
+                out.style.color = 'var(--red)';
+            }
+        }
+    </script>
+}

@@ -13,3 +13,7 @@ C:\Users\bgora\Downloads\BarnData\BarnData.Data\bin\Debug\net8.0\BarnData.Data.p
 C:\Users\bgora\Downloads\BarnData\BarnData.Data\obj\Debug\net8.0\BarnData.Data.genruntimeconfig.cache
 C:\Users\bgora\Downloads\BarnData\BarnData.Data\obj\Debug\net8.0\ref\BarnData.Data.dll
 C:\Users\bgora\Downloads\BarnData\BarnData.Data\obj\Debug\net8.0\BarnData.Data.sourcelink.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\_verify\BarnData.Data.deps.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\_verify\BarnData.Data.runtimeconfig.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\_verify\BarnData.Data.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\_verify\BarnData.Data.pdb

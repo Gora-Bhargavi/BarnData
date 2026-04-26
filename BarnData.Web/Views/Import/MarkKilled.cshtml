@@ -143,35 +143,40 @@
 
             <div class="xl-scroll-box">
             <div class="xl-scroll-inner" id="scrollMain">
-                <table class="data-table" id="mainTable" style="min-width:2400px;font-size:12px;">
+                <table class="data-table" data-colfilter-table id="mainTable" style="min-width:3200px;font-size:12px;">
                     <thead>
                         <tr>
                             <th style="width:36px;position:sticky;left:0;z-index:5;background:#1e2f47">
                                 <input type="checkbox" id="selectAllChk" onchange="selectAll(this.checked)" />
                             </th>
-                            <th class="sticky-col sticky-col-1" style="min-width:65px">Ctrl No.</th>
-                            <th class="sticky-col sticky-col-2" style="min-width:130px">Vendor</th>
-                            <th class="sticky-col sticky-col-3" style="min-width:90px">Tag 1</th>
-                            <th class="sticky-col sticky-col-4" style="min-width:90px">Tag 2</th>
-                            <th style="min-width:95px">Animal Type</th>
-                            <th style="min-width:95px">Purchase Type</th>
-                            <th style="min-width:95px">Purchase Date</th>
-                            <th class="text-right" style="min-width:75px">Live Wt</th>
-                            <th class="text-right" style="min-width:75px">Live Rate</th>
-                            <th class="sticky-col sticky-col-5" style="min-width:110px">Animal Ctrl No.</th>
-                            <th style="min-width:70px">Tag 3</th>
-                            <th style="min-width:45px">State</th>
-                            <th style="min-width:100px">Buyer</th>
-                            <th style="min-width:100px">Animal Type 2</th>
-                            <th style="min-width:100px">Vet Name</th>
-                            <th style="min-width:120px">Office Use 2</th>
-                            <th style="min-width:160px">Comments</th>
+                            <th data-colfilter="number" class="sticky-col sticky-col-1" style="min-width:65px">Ctrl No.</th>
+                            <th data-colfilter="text" style="min-width:95px">Animal Type</th>
+                            <th data-colfilter="text" style="min-width:90px">Tag 1</th>
+                            <th data-colfilter="text" style="min-width:90px">Tag 2</th>
+                            <th data-colfilter="date" style="min-width:95px">Purchase Date</th>
+                            <th data-colfilter="text" style="min-width:95px">Purchase Type</th>
+                            <th data-colfilter="text" style="min-width:130px">Vendor</th>
+                            <th data-colfilter="number" class="text-right" style="min-width:75px">Live Wt</th>
+                            <th data-colfilter="number" class="text-right" style="min-width:75px">Live Rate</th>
+                            <th data-colfilter="date" style="min-width:95px">Kill Date</th>
+                            <th data-colfilter="number" class="text-right" style="min-width:75px">Hot Wt</th>
+                            <th data-colfilter="text" style="min-width:55px">Grade</th>
+                            <th data-colfilter="number" style="min-width:40px">HS</th>
+                            <th data-colfilter="text" style="min-width:160px">Comments</th>
+                            <th data-colfilter="text" style="min-width:110px">Animal Ctrl No.</th>
+                            <th data-colfilter="text" style="min-width:70px">Tag 3</th>
+                            <th data-colfilter="text" style="min-width:120px">Office Use 2</th>
+                            <th data-colfilter="text" style="min-width:45px">State</th>
+                            <th data-colfilter="text" style="min-width:100px">Buyer</th>
+                            <th data-colfilter="text" style="min-width:100px">Animal Type 2</th>
+                            <th data-colfilter="text" style="min-width:100px">Vet Name</th>
+                            <th data-colfilter="number" class="text-right" style="min-width:75px">Fetal Blood</th>
                             <th style="min-width:95px;background:#162236;color:#9ae6b4">Animal Ctrl No ✎</th>
                             <th style="min-width:95px;background:#162236;color:#9ae6b4">State ✎</th>
                             <th style="min-width:130px;background:#162236;color:#9ae6b4">Vet Name ✎</th>
                             <th style="min-width:140px;background:#162236;color:#9ae6b4">Office Use 2 ✎</th>
                             <th style="min-width:190px;background:#162236;color:#9ae6b4">Comments ✎</th>
-                            <th class="sticky-col sticky-col-6" style="min-width:105px;background:#162236;color:#9ae6b4">Live Wt ✎</th>
+                            <th style="min-width:105px;background:#162236;color:#9ae6b4">Live Wt ✎</th>
                             <th style="min-width:95px;background:#162236;color:#9ae6b4">Kill Date ✎</th>
                             <th style="min-width:95px;background:#162236;color:#9ae6b4">Hot Wt ✎</th>
                             <th style="min-width:90px;background:#162236;color:#9ae6b4">Grade ✎</th>
@@ -205,26 +210,31 @@
                                            onchange="highlightRow(this); updateCount()" />
                                 </td>
                                 <td class="mono sticky-col sticky-col-1">@a.ControlNo</td>
-                                <td class="sticky-col sticky-col-2" style="font-weight:500">@a.VendorName</td>
-                                <td class="mono sticky-col sticky-col-3">@a.Tag1</td>
-                                <td class="mono sticky-col sticky-col-4">@(a.Tag2 ?? "—")</td>
                                 <td>@a.AnimalType</td>
+                                <td class="mono">@a.Tag1</td>
+                                <td class="mono">@(a.Tag2 ?? "—")</td>
+                                <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
                                 <td>
                                     <span class="badge @(a.PurchaseType == "Consignment Bill" ? "badge-cons" : "badge-sale")">
                                         @(a.PurchaseType == "Consignment Bill" ? "Cons." : "Sale")
                                     </span>
                                 </td>
-                                <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
+                                <td style="font-weight:500">@a.VendorName</td>
                                 <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
                                 <td class="text-right mono">$@a.LiveRate.ToString("N4")</td>
-                                <td class="mono sticky-col sticky-col-5">@(a.AnimalControlNumber ?? "—")</td>
+                                <td>—</td>
+                                <td class="text-right mono" style="@(a.HotWeight.HasValue ? "color:#1e40af;font-weight:500" : "")">@(a.HotWeight?.ToString("N1") ?? "—")</td>
+                                <td>@if (a.Grade != null) { <span class="badge badge-grade">@a.Grade</span> } else { <span>—</span> }</td>
+                                <td class="text-center" style="@(a.HealthScore.HasValue ? "color:#1e40af;font-weight:500" : "")">@(a.HealthScore?.ToString() ?? "—")</td>
+                                <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.Comment">@(a.Comment ?? "—")</td>
+                                <td class="mono">@(a.AnimalControlNumber ?? "—")</td>
                                 <td class="mono">@(a.Tag3 ?? "—")</td>
+                                <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.OfficeUse2">@(a.OfficeUse2 ?? "—")</td>
                                 <td>@(a.State ?? "—")</td>
                                 <td>@(a.BuyerName ?? "—")</td>
                                 <td>@(a.AnimalType2 ?? "—")</td>
                                 <td>@(a.VetName ?? "—")</td>
-                                <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.OfficeUse2">@(a.OfficeUse2 ?? "—")</td>
-                                <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.Comment">@(a.Comment ?? "—")</td>
+                                <td class="text-right mono">—</td>
                                 <!-- Editable fields -->
                                 <td style="background:#f0fdf4">
                                     <input type="text" name="animalCtrlNo_@a.ControlNo"
@@ -256,7 +266,7 @@
                                            oninput="markEdited(@a.ControlNo)"
                                            style="width:190px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
                                 </td>
-                                <td class="sticky-col sticky-col-6" style="background:#f0fdf4">
+                                <td style="background:#f0fdf4">
                                     <input type="number" name="liveWeight_@a.ControlNo"
                                            value="@a.LiveWeight.ToString("0.0")" step="0.1" min="0"
                                            oninput="markEdited(@a.ControlNo)"
@@ -321,6 +331,7 @@
 </form>
 
 @section Scripts {
+<script src="~/js/column-filter.js" asp-append-version="true"></script>
 <style>
     .badge-sale { background:#dbeafe; color:#1e40af; }
     .badge-cons { background:#fef3c7; color:#92400e; }

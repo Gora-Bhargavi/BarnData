@@ -287,6 +287,37 @@ namespace BarnData.Core.Services
             }
         }
 
+        public async Task<HashSet<(string Tag, int VendorId)>> GetAllTagVendorKeysAsync()
+        {
+            var rows = await _db.Animals
+                .AsNoTracking()
+                .Where(a => a.TagNumber1 != null && a.VendorID > 0)
+                .Select(a => new { a.TagNumber1, a.VendorID })
+                .ToListAsync();
+
+            // Custom equality comparer: case-insensitive on Tag (to match SQL),
+            // exact match on VendorId.
+            var set = new HashSet<(string Tag, int VendorId)>(new TagVendorComparer());
+            foreach (var r in rows)
+            {
+                set.Add((r.TagNumber1!.Trim(), r.VendorID));
+            }
+            return set;
+        }
+
+        // equality comparer mirroring SQL default CI collation.
+        private sealed class TagVendorComparer : IEqualityComparer<(string Tag, int VendorId)>
+        {
+            public bool Equals((string Tag, int VendorId) a, (string Tag, int VendorId) b)
+                => a.VendorId == b.VendorId
+                && string.Equals(a.Tag, b.Tag, StringComparison.OrdinalIgnoreCase);
+
+            public int GetHashCode((string Tag, int VendorId) v)
+                => HashCode.Combine(
+                    StringComparer.OrdinalIgnoreCase.GetHashCode(v.Tag ?? ""),
+                    v.VendorId);
+        }
+
         //  IsWeightOutOfRange 
         public bool IsWeightOutOfRange(decimal liveWeight)
             => liveWeight > 0 && (liveWeight < _weightMin || liveWeight > _weightMax);

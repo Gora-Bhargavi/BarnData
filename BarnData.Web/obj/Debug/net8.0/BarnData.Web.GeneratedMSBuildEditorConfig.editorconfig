@@ -42,8 +42,16 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQW5pbWFsXEluZGV4LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
+[C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Animal/Index_backup.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQW5pbWFsXEluZGV4X2JhY2t1cC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
 [C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Animal/_AnimalForm.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQW5pbWFsXF9BbmltYWxGb3JtLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Diagnostics/SmokeTest.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcRGlhZ25vc3RpY3NcU21va2VUZXN0LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
 [C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Import/Excel.cshtml]
@@ -54,6 +62,10 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW1wb3J0XEV4Y2VsUHJldmlldy5jc2h0bWw=
 build_metadata.AdditionalFiles.CssScope = 
 
+[C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Import/ExcelPreview_Bck.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW1wb3J0XEV4Y2VsUHJldmlld19CY2suY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
 [C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Import/HotWeightImport.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW1wb3J0XEhvdFdlaWdodEltcG9ydC5jc2h0bWw=
 build_metadata.AdditionalFiles.CssScope = 
@@ -62,8 +74,16 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW1wb3J0XEhvdFdlaWdodFByZXZpZXcuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
+[C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Import/HotWeightPreview_Bck.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW1wb3J0XEhvdFdlaWdodFByZXZpZXdfQmNrLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
 [C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Import/MarkKilled.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW1wb3J0XE1hcmtLaWxsZWQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Import/MarkKilledFast.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW1wb3J0XE1hcmtLaWxsZWRGYXN0LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
 [C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Import/SaleBill.cshtml]
@@ -90,6 +110,10 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUmVwb3J0XFRhbGx5VG9kYXkuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
+[C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Report/Tally_Backup.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUmVwb3J0XFRhbGx5X0JhY2t1cC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
 [C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Report/VendorAnimals.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUmVwb3J0XFZlbmRvckFuaW1hbHMuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
@@ -100,6 +124,10 @@ build_metadata.AdditionalFiles.CssScope =
 
 [C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Shared/_Layout.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9MYXlvdXQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/Shared/_VendorPicker.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9WZW5kb3JQaWNrZXIuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
 [C:/Users/bgora/Downloads/BarnData/BarnData.Web/Views/_ViewImports.cshtml]

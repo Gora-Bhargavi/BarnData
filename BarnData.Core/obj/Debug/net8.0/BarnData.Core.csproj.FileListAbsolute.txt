@@ -14,3 +14,6 @@ C:\Users\bgora\Downloads\BarnData\BarnData.Core\obj\Debug\net8.0\refint\BarnData
 C:\Users\bgora\Downloads\BarnData\BarnData.Core\obj\Debug\net8.0\BarnData.Core.pdb
 C:\Users\bgora\Downloads\BarnData\BarnData.Core\obj\Debug\net8.0\ref\BarnData.Core.dll
 C:\Users\bgora\Downloads\BarnData\BarnData.Core\obj\Debug\net8.0\BarnData.Core.sourcelink.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\_verify\BarnData.Core.deps.json
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\_verify\BarnData.Core.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\_verify\BarnData.Core.pdb

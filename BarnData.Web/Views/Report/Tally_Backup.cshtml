@@ -1,0 +1,196 @@
+@model IEnumerable<BarnData.Data.Entities.Animal>
+@{
+    var killDateStr = ((DateTime)ViewBag.KillDate).ToString("yyyy-MM-dd");
+    var vendorId    = ViewBag.VendorId as int?;
+}
+
+<!-- Filter bar -->
+<div class="filter-bar">
+    <form method="get" asp-action="Tally" class="filter-form">
+        <div class="filter-field">
+            <label>Kill date</label>
+            <input type="date" name="killDate" value="@killDateStr" class="form-control-sm" />
+        </div>
+        <div class="filter-field">
+            <label>Vendor</label>
+            <select name="vendorId" class="form-control-sm">
+                <option value="">All vendors</option>
+                @foreach (var item in (IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)ViewBag.VendorList)
+                {
+                    if (item.Value == vendorId?.ToString())
+                {
+                    <option value="@item.Value" selected>@item.Text</option>
+                }
+                else
+                {
+                    <option value="@item.Value">@item.Text</option>
+                }
+                }
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+        <a asp-action="Tally" class="btn btn-secondary btn-sm">Today</a>
+    </form>
+    <div class="filter-actions">
+        <a asp-action="ExportKilledExcel"
+           asp-route-killDate="@killDateStr"
+           asp-route-vendorId="@vendorId"
+           class="btn btn-primary">↓ Export Excel</a>
+        <a asp-action="ExportKilledPdf"
+           asp-route-killDate="@killDateStr"
+           asp-route-vendorId="@vendorId"
+           class="btn btn-secondary">↓ Export PDF</a>
+        <a asp-action="FilterView" class="btn btn-secondary">Filter view →</a>
+    </div>
+</div>
+
+<!-- Summary strip -->
+<div class="summary-strip" style="margin-bottom:16px">
+    <div class="summary-stat">
+        <div class="summary-val">@ViewBag.TotalCount</div>
+        <div class="summary-lbl">Killed</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val" style="color:var(--red)">@ViewBag.TotalCondemned</div>
+        <div class="summary-lbl">Condemned</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val" style="color:var(--green)">@ViewBag.TotalPassed</div>
+        <div class="summary-lbl">Passed</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">@(((decimal)ViewBag.TotalLiveWt).ToString("N0"))</div>
+        <div class="summary-lbl">Total live wt (lbs)</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">@(((decimal)ViewBag.TotalHotWt).ToString("N0"))</div>
+        <div class="summary-lbl">Total hot wt (lbs)</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-stat">
+        <div class="summary-val">$@(((decimal)ViewBag.TotalCost).ToString("N2"))</div>
+        <div class="summary-lbl">Total cost</div>
+    </div>
+</div>
+
+@if (!Model.Any())
+{
+    <div class="empty-state">
+        <div class="empty-title">No killed animals on @(((DateTime)ViewBag.KillDate).ToString("MM/dd/yyyy"))</div>
+        <div class="empty-sub">Mark pending animals as killed first.</div>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+            <a asp-controller="Import" asp-action="MarkKilled" class="btn btn-primary">Mark as killed</a>
+            <a asp-controller="Animal" asp-action="Index" asp-route-status="pending" class="btn btn-secondary">Pending list</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="table-card" style="overflow-x:auto">
+        <!-- Top scroll mirror -->
+        <div id="scrollTop" style="overflow-x:auto;overflow-y:hidden;border-bottom:1px solid var(--gray3)">
+            <div id="scrollTopInner" style="height:1px"></div>
+        </div>
+        <div id="scrollMain" style="overflow-x:auto">
+            <table class="data-table" id="mainTable" style="min-width:2200px;font-size:12px;">
+                <thead>
+                    <tr>
+                        <th class="sticky-col sticky-col-1" style="min-width:70px;left:0">Ctrl No.</th>
+                        <th class="sticky-col sticky-col-2" style="min-width:130px">Vendor</th>
+                        <th class="sticky-col sticky-col-3" style="min-width:90px">Tag 1</th>
+                        <th style="min-width:90px">Tag 2</th>
+                        <th style="min-width:100px">Animal Type</th>
+                        <th style="min-width:100px">Purchase Type</th>
+                        <th style="min-width:100px">Purchase Date</th>
+                        <th style="min-width:95px">Kill Date</th>
+                        <th class="text-right" style="min-width:75px">Live Wt</th>
+                        <th class="text-right" style="min-width:75px">Live Rate</th>
+                        <th class="text-right" style="min-width:75px">Hot Wt</th>
+                        <th style="min-width:55px">Grade</th>
+                        <th style="min-width:40px">HS</th>
+                        <th style="min-width:160px">Comments</th>
+                        <th style="min-width:115px">Animal Ctrl No.</th>
+                        <th style="min-width:70px">Tag 3</th>
+                        <th style="min-width:120px">Office Use 2</th>
+                        <th style="min-width:45px">State</th>
+                        <th style="min-width:100px">Buyer</th>
+                        <th style="min-width:100px">Animal Type 2</th>
+                        <th style="min-width:100px">Vet Name</th>
+                        <th style="min-width:80px">Condemned</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in Model)
+                    {
+                        <tr class="@(a.IsCondemned ? "row-condemned" : "")">
+                            <td class="mono sticky-col sticky-col-1" style="left:0">@a.ControlNo</td>
+                            <td class="sticky-col sticky-col-2" style="font-weight:500">@(a.Vendor?.VendorName ?? "—")</td>
+                            <td class="mono sticky-col sticky-col-3">@a.TagNumber1</td>
+                            <td class="mono">@(a.TagNumber2 ?? "—")</td>
+                            <td>@a.AnimalType</td>
+                            <td><span class="badge @(a.PurchaseType == "Consignment Bill" ? "badge-cons" : "badge-sale")">@(a.PurchaseType == "Consignment Bill" ? "Cons." : "Sale")</span></td>
+                            <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
+                            <td>@(a.KillDate.HasValue ? a.KillDate.Value.ToString("MM/dd/yyyy") : "—")</td>
+                            <td class="text-right mono">@a.LiveWeight.ToString("N1")</td>
+                            <td class="text-right mono">$@a.LiveRate.ToString("N4")</td>
+                            <td class="text-right mono">@(a.HotWeight?.ToString("N1") ?? "—")</td>
+                            <td><span class="badge badge-grade">@(a.Grade ?? "—")</span></td>
+                            <td class="text-center">@(a.HealthScore?.ToString() ?? "—")</td>
+                            <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.Comment">@(a.Comment ?? "—")</td>
+                            <td class="mono">@(a.AnimalControlNumber ?? "—")</td>
+                            <td class="mono">@(a.Tag3 ?? "—")</td>
+                            <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.OfficeUse2">@(a.OfficeUse2 ?? "—")</td>
+                            <td>@(a.State ?? "—")</td>
+                            <td>@(a.BuyerName ?? "—")</td>
+                            <td>@(a.AnimalType2 ?? "—")</td>
+                            <td>@(a.VetName ?? "—")</td>
+                            <td>
+                                @if (a.IsCondemned)
+                                { 
+                                    <span class="badge" style="background:var(--red-bg);color:var(--red)">Yes</span> }
+                                else
+                                { 
+                                    <span style="color:var(--gray5)">-</span> }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="table-total-row">
+                        <td colspan="8" class="text-right total-label">Totals</td>
+                        <td class="text-right mono">@Model.Sum(a => a.LiveWeight).ToString("N1")</td>
+                        <td></td>
+                        <td class="text-right mono">@Model.Sum(a => a.HotWeight ?? 0).ToString("N1")</td>
+                        <td colspan="11"></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+}
+
+@section Scripts {
+<style>
+    .badge-sale { background:#dbeafe; color:#1e40af; }
+    .badge-cons { background:#fef3c7; color:#92400e; }
+    .sticky-col-1 { left: 0 !important; }
+    .sticky-col-2 { left: 70px !important; }
+    .sticky-col-3 { left: 200px !important; }
+</style>
+<script>
+(function() {
+    var top  = document.getElementById('scrollTop');
+    var main = document.getElementById('scrollMain');
+    var tbl  = document.getElementById('mainTable');
+    if (!top || !main || !tbl) return;
+    document.getElementById('scrollTopInner').style.width = tbl.offsetWidth + 'px';
+    var syncing = false;
+    top.addEventListener('scroll', function() { if (syncing) return; syncing = true; main.scrollLeft = top.scrollLeft; syncing = false; });
+    main.addEventListener('scroll', function() { if (syncing) return; syncing = true; top.scrollLeft = main.scrollLeft; syncing = false; });
+})();
+</script>
+}
