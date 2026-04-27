@@ -2,7 +2,7 @@
 (function () {
     'use strict';
 
-    // ── Vendor typeahead ─────────────────────────────────────────────────
+    //  Vendor typeahead 
     const vendorSearch   = document.getElementById('vendorSearch');
     const vendorDropdown = document.getElementById('vendorDropdown');
     const vendorIdHidden = document.getElementById('vendorIdHidden');
@@ -71,7 +71,7 @@
         });
     }
 
-    // ── Sale Bill / Consignment Bill dynamic switching ────────────────────
+    //  Sale Bill / Consignment Bill dynamic switching 
     const purchaseTypeSelect  = document.getElementById('purchaseTypeSelect');
     const liveRateField       = document.getElementById('liveRateField');
     const consRateField       = document.getElementById('consRateField');
@@ -150,7 +150,7 @@ function updateCostPreview() {
         el.addEventListener('change', updateCostPreview);
     });
 
-    // ── Live weight range highlight ───────────────────────────────────────
+    // Live weight range highlight 
     const WEIGHT_MIN = 300, WEIGHT_MAX = 2500;
     if (liveWeightInput) {
         liveWeightInput.addEventListener('input', function () {
@@ -161,7 +161,7 @@ function updateCostPreview() {
         });
     }
 
-    // ── Duplicate tag check ───────────────────────────────────────────────
+    // Duplicate tag check 
     const tag1Input   = document.getElementById('tag1Input');
     const tag1Feedback= document.getElementById('tag1Feedback');
 
@@ -194,7 +194,7 @@ function updateCostPreview() {
         } catch { tag1Feedback.textContent = ''; }
     }
 
-    // ── Auto-dismiss flash messages ───────────────────────────────────────
+    // Auto-dismiss flash messages 
     const flash = document.querySelector('.flash');
     if (flash) {
         setTimeout(() => {

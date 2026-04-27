@@ -1076,7 +1076,7 @@ function confirmModalPick() {
     if (!tr) { closeCandModal(); return; }
 
     // ACN precedence (most authoritative → least):
-    //   1. File ACN (the Excel row's ACN column, if any) — this is what the user is trying to write
+    //   1. File ACN (the Excel row's ACN column, if any) - this is what the user is trying to write
     //   2. The picked candidate's existing ACN in the DB (picking an already-assigned animal)
     //   3. Whatever was already on the row's data-acn attribute (the initial server-rendered value)
     // We keep data-fileacn as a stable "Excel intent" and only update data-acn when we actually

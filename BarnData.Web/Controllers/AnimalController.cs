@@ -18,7 +18,7 @@ namespace BarnData.Web.Controllers
             _vendorService = vendorService;
         }
 
-        // INDEX — show animals with status filter + pagination for pending
+        // INDEX - show animals with status filter + pagination for pending
         public async Task<IActionResult> Index(DateTime? killDate, int? vendorId, string? status, string? vendorIds, int page = 1)
         {
             const int PageSize = 500; // show 500 per page — avoids loading 100k rows
@@ -90,7 +90,7 @@ namespace BarnData.Web.Controllers
             return View(animals);
         }
 
-        //  CREATE GET — blank entry form 
+        //  CREATE GET - blank entry form 
         public async Task<IActionResult> Create()
         {
             var vm = new AnimalViewModel
@@ -103,19 +103,19 @@ namespace BarnData.Web.Controllers
             return View(vm);
         }
 
-        // CREATE POST — save new animal record
+        // CREATE POST - save new animal record
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(AnimalViewModel vm)
         {
-            // Handle vendor — either selected from list (VendorID > 0)
+            // Handle vendor - either selected from list (VendorID > 0)
             // or typed as free text (VendorID = 0, VendorNameFreeText has value)
             if (vm.VendorID == 0 && !string.IsNullOrWhiteSpace(vm.VendorNameFreeText))
             {
                 vm.VendorID = await _vendorService.GetOrCreateAsync(vm.VendorNameFreeText.Trim());
             }
 
-            // Clear VendorID model error — it's set via JS hidden field
+            // Clear VendorID model error - it's set via JS hidden field
             ModelState.Remove("VendorID");
 
             // Manual vendor validation
@@ -130,10 +130,10 @@ namespace BarnData.Web.Controllers
                 return View(vm);
             }
 
-            // Check weight warning — does not block, just flags
+            // Check weight warning - does not block, just flags
             vm.ShowWeightWarning = _animalService.IsWeightOutOfRange(vm.LiveWeight);
 
-            // If weight is out of range AND user hasn't confirmed yet — show warning
+            // If weight is out of range AND user hasn't confirmed yet - show warning
             if (vm.ShowWeightWarning && !vm.WeightWarningConfirmed)
             {
                 await PopulateVendorDropdown(vm);
@@ -158,7 +158,7 @@ namespace BarnData.Web.Controllers
 
             TempData["SuccessMessage"] = $"Record saved — Control No. {animal.ControlNo}. Tag: {animal.TagNumber1}";
 
-            // Save & Add Another — carry sticky fields to the next form
+            // Save & Add Another - carry sticky fields to the next form
             if (Request.Form.ContainsKey("saveAndAdd"))
             {
                 TempData["StickyVendorId"]    = vm.VendorID;
@@ -179,7 +179,7 @@ namespace BarnData.Web.Controllers
             return RedirectToAction(nameof(Index), new { status = "pending" });
         }
 
-        //  CREATE STICKY — blank form with fields pre-filled 
+        //  CREATE STICKY - blank form with fields pre-filled 
         public async Task<IActionResult> CreateSticky()
         {
             var vm = new AnimalViewModel
@@ -214,7 +214,7 @@ namespace BarnData.Web.Controllers
             return View("Create", vm);
         }
 
-        //  EDIT GET — pre-filled form 
+        //  EDIT GET - pre-filled form 
         public async Task<IActionResult> Edit(int id)
         {
             var animal = await _animalService.GetByControlNoAsync(id);
@@ -225,7 +225,7 @@ namespace BarnData.Web.Controllers
             return View(vm);
         }
 
-        //  EDIT POST — save changes 
+        //  EDIT POST - save changes 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, AnimalViewModel vm)
@@ -271,7 +271,7 @@ namespace BarnData.Web.Controllers
                 new { killDate = vm.KillDate.HasValue ? vm.KillDate.Value.ToString("yyyy-MM-dd") : DateTime.Today.ToString("yyyy-MM-dd") });
         }
 
-        //  DETAIL — read-only view 
+        //  DETAIL - read-only view 
         public async Task<IActionResult> Detail(int id)
         {
             var animal = await _animalService.GetByControlNoAsync(id);
@@ -280,7 +280,7 @@ namespace BarnData.Web.Controllers
             return View(animal);
         }
 
-        //  DELETE POST — soft delete 
+        //  DELETE POST - soft delete 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(int id, string killDate)
@@ -290,7 +290,7 @@ namespace BarnData.Web.Controllers
             return RedirectToAction(nameof(Index), new { killDate });
         }
 
-        //  VENDOR SEARCH — called via AJAX as user types
+        //  VENDOR SEARCH - called via AJAX as user types
         [HttpGet]
         public async Task<IActionResult> SearchVendors(string term)
         {
@@ -304,7 +304,7 @@ namespace BarnData.Web.Controllers
             return Json(matches);
         }
 
-        //  TAG DUPLICATE CHECK — called via AJAX on blur 
+        //  TAG DUPLICATE CHECK - called via AJAX on blur 
         [HttpGet]
         public async Task<IActionResult> CheckTag(
             string tag1, int vendorId, int? controlNo = null)

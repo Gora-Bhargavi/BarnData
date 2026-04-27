@@ -1,4 +1,4 @@
-/* ── Reset & base ──────────────────────────────────────────────────────── */
+/* Reset & base  */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
@@ -425,7 +425,7 @@ thead .sticky-col { background: var(--gray2); z-index: 3; }
     color: #fff !important;
 }
 
-/* ── Excel-style scroll box ─────────────────────────────────────────────── */
+/*  Excel-style scroll box  */
 .xl-scroll-box {
     border: 1px solid var(--gray3);
     border-radius: var(--radius);

@@ -595,9 +595,9 @@ function searchMk() {
     applyRowFilters();
 }
 
-// ── Vendor picker (Phase 2d) ─────────────────────────────────────────
+// Vendor picker 
 // The new picker fires 'vp:apply' on Apply. We navigate to a GET of
-// /Import/MarkKilledFast with the chosen vendor ids — do NOT submit
+// /Import/MarkKilledFast with the chosen vendor ids - do NOT submit
 // the surrounding mkForm (that POSTs to MarkKilled and would actually
 // kill animals).
 document.addEventListener('vp:apply', function (e) {

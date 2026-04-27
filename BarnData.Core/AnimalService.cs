@@ -105,7 +105,7 @@ namespace BarnData.Core.Services
             return animals;
         }
 
-        // ── Multi-vendor overloads ─────────────────────────────────────────────
+        //  Multi-vendor overloads
         public async Task<IEnumerable<Animal>> GetPendingByVendorsAsync(IEnumerable<int> vendorIds)
         {
             var ids = string.Join(",", vendorIds.Select(i => i.ToString()));
@@ -144,7 +144,7 @@ namespace BarnData.Core.Services
             return animals;
         }
 
-        // ── Tag-based lookup — for ACN auto-match during HW import ───────────
+        //  Tag-based lookup - for ACN auto-match during HW import 
         public async Task<IEnumerable<Animal>> GetByTagsAsync(IEnumerable<string> tags)
         {
             if (!tags.Any()) return Enumerable.Empty<Animal>();
@@ -453,7 +453,7 @@ namespace BarnData.Core.Services
             return animals.Count;
         }
 
-       //  ── MarkKilledWithDataAsync — saves HotWeight, Grade, HS, Condemned ─
+       //  MarkKilledWithDataAsync - saves HotWeight, Grade, HS, Condemned 
         public async Task<int> MarkKilledWithDataAsync(
             IEnumerable<KillAnimalData> animalData, DateTime killDate)
         {

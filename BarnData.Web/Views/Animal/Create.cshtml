@@ -14,7 +14,7 @@
 
 <div style="display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start">
 
-    <!-- ── LEFT: FORM ──────────────────────────────────────────────────── -->
+    <!--  LEFT: FORM -->
     <div class="compact-form">
         <form method="post" asp-action="Create" novalidate id="animalForm">
             @Html.AntiForgeryToken()
@@ -25,11 +25,11 @@
             {
                 <div class="alert alert-warn" style="margin-bottom:10px">
                     <strong>Weight outside normal range.</strong>
-                    @Model.LiveWeight lbs is outside 300–2,500 lbs. Confirm below to save.
+                    @Model.LiveWeight lbs is outside 300–3,000 lbs. Confirm below to save.
                 </div>
             }
 
-            <!-- ── SECTION A: VENDOR & PURCHASE ────────────────────────── -->
+            <!--  SECTION A: VENDOR & PURCHASE  -->
             <div class="form-section" style="margin-bottom:8px;padding:12px 14px">
                 <div class="form-section-title">Vendor &amp; purchase</div>
                 <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px 12px">
@@ -70,7 +70,7 @@
                 </div>
             </div>
 
-            <!-- ── SECTION B: TAGS ──────────────────────────────────────── -->
+            <!--SECTION B: TAGS -->
             <div class="form-section" style="margin-bottom:8px;padding:12px 14px">
                 <div class="form-section-title">Tag identification</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px 10px">
@@ -101,7 +101,7 @@
                 </div>
             </div>
 
-            <!-- ── SECTION C: ANIMAL & WEIGHT ───────────────────────────── -->
+            <!-- SECTION C: ANIMAL & WEIGHT -->
             <div class="form-section" style="margin-bottom:8px;padding:12px 14px">
                 <div class="form-section-title">Animal &amp; weight</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px 10px">
@@ -178,7 +178,7 @@
                 }
             </div>
 
-            <!-- ── SECTION D: GRADING & OFFICE ─────────────────────────── -->
+            <!--  SECTION D: GRADING & OFFICE  -->
             <div class="form-section" style="margin-bottom:8px;padding:12px 14px">
                 <div class="form-section-title">Grading &amp; office</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px 10px">
@@ -224,7 +224,7 @@
                 </div>
             </div>
 
-            <!-- ── ACTIONS ───────────────────────────────────────────────── -->
+            <!-- ACTIONS  -->
             <div class="form-actions">
                 <button type="submit" name="saveAndAdd" value="1" class="btn btn-secondary">
                     Save &amp; add another
@@ -236,7 +236,7 @@
         </form>
     </div>
 
-    <!-- ── RIGHT: LIVE PREVIEW PANEL ─────────────────────────────────────── -->
+    <!-- RIGHT: LIVE PREVIEW PANEL -->
     <div id="previewPanel" style="position:sticky;top:16px">
         <div style="background:#fff;border:1px solid var(--gray3);border-radius:var(--radius2);overflow:hidden">
             <!-- Header -->
@@ -297,10 +297,10 @@ const CHECK_TAG_URL = '@Url.Action("CheckTag", "Animal")';
     }
 }
 
-// ── Session preview ───────────────────────────────────────────────────────
+// Session preview 
 var sessionRecords = JSON.parse(sessionStorage.getItem('barnSessionRecords') || '[]');
 
-// Last saved record — injected directly from server TempData (reliable)
+// Last saved record - injected directly from server TempData (reliable)
 @{
     var lastCN       = TempData["LastSavedControlNo"];
     var lastTag      = TempData["LastSavedTag1"] as string ?? "";

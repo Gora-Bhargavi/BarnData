@@ -31,7 +31,7 @@ namespace BarnData.Web.Controllers
                 .ToList();
         }
 
-        // Phase 2e — load animals for a kill-date tally honoring either legacy
+        
         // single-vendor id OR new multi-vendor ids. If both are supplied,
         // multi wins. If neither, returns all vendors for that kill date.
         private async Task<List<Animal>> LoadKilledAsync(DateTime date, int? legacyVendorId, List<int> multiIds)
@@ -69,7 +69,7 @@ namespace BarnData.Web.Controllers
             return (await _animalService.GetFilteredAsync(single)).ToList();
         }
 
-        //  PAGE 1: KILLED ANIMALS LIST 
+        //  KILLED ANIMALS LIST 
         public async Task<IActionResult> Tally(DateTime? killDate, int? vendorId, string? vendorIds)
         {
             var date    = killDate ?? DateTime.Today;
@@ -101,7 +101,7 @@ namespace BarnData.Web.Controllers
             return View(animals);
         }
 
-        //  PAGE 2: FILTER VIEW 
+        //  FILTER VIEW 
         public async Task<IActionResult> FilterView(
             int? vendorId, string? status,
             DateTime? killDateFrom, DateTime? killDateTo,
@@ -152,7 +152,7 @@ namespace BarnData.Web.Controllers
             return View(animals);
         }
 
-        //  EXPORT EXCEL — PAGE 1 (killed list)
+        //  EXPORT EXCEL - KILLED ANIMALS LIST
         public async Task<IActionResult> ExportKilledExcel(DateTime? killDate, int? vendorId, string? vendorIds)
         {
             var date    = killDate ?? DateTime.Today;
@@ -164,7 +164,7 @@ namespace BarnData.Web.Controllers
                 $"KilledAnimals_{date:yyyyMMdd}.xlsx");
         }
 
-        //  EXPORT PDF — PAGE 1 
+        //  EXPORT PDF - PAGE 1 
         public async Task<IActionResult> ExportKilledPdf(DateTime? killDate, int? vendorId, string? vendorIds)
         {
             var date    = killDate ?? DateTime.Today;
@@ -189,7 +189,7 @@ namespace BarnData.Web.Controllers
             };
         }
 
-        // EXPORT EXCEL — PAGE 2 (filter view) 
+        // EXPORT EXCEL - PAGE 2 (filter view) 
         public async Task<IActionResult> ExportFilterExcel(
             int? vendorId, string? status,
             DateTime? killDateFrom, DateTime? killDateTo,
@@ -211,7 +211,7 @@ namespace BarnData.Web.Controllers
                 $"FilteredAnimals_{DateTime.Now:yyyyMMdd_HHmm}.xlsx");
         }
 
-        //  EXPORT PDF — PAGE 2 
+        //  EXPORT PDF - PAGE 2 
         public async Task<IActionResult> ExportFilterPdf(
             int? vendorId, string? status,
             DateTime? killDateFrom, DateTime? killDateTo,

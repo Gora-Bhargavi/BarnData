@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BarnData.Core")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+20de5662205af6030c6336d68594640354950155")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+91f0a1713324d0afee9ed737c35314b093c8098d")]
 [assembly: System.Reflection.AssemblyProductAttribute("BarnData.Core")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BarnData.Core")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

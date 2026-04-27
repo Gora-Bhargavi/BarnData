@@ -3,7 +3,6 @@ using BarnData.Data.Entities;
 namespace BarnData.Core.Services
 {
     // Performance-focused paged queries. Bolts on beside the existing IAnimalService
-    // without modifying it — existing code paths keep working unchanged.
     // Used by the new paginated Mark-as-Killed view.
     public interface IAnimalQueryService
     {

@@ -48,7 +48,7 @@ namespace BarnData.Data
                 entity.Property(a => a.FetalBlood).HasColumnType("decimal(6,2)");
                 entity.Property(a => a.ConsignmentRate).HasColumnType("decimal(10,4)");
 
-                // FK: animal → vendor (kept commented out to match current behavior)
+                // FK: animal -> vendor (kept commented out to match current behavior)
                 //entity.HasOne(a => a.Vendor)
                 //    .WithMany(v => v.Animals)
                 //    .HasForeignKey(a => a.VendorID)

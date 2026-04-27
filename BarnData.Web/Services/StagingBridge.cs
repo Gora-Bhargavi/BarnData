@@ -7,7 +7,7 @@ namespace BarnData.Core.Services
     // StagingBridge
     //
     // Bridges the existing Session["ExcelPreview"] / Session["HWPreview"]
-    // caches to the persistent staging tables added in Phase 1.
+    // caches to the persistent staging tables.
     //
     // Design: session stays as the hot cache (fast same-session performance).
     // After every session write, this also serializes the payload into the
@@ -44,7 +44,7 @@ namespace BarnData.Core.Services
         {
             if (string.IsNullOrEmpty(json)) return null;
 
-            // 1. Session hot cache — always update first so same-session
+            // 1. Session hot cache - always update first so same-session
             //    behaviour and performance are identical to before.
             session.SetString(SessionKeyFor(batchType), json);
 

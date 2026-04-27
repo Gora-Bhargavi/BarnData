@@ -29,7 +29,7 @@
     </div>
 }
 
-@* ── Page header ── *@
+@* Page header  *@
 <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
     <div>
         <h1 class="page-title" style="margin:0">Import Hot Weight Report</h1>
@@ -63,7 +63,7 @@
 
 
 
-@* ── Single-row merged card-tabs (stats + tabs combined) ── *@
+@*  Single-row merged card-tabs (stats + tabs combined)  *@
 <div class="hw-tabbar hw-cardtabs">
     <button class="hw-ctab active" id="tab0" onclick="switchTab(0)" type="button" title="All rows in uploaded Excel">
         <div class="hw-ctab-n" id="sc0-n">@(hasData ? Model!.TotalInExcel.ToString() : "—")</div>
@@ -241,7 +241,7 @@
 </div>
 
 @* 
-   TAB 2 — Flagged for review (editable)
+   TAB 2 - Flagged for review (editable)
     *@
 <div id="panel2" class="hw-panel" style="display:none">
     @if (!hasData)
@@ -1078,12 +1078,12 @@ function confirmModalPick() {
     var tr = document.querySelector('.p2-row[data-rowid="' + rowId + '"]');
     if (!tr) { closeCandModal(); return; }
 
-    // ACN precedence (most authoritative → least):
-    //   1. File ACN (the Excel row's ACN column, if any) — this is what the user is trying to write
+    // ACN precedence (most authoritative least):
+    //   1. File ACN (the Excel row's ACN column, if any) - this is what the user is trying to write
     //   2. The picked candidate's existing ACN in the DB (picking an already-assigned animal)
     //   3. Whatever was already on the row's data-acn attribute (the initial server-rendered value)
     // We keep data-fileacn as a stable "Excel intent" and only update data-acn when we actually
-    // have a better value — NEVER overwrite it with an empty string.
+    // have a better value - NEVER overwrite it with an empty string.
     var pickedAcn   = (sel.acn || '').trim();
     var existingFileAcn = (tr.dataset.fileacn || '').trim();
     var existingRowAcn  = (tr.dataset.acn     || '').trim();

@@ -2,7 +2,7 @@ using BarnData.Data.Entities;
 
 namespace BarnData.Core.Services
 {
-    // Persistent import staging — replaces HttpContext.Session for Excel & HW imports.
+    // Persistent import staging - replaces HttpContext.Session for Excel & HW imports.
     // Rows survive browser close, app restart, and session expiry.
     // A user sees only their own batches (filtered by CreatedBy cookie).
     public interface IImportStagingService

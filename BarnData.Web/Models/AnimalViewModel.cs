@@ -9,7 +9,7 @@ namespace BarnData.Web.Models
     {
         public int ControlNo { get; set; }
 
-        // ── Vendor ────────────────────────────────────────────────────────
+        //  Vendor 
         [Display(Name = "Vendor")]
         public int VendorID { get; set; }
         public string? VendorNameFreeText { get; set; }
@@ -23,7 +23,7 @@ namespace BarnData.Web.Models
         [Display(Name = "Purchase date")]
         public DateTime PurchaseDate { get; set; } = DateTime.Today;
 
-        // ── Tags ──────────────────────────────────────────────────────────
+        //  Tags 
         [Required(ErrorMessage = "Tag Number 1 is required")]
         [MaxLength(50)]
         [Display(Name = "Tag Number 1")]
@@ -41,7 +41,7 @@ namespace BarnData.Web.Models
         [Display(Name = "Animal control number")]
         public string? AnimalControlNumber { get; set; }
 
-        // ── Animal ────────────────────────────────────────────────────────
+        //  Animal 
         [Required(ErrorMessage = "Animal type is required")]
         [Display(Name = "Animal type")]
         public string AnimalType { get; set; } = string.Empty;
@@ -52,12 +52,12 @@ namespace BarnData.Web.Models
         [Display(Name = "Program code")]
         public string ProgramCode { get; set; } = "REG";
 
-        // ── Kill date — nullable, set on kill day ─────────────────────────
+        // Kill date - nullable, set on kill day 
         [DataType(DataType.Date)]
         [Display(Name = "Kill date")]
         public DateTime? KillDate { get; set; }
 
-        // ── Sale Bill fields ──────────────────────────────────────────────
+        //  Sale Bill fields 
         [Range(0, 9999.9, ErrorMessage = "Live weight must be 0 or more")]
         [Display(Name = "Live weight (lbs)")]
         public decimal LiveWeight { get; set; }
@@ -65,11 +65,11 @@ namespace BarnData.Web.Models
         [Display(Name = "Live rate ($/lb)")]
         public decimal LiveRate { get; set; }
 
-        // ── Consignment Bill fields ───────────────────────────────────────
+        //  Consignment Bill fields 
         [Display(Name = "Consignment rate ($/lb hot wt)")]
         public decimal? ConsignmentRate { get; set; }
 
-        // ── Post-kill fields (filled from scale ticket / HotScale) ────────
+        //  Post-kill fields (filled from scale ticket / HotScale) 
         [Display(Name = "Hot weight (lbs)")]
         public decimal? HotWeight { get; set; }
 
@@ -83,7 +83,7 @@ namespace BarnData.Web.Models
         [Display(Name = "Health score")]
         public int? HealthScore { get; set; }
 
-        // ── Office ────────────────────────────────────────────────────────
+        //  Office 
         [Display(Name = "Fetal blood")]
         public decimal? FetalBlood { get; set; }
 
@@ -117,7 +117,7 @@ namespace BarnData.Web.Models
         public bool ShowWeightWarning { get; set; }
         public bool WeightWarningConfirmed { get; set; }
 
-        // ── Dropdown lists ────────────────────────────────────────────────
+        //  Dropdown lists
         public IEnumerable<SelectListItem> VendorList { get; set; } = new List<SelectListItem>();
 
         public IEnumerable<SelectListItem> AnimalTypeList { get; set; } = new List<SelectListItem>
@@ -164,18 +164,18 @@ namespace BarnData.Web.Models
                     new[] { nameof(KillDate) });
 
             // Live rate required for sale bill only if entering manually
-            // (not required on import — can be 0 temporarily)
+            // (not required on import - can be 0 temporarily)
             if (PurchaseType == "Sale Bill" && LiveRate < 0)
                 yield return new ValidationResult(
                     "Live rate cannot be negative.",
                     new[] { nameof(LiveRate) });
 
             // Consignment rate and Origin are NOT required at entry time
-            // They may come from HotScale later (Phase 5)
+            // They may come from HotScale later 
         }
     }
 
-    // ── Bulk import view model ─────────────────────────────────────────────
+    //  Bulk import view model 
     public class SaleBillImportViewModel
     {
         public string? ImportedFile { get; set; }
@@ -201,7 +201,7 @@ namespace BarnData.Web.Models
         public string Status      { get; set; } = "OK"; // OK / Skip / Error
     }
 
-    // ── Mark as killed view model ─────────────────────────────────────────
+    // Mark as killed view model 
     public class MarkKilledViewModel
     {
         [Required]
@@ -242,7 +242,7 @@ namespace BarnData.Web.Models
         public bool     HwImported   { get; set; }
     }
 
-    // ── Excel Import view models ───────────────────────────────────────────
+    //  Excel Import view models 
     public class ExcelImportViewModel
     {
         public string? FileName { get; set; }

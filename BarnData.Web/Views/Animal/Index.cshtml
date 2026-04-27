@@ -268,7 +268,7 @@ else
     .row-condemned .sticky-col { background: #fef2f2 !important; }
 </style>
 <script>
-// ── Search ──────────────────────────────────────────────────────────
+// Search 
 function searchAnimals() {
     var q = (document.getElementById('animal-search')?.value || '').toLowerCase().trim();
     var rows = document.querySelectorAll('.data-table tbody tr');
@@ -282,10 +282,7 @@ function searchAnimals() {
     if (c) c.textContent = q ? vis + ' of ' + rows.length + ' shown' : '';
 }
 
-// ── Vendor picker (Phase 2d) ─────────────────────────────────────────
-// The new picker (_VendorPicker.cshtml + vendor-picker.js) fires a
-// 'vp:apply' DOM event when the user clicks Apply. We listen for it
-// and submit the filter form so the server receives the new vendorIds.
+//Vendor picker
 document.addEventListener('vp:apply', function (e) {
     if (e.detail && e.detail.id === 'animal') {
         document.getElementById('animal-filter-form').submit();
