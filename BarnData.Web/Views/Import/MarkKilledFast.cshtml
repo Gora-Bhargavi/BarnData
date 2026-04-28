@@ -65,11 +65,18 @@
             <!-- Search -->
             <div class="field">
                 <label class="field-label">Search</label>
-                <div style="display:flex;align-items:center;background:#fff;border:1.5px solid var(--gray3);border-radius:6px;padding:0 10px;height:34px;width:230px">
-                    <span style="color:var(--text3);margin-right:6px;font-size:14px">⌕</span>
-                    <input type="text" id="mk-search" placeholder="Search any field…"
-                           oninput="searchMk()"
-                           style="border:none;outline:none;font-size:12.5px;width:100%;background:transparent">
+                <div style="display:flex;align-items:center;gap:6px">
+                    <div style="display:flex;align-items:center;background:#fff;border:1.5px solid var(--gray3);border-radius:6px;padding:0 10px;height:34px;width:230px">
+                        <span style="color:var(--text3);margin-right:6px;font-size:14px">⌕</span>
+                        <input type="text"
+                            id="mk-table-search"
+                            value="@searchTerm"
+                            placeholder="Search tag or control no…"
+                            onkeydown="if (event.key === 'Enter') { event.preventDefault(); applyMkSearch(); }"
+                            style="border:none;outline:none;font-size:12.5px;width:100%;background:transparent">
+                    </div>
+
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="applyMkSearch()">Search</button>
                 </div>
             </div>
             <div style="display:flex;gap:8px;padding-bottom:2px;flex-wrap:wrap;align-items:flex-end">
@@ -112,16 +119,17 @@
 
             <div class="xl-scroll-box">
             <div class="xl-scroll-inner" id="scrollMain">
-                <table class="data-table" data-colfilter-table id="mainTable" style="min-width:3200px;font-size:12px;">
+                <table class="data-table mark-killed-table" data-colfilter-table id="mainTable" style="min-width:3200px;font-size:12px;">
                     <thead>
                         <tr>
                             <th style="width:36px;position:sticky;left:0;z-index:5;background:#1e2f47">
                                 <input type="checkbox" id="selectAllChk" onchange="selectAll(this.checked)" />
                             </th>
                             <th data-colfilter="number" class="sticky-col sticky-col-1" style="min-width:65px">Ctrl No.</th>
+                            <th data-colfilter="text" class="sticky-animalctrl" style="min-width:110px">Animal Ctrl No.</th>
+                            <th data-colfilter="text" class="sticky-tag1" style="min-width:90px">Tag 1</th>
+                            <th data-colfilter="text" class="sticky-tag2" style="min-width:90px">Tag 2</th>
                             <th data-colfilter="text" style="min-width:95px">Animal Type</th>
-                            <th data-colfilter="text" style="min-width:90px">Tag 1</th>
-                            <th data-colfilter="text" style="min-width:90px">Tag 2</th>
                             <th data-colfilter="date" style="min-width:95px">Purchase Date</th>
                             <th data-colfilter="text" style="min-width:95px">Purchase Type</th>
                             <th data-colfilter="text" style="min-width:130px">Vendor</th>
@@ -132,7 +140,6 @@
                             <th data-colfilter="text" style="min-width:55px">Grade</th>
                             <th data-colfilter="number" style="min-width:40px">HS</th>
                             <th data-colfilter="text" style="min-width:160px">Comments</th>
-                            <th data-colfilter="text" style="min-width:110px">Animal Ctrl No.</th>
                             <th data-colfilter="text" style="min-width:70px">Tag 3</th>
                             <th data-colfilter="text" style="min-width:120px">Office Use 2</th>
                             <th data-colfilter="text" style="min-width:45px">State</th>
@@ -179,9 +186,10 @@
                                            onchange="highlightRow(this); updateCount()" />
                                 </td>
                                 <td class="mono sticky-col sticky-col-1">@a.ControlNo</td>
+                                <td class="mono sticky-animalctrl">@(a.AnimalControlNumber ?? "—")</td>
+                                <td class="mono sticky-tag1">@a.Tag1</td>
+                                <td class="mono sticky-tag2">@(a.Tag2 ?? "—")</td>
                                 <td>@a.AnimalType</td>
-                                <td class="mono">@a.Tag1</td>
-                                <td class="mono">@(a.Tag2 ?? "—")</td>
                                 <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
                                 <td>
                                     <span class="badge @(a.PurchaseType == "Consignment Bill" ? "badge-cons" : "badge-sale")">
@@ -196,7 +204,6 @@
                                 <td>@if (a.Grade != null) { <span class="badge badge-grade">@a.Grade</span> } else { <span>—</span> }</td>
                                 <td class="text-center" style="@(a.HealthScore.HasValue ? "color:#1e40af;font-weight:500" : "")">@(a.HealthScore?.ToString() ?? "—")</td>
                                 <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.Comment">@(a.Comment ?? "—")</td>
-                                <td class="mono">@(a.AnimalControlNumber ?? "—")</td>
                                 <td class="mono">@(a.Tag3 ?? "—")</td>
                                 <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.OfficeUse2">@(a.OfficeUse2 ?? "—")</td>
                                 <td>@(a.State ?? "—")</td>
@@ -341,11 +348,24 @@
     .badge-cons { background:#fef3c7; color:#92400e; }
     .vendor-chip { background:#eff6ff;color:#1e40af;border-radius:20px;padding:1px 7px;font-size:11.5px;display:inline-flex;align-items:center;gap:3px; }
     tr.selected-row td { background: #eff6ff !important; }
-    tr.selected-row td.sticky-col { background: #eff6ff !important; }
+    tr.selected-row td.sticky-col,
+    tr.selected-row td.sticky-animalctrl,
+    tr.selected-row td.sticky-tag1,
+    tr.selected-row td.sticky-tag2 { background: #eff6ff !important; }
+    
     tr.edited-row td { background: #fffbeb !important; }
-    tr.edited-row td.sticky-col { background: #fffbeb !important; }
+    tr.edited-row td.sticky-col,
+    tr.edited-row td.sticky-animalctrl,
+    tr.edited-row td.sticky-tag1,
+    tr.edited-row td.sticky-tag2 { background: #fffbeb !important; }
+
+    
     tr.hw-imported-row td { background: #EFF6FF; }
-    tr.hw-imported-row td.sticky-col { background: #EFF6FF; }
+    tr.hw-imported-row td.sticky-col,
+    tr.hw-imported-row td.sticky-animalctrl,
+    tr.hw-imported-row td.sticky-tag1,
+    tr.hw-imported-row td.sticky-tag2 { background: #EFF6FF; }
+    
     tr.hw-imported-row.selected-row td { background: #DBEAFE !important; }
     tr.hw-imported-row.edited-row td { background: #FEF9C3 !important; }
     /* Dark sticky headers inside xl-scroll-box */
@@ -401,15 +421,13 @@ if (el) el.textContent = n + ' complete';
 }
 
 function applyRowFilters() {
-var q = (document.getElementById('mk-search')?.value || '').toLowerCase().trim();
-getAllAnimalRows().forEach(function(r) {
-var bySearch = !q || (r.dataset.s || '').includes(q);
-var byComplete = !completeOnlyMode || isCompleteForKill(readRow(r));
-r.style.display = (bySearch && byComplete) ? '' : 'none';
-});
+    getAllAnimalRows().forEach(function(r) {
+        var byComplete = !completeOnlyMode || isCompleteForKill(readRow(r));
+        r.style.display = byComplete ? '' : 'none';
+    });
 
-var btn = document.getElementById('btnCompleteOnly');
-if (btn) btn.textContent = completeOnlyMode ? 'Show all rows' : 'Show complete only';
+    var btn = document.getElementById('btnCompleteOnly');
+    if (btn) btn.textContent = completeOnlyMode ? 'Show all rows' : 'Show complete only';
 }
 
 function selectCompleteRows() {
@@ -590,9 +608,12 @@ function markEdited(id) {
     if(completeOnlyMode) applyRowFilters();
 }
 
-//  MK Search 
-function searchMk() {
-    applyRowFilters();
+function applyMkSearch() {
+    var q = document.getElementById('mk-table-search')?.value || '';
+    var ids = document.getElementById('mk-hidden')?.value || '';
+    window.location = '/Import/MarkKilledFast?page=1&pageSize=@pgSize&vendorIds='
+        + encodeURIComponent(ids)
+        + '&q=' + encodeURIComponent(q);
 }
 
 // Vendor picker 
@@ -603,7 +624,10 @@ function searchMk() {
 document.addEventListener('vp:apply', function (e) {
     if (!e.detail || e.detail.id !== 'mk') return;
     var ids = e.detail.vendorIds || '';
-    window.location = '/Import/MarkKilledFast?page=1&vendorIds=' + encodeURIComponent(ids);
+    var q = document.getElementById('mk-table-search')?.value || '';
+    window.location = '/Import/MarkKilledFast?page=1&pageSize=@pgSize&vendorIds='
+        + encodeURIComponent(ids)
+        + '&q=' + encodeURIComponent(q);
 });
 
 // Show Save HW data button if HW rows exist

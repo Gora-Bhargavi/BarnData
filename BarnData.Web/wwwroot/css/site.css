@@ -545,3 +545,33 @@ z-index: 5 !important;
 .xl-scroll-inner .animal-index-table .row-condemned .sticky-tag2 {
 background: #fef2f2 !important;
 }
+
+/* Mark Killed only: sticky left group after checkbox column */
+.xl-scroll-inner .mark-killed-table .sticky-animalctrl {
+    position: sticky;
+    left: 101px; /* 36 checkbox + 65 ctrl no */
+    background: #fff;
+    z-index: 3;
+}
+
+.xl-scroll-inner .mark-killed-table .sticky-tag1 {
+    position: sticky;
+    left: 211px; /* 36 + 65 + 110 */
+    background: #fff;
+    z-index: 3;
+}
+
+.xl-scroll-inner .mark-killed-table .sticky-tag2 {
+    position: sticky;
+    left: 301px; /* 36 + 65 + 110 + 90 */
+    background: #fff;
+    z-index: 3;
+}
+
+.xl-scroll-inner .mark-killed-table thead .sticky-animalctrl,
+.xl-scroll-inner .mark-killed-table thead .sticky-tag1,
+.xl-scroll-inner .mark-killed-table thead .sticky-tag2 {
+    background: #1e2f47 !important;
+    color: #fff !important;
+    z-index: 5 !important;
+}
