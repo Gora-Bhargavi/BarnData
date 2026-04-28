@@ -347,7 +347,11 @@ namespace BarnData.Web.Controllers
                 ControlNo           = r.ControlNo,
                 AnimalControlNumber = NormalizeAcn(r.AnimalControlNumber),
                 KillDate            = DateTime.TryParse(r.KillDate, out var kd) ? kd : (DateTime?)null,
-                LiveWeight          = r.LiveWeight > 0 ? r.LiveWeight : (decimal?)null,
+                LiveWeight          = r.LiveWeight > 0
+                                        ? r.LiveWeight
+                                        : (r.PurchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase) && r.HotWeight > 0
+                                        ? r.HotWeight
+                                        : (decimal?)null),
                 HotWeight           = r.HotWeight > 0 ? r.HotWeight : (decimal?)null,
                 Grade               = string.IsNullOrWhiteSpace(r.Grade) ? null : r.Grade,
                 HealthScore         = r.HealthScore > 0 ? r.HealthScore : (int?)null,
