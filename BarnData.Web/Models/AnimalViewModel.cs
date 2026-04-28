@@ -60,7 +60,7 @@ namespace BarnData.Web.Models
         //  Sale Bill fields 
         [Range(0, 9999.9, ErrorMessage = "Live weight must be 0 or more")]
         [Display(Name = "Live weight (lbs)")]
-        public decimal LiveWeight { get; set; }
+        public decimal? LiveWeight { get; set; }
 
         [Display(Name = "Live rate ($/lb)")]
         public decimal LiveRate { get; set; }
@@ -162,6 +162,16 @@ namespace BarnData.Web.Models
                 yield return new ValidationResult(
                     "Kill date cannot be before purchase date.",
                     new[] { nameof(KillDate) });
+
+            if (PurchaseType == "Sale Bill")
+            {
+                if (!LiveWeight.HasValue || LiveWeight.Value <= 0)
+                {
+                    yield return new ValidationResult(
+                        "Live weight is required for Sale Bill.",
+                        new[] { nameof(LiveWeight) });
+                }
+            }
 
             // Live rate required for sale bill only if entering manually
             // (not required on import - can be 0 temporarily)

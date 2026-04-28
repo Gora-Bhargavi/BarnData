@@ -8,7 +8,7 @@
 @if (isSticky)
 {
     <div class="alert alert-success" style="margin-bottom:10px">
-        <strong>Record saved!</strong> Sticky fields kept — enter the new tag and live weight.
+        <strong>Record saved!</strong> Sticky fields kept - enter the new tag and live weight.
     </div>
 }
 
@@ -139,7 +139,7 @@
 
                     <div class="field" id="liveRateField">
                         <label asp-for="LiveRate" class="field-label">Live rate ($/lb) <span class="req sale-req">*</span></label>
-                        <input asp-for="LiveRate" type="number" step="0.0001" class="form-control" placeholder="1.9500" />
+                        <input asp-for="LiveRate" type="number" step="0.0001" class="form-control" id="liveRateInput" placeholder="1.9500" />
                         <span asp-validation-for="LiveRate" class="field-error"></span>
                     </div>
 
@@ -226,10 +226,15 @@
 
             <!-- ACTIONS  -->
             <div class="form-actions">
-                <button type="submit" name="saveAndAdd" value="1" class="btn btn-secondary">
+                <button type="submit" name="saveOnly" value="1" class="btn btn-primary">
+                    Save
+                </button>
+                <button type="button" id="btnSaveAndAdd" class="btn btn-secondary">
                     Save &amp; add another
                 </button>
-                <button type="submit" class="btn btn-primary">Save and go to list</button>
+                <button type="submit" name="saveAndList" value="1" class="btn btn-secondary">
+                    Save and go to list
+                </button>
                 <a asp-action="Index" asp-route-status="pending" class="btn btn-ghost">Cancel</a>
             </div>
 
@@ -279,6 +284,10 @@
 @section Scripts {
 <script src="~/js/animal-form.js"></script>
 <script>
+    window.BarnUrls = window.BarnUrls || {};
+    window.BarnUrls.saveAndAddAjax = '@Url.Action("CreateAjaxSaveAndAdd", "Animal")';
+</script>
+<script>
 const CONTROL_NO    = 0;
 const CHECK_TAG_URL = '@Url.Action("CheckTag", "Animal")';
 
@@ -298,12 +307,14 @@ const CHECK_TAG_URL = '@Url.Action("CheckTag", "Animal")';
 }
 
 // Session preview 
-var sessionRecords = JSON.parse(sessionStorage.getItem('barnSessionRecords') || '[]');
+window.sessionRecords = JSON.parse(sessionStorage.getItem('barnSessionRecords') || '[]');
+var sessionRecords = window.sessionRecords;
 
 // Last saved record - injected directly from server TempData (reliable)
 @{
     var lastCN       = TempData["LastSavedControlNo"];
     var lastTag      = TempData["LastSavedTag1"] as string ?? "";
+    var lastTag2   = TempData["LastSavedTag2"] as string ?? "";
     var lastVendorId = TempData["LastSavedVendorId"];
     var lastLiveWt   = TempData["LastSavedLiveWt"] as string ?? "0";
     var lastLiveRate = TempData["LastSavedLiveRate"] as string ?? "0";
@@ -320,12 +331,19 @@ var sessionRecords = JSON.parse(sessionStorage.getItem('barnSessionRecords') || 
     var lastCost = (lw * lr).ToString("F2");
     bool hasLastSaved = lastCN != null && !string.IsNullOrEmpty(lastTag);
 }
+
+function normalizeVendor(v){
+    var s = String(v || '').trim();
+    if(!s) return { key: 'unknown', name: 'Unknown vendor'};
+    return { key: s.toLowerCase(), name: s };
+}
 @if (hasLastSaved)
 {
     <text>
 var lastSaved = {
     controlNo: @lastCN,
     tag1: "@Html.Raw(lastTag.Replace("\"","\\\""))",
+    tag2: "@Html.Raw(lastTag2.Replace("\"","\\\""))",
     vendor: "@Html.Raw(lastVendorName.Replace("\"","\\\""))",
     liveWt: "@lastLiveWt",
     liveRate: "@lastLiveRate",
@@ -341,7 +359,7 @@ var lastSaved = null;
     </text>
 }
 
-function renderPreview() {
+window.renderPreview = function renderPreview() {
     var list  = document.getElementById('previewList');
     var empty = document.getElementById('previewEmpty');
     var tots  = document.getElementById('previewTotals');
@@ -359,15 +377,21 @@ function renderPreview() {
     tots.style.display  = '';
 
     // Vendor summary
-    var vendors = {};
-    sessionRecords.forEach(function(r) {
-        vendors[r.vendor] = (vendors[r.vendor] || 0) + 1;
+    var groups = {};
+    sessionRecords.forEach(function (r) {
+    var nv = normalizeVendor(r.vendor);
+    var key = r.vendorKey || nv.key;
+    var name = nv.name;
+
+        if (!groups[key]) groups[key] = { name: name, items: [] };
+        groups[key].items.push(r);
     });
-    var vendorNames = Object.keys(vendors);
+    var vendorNames = Object.keys(groups);
     if (vendorNames.length === 1) {
         vBar.style.display = '';
         document.getElementById('previewVendorName').textContent = vendorNames[0];
-        document.getElementById('previewVendorCount').textContent = ' — ' + vendors[vendorNames[0]] + ' record' + (vendors[vendorNames[0]] !== 1 ? 's' : '');
+        document.getElementById('previewVendorCount').textContent = ' — ' + groups[vendorNames[0]].items.length + 
+        ' record' + (groups[vendorNames[0]].items.length !== 1 ? 's' : '');
     } else {
         vBar.style.display = '';
         document.getElementById('previewVendorName').textContent = vendorNames.length + ' vendors';
@@ -381,26 +405,43 @@ function renderPreview() {
     document.getElementById('totalLiveWt').textContent = totalLw.toFixed(1) + ' lbs';
     document.getElementById('totalCost').textContent   = '$' + totalCost.toFixed(2);
 
-    // Row list
-    list.innerHTML = sessionRecords.slice().reverse().map(function(r, i) {
-        var idx = sessionRecords.length - 1 - i;
-        var editUrl = r.controlNo ? '/Animal/Edit/' + r.controlNo : null;
-        return '<div style="padding:7px 14px;border-bottom:1px solid var(--gray3);font-size:11.5px;' +
-               (i === 0 ? 'background:#eff6ff;' : '') + '">' +
-            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">' +
-                (editUrl
-                    ? '<a href="' + editUrl + '" style="font-weight:600;font-family:monospace;color:var(--blue);text-decoration:none;border-bottom:1px dashed var(--blue)" title="Click to edit this record">' + escHtml(r.tag1) + ' ✎</a>'
-                    : '<span style="font-weight:600;font-family:monospace;color:var(--blue)">' + escHtml(r.tag1) + '</span>') +
-                '<span style="color:var(--text3);font-size:10px">#' + (idx+1) + '</span>' +
-            '</div>' +
-            '<div style="display:flex;gap:8px;color:var(--text3)">' +
-                '<span>' + escHtml(r.vendor || '—') + '</span>' +
-                '<span>·</span>' +
-                '<span>' + (r.liveWt ? r.liveWt + ' lbs' : '—') + '</span>' +
-                (r.type ? '<span>·</span><span>' + escHtml(r.type) + '</span>' : '') +
-            '</div>' +
-        '</div>';
-    }).join('');
+    
+    // Row list (group by vendor)
+        var keys = Object.keys(groups);
+        list.innerHTML = keys.map(function (k) {
+            var g = groups[k];
+
+            var rows = g.items.slice().reverse().map(function (r, i) {
+                var editUrl = r.controlNo ? '/Animal/Edit/' + r.controlNo : null;
+                var liveRate = parseFloat(r.liveRate || 0);
+                var estCost = parseFloat(r.cost || 0);
+
+                return '<div style="padding:8px 14px;border-bottom:1px solid var(--gray3);font-size:11.5px;' +
+                        (i === 0 ? 'background:#eff6ff;' : '') + '">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
+                        (editUrl
+                        ? '<a href="' +editUrl + '" ...>' + escHtml(r.tag1 || r.tag2 || '—') + ' ✎</a>'
+                        : '<span ...>' + escHtml(r.tag1 || r.tag2 || '—') + '</span>') +
+                        '<span style="color:var(--text3);font-size:10px">#' + (i + 1) + '</span>' +
+                    '</div>' +
+                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;color:var(--text3)">' +
+                        '<span><strong>Vendor:</strong> ' + escHtml(g.name || '—') + '</span>' +
+                        '<span><strong>Tag1:</strong> ' + escHtml(r.tag1 || '—') + '</span>' +
+                        '<span><strong>Tag2:</strong> ' + escHtml(r.tag2 || '—') + '</span>' +
+                        '<span><strong>Animal Type:</strong> ' + escHtml(r.type || '—') + '</span>' +
+                        '<span><strong>Live Rate:</strong> $' + liveRate.toFixed(4) + '</span>' +
+                        '<span style="grid-column:span 2"><strong>Est. Cost:</strong> $' + estCost.toFixed(2) + '</span>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+
+            return '<div style="border-bottom:1px solid var(--gray3)">' +
+                '<div style="padding:6px 14px;background:var(--gray1);font-size:11px;font-weight:600;color:var(--text3)">' +
+                    escHtml(g.name) + ' — ' + g.items.length + ' record' + (g.items.length > 1 ? 's' : '') +
+                '</div>' +
+                rows +
+            '</div>';
+        }).join('');
 }
 
 function escHtml(s) {
@@ -416,22 +457,33 @@ function escHtml(s) {
 }
 
 // Clear session records when navigating away (not save & add another)
-document.getElementById('animalForm').addEventListener('submit', function(e) {
+/*document.getElementById('animalForm').addEventListener('submit', function(e) {
     var btn = e.submitter;
     if (!btn || btn.name !== 'saveAndAdd') {
         sessionStorage.removeItem('barnSessionRecords');
     }
-});
+});*/
 (function() {
-    if (@(isSticky ? "true" : "false") && lastSaved && lastSaved.tag1) {
-        // Avoid duplicates — check if controlNo already in session
-        var alreadyAdded = sessionRecords.some(function(r) {
-            return r.controlNo && r.controlNo === lastSaved.controlNo;
-        });
-        if (!alreadyAdded) {
-            sessionRecords.push(lastSaved);
-            sessionStorage.setItem('barnSessionRecords', JSON.stringify(sessionRecords));
+    if (lastSaved && (lastSaved.tag1 || lastSaved.tag2)) {
+        var nv = normalizeVendor(lastSaved.vendor);
+        lastSaved.vendorKey = nv.key;
+        lastSaved.vendor = nv.name;
+
+        var incomingId = Number(lastSaved.controlNo || 0);
+
+        var idx = incomingId > 0
+               ? sessionRecords.findIndex(function (r) {
+            return Number(r.controlNo || 0) === incomingId;
+        })
+               : -1;
+
+        if (idx >= 0) {
+            sessionRecords[idx] = lastSaved; // update existing edited record
+        } else {
+            sessionRecords.push(lastSaved); // add new record
         }
+
+        sessionStorage.setItem('barnSessionRecords', JSON.stringify(sessionRecords));
     }
     renderPreview();
 })();
@@ -439,7 +491,7 @@ document.getElementById('animalForm').addEventListener('submit', function(e) {
 // Clear session records when navigating away (not save & add another)
 document.getElementById('animalForm').addEventListener('submit', function(e) {
     var btn = e.submitter;
-    if (!btn || btn.name !== 'saveAndAdd') {
+    if (!btn || (btn.name !== 'saveAndAdd' && btn.name !== 'saveOnly')) {
         // Going to list — clear session
         sessionStorage.removeItem('barnSessionRecords');
     }

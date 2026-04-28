@@ -8,6 +8,16 @@
     const vendorIdHidden = document.getElementById('vendorIdHidden');
     const vendorFreeText = document.getElementById('vendorNameFreeText');
     const vendorHint     = document.getElementById('vendorHint');
+    const animalForm = document.getElementById('animalForm');
+
+    /*let formSubmitting = false;
+    const animalForm = document.getElementById('animalForm');
+    if(animalForm){
+        animalForm.addEventListener('submit', function () {
+            formSubmitting = true;
+            if(tag1Feedback) tag1Feedback.textContent = ''; 
+        });
+    }*/
 
     if (vendorSearch) {
         let vendorTimer;
@@ -90,6 +100,13 @@
     function applyPurchaseType(type) {
         const isCons = type === 'Consignment Bill';
 
+        if(liveWeightInput){
+            liveWeightInput.required = !isCons;
+            if(isCons){
+                liveWeightInput.setCustomValidity('');
+            }
+        }
+
         if (liveRateField)     liveRateField.style.display     = isCons ? 'none' : '';
         if (consRateField)     consRateField.style.display     = isCons ? '' : 'none';
         if (consignmentFields) consignmentFields.style.display = isCons ? '' : 'none';
@@ -97,11 +114,19 @@
         if (consWeightHint)    consWeightHint.style.display    = isCons ? '' : 'none';
         if (liveWtHint)        liveWtHint.textContent          = isCons
             ? 'For records only — pricing uses hot weight'
-            : 'Expected range: 300–2,500 lbs';
+            : 'Expected range: 300–3,000 lbs';
         if (hotWtReq)          hotWtReq.style.display          = isCons ? '' : 'none';
 
         updateCostPreview();
     }
+
+    if (liveRateInput) {
+            liveRateInput.addEventListener('focus', function () {
+                if (this.value === '0' || this.value === '0.0' || this.value === '0.0000') {
+                    this.value = '';
+                }
+            });
+        }
 
     function readNumber(input) {
     if (!input) return 0;
@@ -161,12 +186,82 @@ function updateCostPreview() {
         });
     }
 
-    // Duplicate tag check 
-    const tag1Input   = document.getElementById('tag1Input');
-    const tag1Feedback= document.getElementById('tag1Feedback');
+        // Duplicate tag check
+    const tag1Input    = document.getElementById('tag1Input');
+    const tag1Feedback = document.getElementById('tag1Feedback');
+
+    let formSubmitting = false;
+    let ajaxSaving = false;
+
+    
+    // Wire Save & add another as a direct click (type="button") - avoids e.submitter browser issues
+    if (animalForm) {
+    animalForm.addEventListener('click', async function (e) {
+        const btn = e.target.closest('#btnSaveAndAdd');
+        if (!btn) return;
+
+        e.preventDefault();
+        if (ajaxSaving) return;
+
+        ajaxSaving = true;
+        if (tag1Feedback) tag1Feedback.textContent = '';
+
+        const oldText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        try {
+            const formData = new FormData(animalForm);
+            formData.set('saveAndAdd', '1');
+
+            const resp = await fetch(
+                (window.BarnUrls && window.BarnUrls.saveAndAddAjax) || '/Animal/CreateAjaxSaveAndAdd',
+                {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                }
+            );
+
+            let data = null;
+            const ct = resp.headers.get('content-type') || '';
+            if (ct.indexOf('application/json') >= 0) {
+                data = await resp.json();
+            } else {
+                const raw = await resp.text();
+                data = { success: false, message: 'Unexpected response from server. ' + raw };
+            }
+
+            if (!resp.ok || !data.success) {
+                showAjaxError(data);
+                return;
+            }
+
+            upsertSessionRecord(data.record);
+            clearForNextEntry();
+
+        } catch {
+            showAjaxError({ message: 'Unable to save right now. Please try again.' });
+        } finally {
+            btn.disabled = false;
+            btn.textContent = oldText;
+            ajaxSaving = false;
+        }
+    });
+}
+
+    // For regular submit buttons (Save, Save and go to list)
+    if (animalForm) {
+        animalForm.addEventListener('submit', function () {
+            formSubmitting = true;
+            if (tag1Feedback) tag1Feedback.textContent = '';
+        });
+    }
 
     if (tag1Input) {
-        tag1Input.addEventListener('blur', checkDuplicateTag);
+        tag1Input.addEventListener('blur', function () {
+            if (!formSubmitting && !ajaxSaving) checkDuplicateTag();
+        });
     }
 
     async function checkDuplicateTag() {
@@ -194,7 +289,61 @@ function updateCostPreview() {
         } catch { tag1Feedback.textContent = ''; }
     }
 
-    // Auto-dismiss flash messages 
+    function upsertSessionRecord(record) {
+        var records = Array.isArray(window.sessionRecords)
+            ? window.sessionRecords
+            : JSON.parse(sessionStorage.getItem('barnSessionRecords') || '[]');
+
+        var incomingId = Number(record.controlNo || 0);
+        var idx = incomingId > 0
+            ? records.findIndex(function (r) { return Number(r.controlNo || 0) === incomingId; })
+            : -1;
+
+        if (idx >= 0) records[idx] = record;
+        else records.push(record);
+
+        window.sessionRecords = records;
+        sessionStorage.setItem('barnSessionRecords', JSON.stringify(records));
+
+        if (typeof window.renderPreview === 'function') window.renderPreview();
+    }
+
+    function clearForNextEntry() {
+        ['tag1Input', 'TagNumber2', 'Tag3', 'AnimalControlNumber',
+         'liveWeightInput', 'hotWeightInput', 'FetalBlood',
+         'Grade', 'State', 'BuyerName', 'VetName', 'Comment', 'OfficeUse2']
+        .forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+
+        var condemned = document.getElementById('IsCondemned');
+        if (condemned) condemned.checked = false;
+
+        if (tag1Input) tag1Input.classList.remove('input-error');
+        if (tag1Feedback) { tag1Feedback.textContent = ''; tag1Feedback.className = 'field-hint'; }
+
+        updateCostPreview();
+        if (tag1Input) tag1Input.focus();
+    }
+
+    function showAjaxError(data) {
+        var msg = (data && data.message) ? data.message : 'Validation failed.';
+        var summary = document.querySelector('[data-valmsg-summary], .validation-summary-errors, .alert-error');
+        if (summary) {
+            summary.style.display = '';
+            summary.innerHTML = '<ul><li>' + msg + '</li></ul>';
+        } else {
+            alert(msg);
+        }
+        if (data && data.errors && data.errors.TagNumber1 && tag1Feedback) {
+            tag1Input.classList.add('input-error');
+            tag1Feedback.textContent = data.errors.TagNumber1[0];
+            tag1Feedback.className = 'field-error';
+        }
+    }
+
+    // Auto-dismiss flash messages
     const flash = document.querySelector('.flash');
     if (flash) {
         setTimeout(() => {

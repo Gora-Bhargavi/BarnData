@@ -2,6 +2,7 @@
 @{
     var statusFilter = ViewBag.StatusFilter as string ?? "pending";
     var killDateStr  = ViewBag.KillDate as string ?? DateTime.Today.ToString("yyyy-MM-dd");
+    var searchTerm  = ViewBag.SearchTerm as string ?? "";
     ViewData["Title"] = statusFilter == "pending" ? "Pending animals"
                       : statusFilter == "killed"  ? "Killed animals — " + killDateStr
                       : "All animals";
@@ -59,9 +60,13 @@
         <!-- Search box -->
         <div style="display:flex;align-items:center;gap:0;background:#fff;border:1.5px solid var(--gray3);border-radius:6px;padding:0 10px;height:30px;width:280px">
             <span style="color:var(--text3);margin-right:6px;font-size:14px">⌕</span>
-            <input type="text" id="animal-search" placeholder="Search any field…"
-                   oninput="searchAnimals()"
-                   style="border:none;outline:none;font-size:12.5px;width:100%;background:transparent;color:var(--text)">
+            <input type="text"
+                id="animal-search"
+                name="searchTerm"
+                value="@searchTerm"
+                form="animal-filter-form"
+                placeholder="Search tag or control no…"
+                style="border:none;outline:none;font-size:12.5px;width:100%;background:transparent;color:var(--text)">
         </div>
         <a asp-action="Create" class="btn btn-primary">+ New animal record</a>
         @if (statusFilter == "pending")
@@ -81,24 +86,25 @@
 <!-- Summary strip -->
 <div class="summary-strip" style="margin-bottom:16px">
     <div class="summary-stat">
-        <div class="summary-val">@ViewBag.TotalCount</div>
+        <div class="summary-val" id="summary-count">@ViewBag.TotalCount</div>
         <div class="summary-lbl">Animals</div>
     </div>
-    <div class="summary-divider"></div>
+   
+        
     <div class="summary-stat">
-        <div class="summary-val">@(((decimal)ViewBag.TotalLiveWeight).ToString("N1"))</div>
+        <div class="summary-val" id="summary-livewt">@(((decimal)ViewBag.TotalLiveWeight).ToString("N1"))</div>
         <div class="summary-lbl">Total live wt (lbs)</div>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val">@(((decimal)ViewBag.TotalCost).ToString("N1"))</div>
+        <div class="summary-val" id="summary-cost">@(((decimal)ViewBag.TotalCost).ToString("N1"))</div>
         <div class="summary-lbl">Total cost</div>
     </div>
     @if (statusFilter == "killed")
     {
         <div class="summary-divider"></div>
         <div class="summary-stat">
-            <div class="summary-val">@(((decimal)ViewBag.TotalHotWeight).ToString("N2"))</div>
+            <div class="summary-val" id="summary-hotwt">@(((decimal)ViewBag.TotalHotWeight).ToString("N2"))</div>
             <div class="summary-lbl">Total hot wt (lbs)</div>
         </div>
     }
@@ -128,18 +134,24 @@
 else
 {
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-        <span id="search-count" style="font-size:12px;color:var(--blue);font-weight:500"></span>
+        <span id="search-count" style="font-size:12px;color:var(--blue);font-weight:500">
+        @(string.IsNullOrWhiteSpace(searchTerm) ? "" : $"Search: {searchTerm} · {ViewBag.TotalCount} match(es)")
+    </span>
+        <a href="#filter" class="btn btn-sm btn-ghost">Edit filters</a>
     </div>
     <div class="table-card">
     <div class="xl-scroll-box">
     <div class="xl-scroll-inner">
-        <table class="data-table" data-colfilter-table style="min-width:2300px;font-size:12px;">
+        <table class="data-table animal-index-table" data-colfilter-table style="min-width:2300px;font-size:12px;">
             <thead>
                 <tr>
                     <th data-colfilter="number" class="sticky-col" style="min-width:70px;left:0">Ctrl No.</th>
+                    <th data-colfilter="text" class="sticky-animalctrl" style="min-width:115px">Animal Ctrl No.</th>
+                    <th data-colfilter="text" class="sticky-tag1" style="min-width:90px">Tag 1</th>
+                    <th data-colfilter="text" class="sticky-tag2" style="min-width:90px">Tag 2</th>
                     <th data-colfilter="text" style="min-width:100px">Animal Type</th>
-                    <th data-colfilter="text" style="min-width:90px">Tag 1</th>
-                    <th data-colfilter="text" style="min-width:90px">Tag 2</th>
+                    <!--<th data-colfilter="text" style="min-width:90px">Tag 1</th>
+                    <th data-colfilter="text" style="min-width:90px">Tag 2</th>-->
                     <th data-colfilter="date" style="min-width:100px">Purchase Date</th>
                     <th data-colfilter="text" style="min-width:100px">Purchase Type</th>
                     <th data-colfilter="text" style="min-width:130px">Vendor</th>
@@ -150,7 +162,7 @@ else
                     <th data-colfilter="text" style="min-width:50px;background:#162236;color:#9ae6b4">Grade</th>
                     <th data-colfilter="number" style="min-width:40px;background:#162236;color:#9ae6b4">HS</th>
                     <th data-colfilter="text" style="min-width:160px">Comments</th>
-                    <th data-colfilter="text" style="min-width:115px">Animal Ctrl No.</th>
+                    <!--<th data-colfilter="text" style="min-width:115px">Animal Ctrl No.</th>-->
                     <th data-colfilter="text" style="min-width:70px">Tag 3</th>
                     <th data-colfilter="text" style="min-width:120px">Office Use 2</th>
                     <th data-colfilter="text" style="min-width:45px">State</th>
@@ -165,11 +177,17 @@ else
                 @foreach (var a in Model)
                 {
                     <tr class="@(a.IsCondemned ? "row-condemned" : "")"
-                        data-s="@($"{a.ControlNo} {a.Vendor?.VendorName} {a.TagNumber1} {a.TagNumber2} {a.Tag3} {a.AnimalControlNumber} {a.Grade} {a.HealthScore} {a.Comment} {a.State} {a.HotWeight?.ToString("N1")}".ToLower().Trim())">
+                        data-search="@($"{a.ControlNo} {a.AnimalType} {a.TagNumber1} {a.TagNumber2} {a.Tag3} {a.AnimalControlNumber} {a.PurchaseDate:MM/dd/yyyy} {a.PurchaseType} {a.Vendor?.VendorName} {a.LiveWeight:N1} {a.LiveRate:N4} {(a.KillDate.HasValue ? a.KillDate.Value.ToString("MM/dd/yyyy") : "")} {a.HotWeight?.ToString("N1")} {a.Grade} {a.HealthScore} {a.Comment} {a.OfficeUse2} {a.State} {a.BuyerName} {a.AnimalType2} {a.VetName} {a.FetalBlood?.ToString("N2")}".ToLowerInvariant())"
+                        data-livewt="@a.LiveWeight"
+                        data-hotwt="@(a.HotWeight ?? 0m)"
+                        data-cost="@((a.PurchaseType?.Contains("consignment", StringComparison.OrdinalIgnoreCase) ?? false ? (a.HotWeight ?? 0m) * (a.ConsignmentRate ?? 0m) : a.LiveWeight * a.LiveRate).ToString(System.Globalization.CultureInfo.InvariantCulture))">
                         <td class="mono sticky-col" style="left:0">@a.ControlNo</td>
+                        <td class="mono sticky-animalctrl">@(a.AnimalControlNumber ?? "—")</td>
+                        <td class="mono sticky-tag1">@a.TagNumber1</td> 
+                        <td class="mono sticky-tag2">@(a.TagNumber2 ?? "—")</td>
                         <td>@a.AnimalType</td>
-                        <td class="mono">@a.TagNumber1</td>
-                        <td class="mono">@(a.TagNumber2 ?? "—")</td>
+                        <!--<td class="mono">@a.TagNumber1</td>
+                        <td class="mono">@(a.TagNumber2 ?? "—")</td>-->
                         <td>@a.PurchaseDate.ToString("MM/dd/yyyy")</td>
                         <td>
                             <span class="badge @(a.PurchaseType == "Consignment Bill" ? "badge-cons" : "badge-sale")">
@@ -184,7 +202,7 @@ else
                         <td>@if (a.Grade != null) { <span class="badge badge-grade">@a.Grade</span> } else { <span>—</span> }</td>
                         <td class="text-center" style="@(a.HealthScore.HasValue ? "color:#1e40af;font-weight:500" : "")">@(a.HealthScore?.ToString() ?? "—")</td>
                         <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.Comment">@(a.Comment ?? "—")</td>
-                        <td class="mono">@(a.AnimalControlNumber ?? "—")</td>
+                        <!--<td class="mono">@(a.AnimalControlNumber ?? "—")</td>-->
                         <td class="mono">@(a.Tag3 ?? "—")</td>
                         <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="@a.OfficeUse2">@(a.OfficeUse2 ?? "—")</td>
                         <td>@(a.State ?? "—")</td>
@@ -195,6 +213,7 @@ else
                         <td class="actions-cell" style="white-space:nowrap">
                             <a asp-action="Edit" asp-route-id="@a.ControlNo" class="btn btn-sm btn-secondary">Edit</a>
                             <a asp-action="Detail" asp-route-id="@a.ControlNo" class="btn btn-sm btn-ghost">View</a>
+                                    
                             @if (a.KillStatus != "Flagged")
                             {
                                 <form method="post" asp-action="Delete"
@@ -227,6 +246,15 @@ else
 }
 
 @* ── Pagination (pending only) ── *@
+@{
+    var vendorQuery = !string.IsNullOrWhiteSpace(ViewBag.VendorIds as string)
+        ? "&vendorIds=" + Uri.EscapeDataString((string)ViewBag.VendorIds)
+        : (ViewBag.VendorId != null ? "&vendorId=" + ViewBag.VendorId : "");
+
+    var searchQuery = !string.IsNullOrWhiteSpace(searchTerm)
+        ? "&searchTerm=" + Uri.EscapeDataString(searchTerm)
+        : "";
+}
 @if (ViewBag.StatusFilter == "pending" && ViewBag.TotalPages > 1)
 {
     <div style="display:flex;align-items:center;gap:8px;padding:12px 0;flex-wrap:wrap">
@@ -238,18 +266,18 @@ else
         <div style="display:flex;gap:4px;margin-left:auto">
             @if ((int)ViewBag.CurrentPage > 1)
             {
-                <a href="?status=pending&page=1@(ViewBag.VendorId != null ? "&vendorId="+ViewBag.VendorId : "")" class="btn btn-secondary btn-sm">« First</a>
-                <a href="?status=pending&page=@((int)ViewBag.CurrentPage-1)@(ViewBag.VendorId != null ? "&vendorId="+ViewBag.VendorId : "")" class="btn btn-secondary btn-sm">‹ Prev</a>
+                <a href="?status=pending&page=1@vendorQuery@searchQuery" class="btn btn-secondary btn-sm">« First</a>
+                <a href="?status=pending&page=@((int)ViewBag.CurrentPage-1)@vendorQuery@searchQuery" class="btn btn-secondary btn-sm">‹ Prev</a>
             }
             @for (int p = Math.Max(1,(int)ViewBag.CurrentPage-2); p <= Math.Min((int)ViewBag.TotalPages,(int)ViewBag.CurrentPage+2); p++)
             {
-                <a href="?status=pending&page=@p@(ViewBag.VendorId != null ? "&vendorId="+ViewBag.VendorId : "")"
+                <a href="?status=pending&page=@p@vendorQuery@searchQuery"
                    class="btn @(p==(int)ViewBag.CurrentPage ? "btn-primary" : "btn-secondary") btn-sm">@p</a>
             }
             @if ((int)ViewBag.CurrentPage < (int)ViewBag.TotalPages)
             {
-                <a href="?status=pending&page=@((int)ViewBag.CurrentPage+1)@(ViewBag.VendorId != null ? "&vendorId="+ViewBag.VendorId : "")" class="btn btn-secondary btn-sm">Next ›</a>
-                <a href="?status=pending&page=@ViewBag.TotalPages@(ViewBag.VendorId != null ? "&vendorId="+ViewBag.VendorId : "")" class="btn btn-secondary btn-sm">Last »</a>
+                <a href="?status=pending&page=@((int)ViewBag.CurrentPage+1)@vendorQuery@searchQuery" class="btn btn-secondary btn-sm">Next ›</a>
+                <a href="?status=pending&page=@ViewBag.TotalPages@vendorQuery@searchQuery" class="btn btn-secondary btn-sm">Last »</a>
             }
         </div>
     </div>
@@ -263,33 +291,97 @@ else
     .badge-cons { background:#fef3c7; color:#92400e; }
     .vendor-chip { background:#eff6ff;color:#1e40af;border-radius:20px;padding:1px 7px;font-size:11.5px;display:inline-flex;align-items:center;gap:3px; }
     #vendor-dropdown label:hover { background:var(--gray1); }
-    .xl-scroll-inner thead .sticky-col { background: #1e2f47 !important; color:#fff !important; z-index: 4 !important; }
+    /*.xl-scroll-inner thead .sticky-col { background: #1e2f47 !important; color:#fff !important; z-index: 4 !important; }
     .xl-scroll-inner .sticky-col { background: #fff; }
-    .row-condemned .sticky-col { background: #fef2f2 !important; }
+    .row-condemned .sticky-col { background: #fef2f2 !important; }*/
 </style>
 <script>
-// Search 
-function searchAnimals() {
-    var q = (document.getElementById('animal-search')?.value || '').toLowerCase().trim();
-    var rows = document.querySelectorAll('.data-table tbody tr');
-    var vis = 0;
-    rows.forEach(function(r) {
-        var show = !q || (r.dataset.s || '').includes(q);
-        r.style.display = show ? '' : 'none';
-        if (show) vis++;
-    });
-    var c = document.getElementById('search-count');
-    if (c) c.textContent = q ? vis + ' of ' + rows.length + ' shown' : '';
-}
-
-//Vendor picker
-document.addEventListener('vp:apply', function (e) {
-    if (e.detail && e.detail.id === 'animal') {
-        document.getElementById('animal-filter-form').submit();
+// Search + summary sync
+    function getTableRows() {
+        return Array.from(document.querySelectorAll('.data-table tbody tr'));
     }
-});
 
-document.addEventListener("DOMContentLoaded", function () {
+    function isRowVisible(row) {
+        return row.style.display !== 'none' && !row.classList.contains('cf-hidden');
+    }
+
+    function refreshVisibleSummary() {
+        var rows = getTableRows().filter(isRowVisible);
+
+        var count = rows.length;
+        var totalLiveWt = rows.reduce(function (sum, row) {
+            return sum + (parseFloat(row.dataset.livewt || '0') || 0);
+        }, 0);
+        var totalHotWt = rows.reduce(function (sum, row) {
+            return sum + (parseFloat(row.dataset.hotwt || '0') || 0);
+        }, 0);
+        var totalCost = rows.reduce(function (sum, row) {
+            return sum + (parseFloat(row.dataset.cost || '0') || 0);
+        }, 0);
+
+        var countEl = document.getElementById('summary-count');
+        var liveWtEl = document.getElementById('summary-livewt');
+        var costEl = document.getElementById('summary-cost');
+        var hotWtEl = document.getElementById('summary-hotwt');
+
+        if (countEl) countEl.textContent = count.toString();
+        if (liveWtEl) liveWtEl.textContent = totalLiveWt.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        if (costEl) costEl.textContent = totalCost.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        if (hotWtEl) hotWtEl.textContent = totalHotWt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    /*function searchAnimals() {
+            var q = (document.getElementById('animal-search')?.value || '').toLowerCase().trim();
+            var rows = getTableRows();
+
+            rows.forEach(function (row) {
+            var haystack = ((row.dataset.search || row.textContent || '') + '').toLowerCase();
+            var matches = !q || haystack.includes(q);
+            // Only show if it matches search AND isn't hidden by column filter
+            var isHiddenByFilter = row.classList.contains('cf-hidden');
+            row.style.display = (matches && !isHiddenByFilter) ? '' : 'none';
+        });
+
+        var visibleRows = rows.filter(isRowVisible);
+        var countEl = document.getElementById('search-count');
+        if (countEl) {
+            countEl.textContent = q ? (visibleRows.length + ' of ' + rows.length + ' shown') : '';
+        }
+
+        refreshVisibleSummary();
+    }*/
+
+    // Vendor picker
+    document.addEventListener('vp:apply', function (e) {
+        if (e.detail && e.detail.id === 'animal') {
+            document.getElementById('animal-filter-form').submit();
+        }
+    });
+
+    function initAnimalIndexPage() {
+    /*var searchBox = document.getElementById('animal-search');
+    if (searchBox && searchBox.dataset.bound !== '1') {
+        searchBox.addEventListener('input', searchAnimals);
+        searchBox.dataset.bound = '1';
+    }*/
+
+    var tbody = document.querySelector('.data-table tbody');
+    if (tbody && tbody.dataset.summaryBound !== '1') {
+        var observer = new MutationObserver(function () {
+            refreshVisibleSummary();
+        });
+
+        observer.observe(tbody, {
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'style']
+        });
+
+        tbody.dataset.summaryBound = '1';
+    }
+
+    refreshVisibleSummary();
+
     if (!window.BarnNav) return;
     var table = document.querySelector(".table-card .data-table");
     if (!table) return;
@@ -299,6 +391,12 @@ document.addEventListener("DOMContentLoaded", function () {
         cellSelector: ".actions-cell a, .actions-cell button",
         wrap: true
     });
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAnimalIndexPage);
+} else {
+    initAnimalIndexPage();
+}
 </script>
 }

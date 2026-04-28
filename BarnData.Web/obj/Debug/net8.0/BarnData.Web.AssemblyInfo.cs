@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BarnData.Web")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3ae53ef319d89da90af3eb170627f4125c12226f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+377dad41b848942689ff09a9bac08cd415d48cab")]
 [assembly: System.Reflection.AssemblyProductAttribute("BarnData.Web")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BarnData.Web")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

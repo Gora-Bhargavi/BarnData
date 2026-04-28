@@ -43,5 +43,22 @@
     <script>
         const CONTROL_NO    = @Model.ControlNo;
         const CHECK_TAG_URL = '@Url.Action("CheckTag", "Animal")';
+        @if (Model.VendorID > 0 && Model.VendorList.Any())
+        {
+            var vendorItem = Model.VendorList.FirstOrDefault(v => v.Value == Model.VendorID.ToString());
+            if (vendorItem != null)
+            {
+                <text>
+                document.addEventListener('DOMContentLoaded', function () {
+                    var vs = document.getElementById('vendorSearch');
+                    var vi = document.getElementById('vendorIdHidden');
+                    if (vs && vi) {
+                        vs.value = '@vendorItem.Text';
+                        vi.value = '@vendorItem.Value';
+                    }
+                });
+                </text>
+            }
+        }
     </script>
 }

@@ -1,9 +1,12 @@
+using System.Text.Json;
 using BarnData.Core.Services;
 using BarnData.Data.Entities;
 using BarnData.Web.Models;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.EntityFrameworkCore.Storage.Json;
+using NPOI.SS.Formula.Functions;
 
 namespace BarnData.Web.Controllers
 {
@@ -12,15 +15,32 @@ namespace BarnData.Web.Controllers
         private readonly IAnimalService _animalService;
         private readonly IVendorService _vendorService;
 
-        public AnimalController(IAnimalService animalService, IVendorService vendorService)
+        private readonly IAnimalQueryService _animalQueryService;
+
+        public AnimalController(IAnimalService animalService, IVendorService vendorService, IAnimalQueryService animalQueryService)
         {
             _animalService = animalService;
             _vendorService = vendorService;
+            _animalQueryService = animalQueryService;
         }
 
+        
         // INDEX - show animals with status filter + pagination for pending
-        public async Task<IActionResult> Index(DateTime? killDate, int? vendorId, string? status, string? vendorIds, int page = 1)
+        public async Task<IActionResult> Index(
+            DateTime? killDate,
+            int? vendorId,
+            string? status,
+            string? vendorIds,
+            string? searchTerm,
+            int page = 1)
         {
+
+           /*ar savedAnimals = HttpContext.Session.GetString("SavedAnimals");
+        var sessionSavedCount = string.IsNullOrWhiteSpace(savedAnimals)
+            ? 0
+            : (JsonSerializer.Deserialize<List<int>>(savedAnimals)?.Count ?? 0);
+        ViewBag.SessionSavedCount = sessionSavedCount;*/
+
             const int PageSize = 500; // show 500 per page — avoids loading 100k rows
             var vendors = await _vendorService.GetAllActiveAsync();
             IEnumerable<BarnData.Data.Entities.Animal> animals;
@@ -54,21 +74,26 @@ namespace BarnData.Web.Controllers
             }
             else
             {
-                if (useMulti)
-                {
-                    animals = await _animalService.GetPendingByVendorsAsync(multiVendorIds);
-                    totalCount = animals.Count();
-                }
-                else
-                {
-                    var (pagedAnimals, total) = await _animalService.GetPendingPagedAsync(vendorId, page, PageSize);
-                    animals = pagedAnimals;
-                    totalCount = total;
-                }
+                var pendingVendorIds = useMulti
+                    ? multiVendorIds
+                    : vendorId.HasValue
+                        ? new List<int> { vendorId.Value }
+                        : new List<int>();
+
+                var (pagedAnimals, total) = await _animalQueryService.GetPendingPagedAsync(
+                    pendingVendorIds,
+                    page,
+                    PageSize,
+                    searchTerm);
+
+                animals = pagedAnimals;
+                totalCount = total;
+
                 ViewBag.StatusFilter = "pending";
                 ViewBag.KillDate = DateTime.Today.ToString("yyyy-MM-dd");
             }
 
+            ViewBag.SearchTerm = searchTerm ?? "";
             ViewBag.VendorId    = vendorId;
             ViewBag.VendorIds   = vendorIds ?? "";
             ViewBag.VendorList  = vendors.Select(v => new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem(v.VendorName, v.VendorID.ToString(), multiVendorIds.Contains(v.VendorID) || v.VendorID == vendorId));
@@ -131,7 +156,7 @@ namespace BarnData.Web.Controllers
             }
 
             // Check weight warning - does not block, just flags
-            vm.ShowWeightWarning = _animalService.IsWeightOutOfRange(vm.LiveWeight);
+            vm.ShowWeightWarning = _animalService.IsWeightOutOfRange(vm.LiveWeight ?? 0m);
 
             // If weight is out of range AND user hasn't confirmed yet - show warning
             if (vm.ShowWeightWarning && !vm.WeightWarningConfirmed)
@@ -156,28 +181,51 @@ namespace BarnData.Web.Controllers
                 return View(vm);
             }
 
-            TempData["SuccessMessage"] = $"Record saved — Control No. {animal.ControlNo}. Tag: {animal.TagNumber1}";
+            TempData["SuccessMessage"] = $"Animal record #{animal.ControlNo} updated successfully.";
 
-            // Save & Add Another - carry sticky fields to the next form
+            if (Request.Form.ContainsKey("saveOnly"))
+            {
+                TempData["LastSavedControlNo"] = animal.ControlNo;
+                TempData["LastSavedTag1"] = animal.TagNumber1;
+                TempData["LastSavedTag2"] = vm.TagNumber2 ?? "";
+                TempData["LastSavedVendorId"] = vm.VendorID;
+                TempData["LastSavedLiveWt"] = vm.LiveWeight?.ToString() ?? "0";
+                TempData["LastSavedLiveRate"] = vm.LiveRate.ToString();
+                TempData["LastSavedAnimalType"] = vm.AnimalType;
+                return RedirectToAction(nameof(Create));
+            }
+
             if (Request.Form.ContainsKey("saveAndAdd"))
             {
-                TempData["StickyVendorId"]    = vm.VendorID;
-                TempData["StickyPurchaseType"]= vm.PurchaseType;
-                TempData["StickyPurchaseDate"]= vm.PurchaseDate.ToString("yyyy-MM-dd");
-                TempData["StickyLiveRate"]    = vm.LiveRate.ToString();
-                TempData["StickyConsRate"]    = vm.ConsignmentRate?.ToString();
+                TempData["StickyVendorId"] = vm.VendorID;
+                TempData["StickyPurchaseType"] = vm.PurchaseType;
+                TempData["StickyPurchaseDate"] = vm.PurchaseDate.ToString("yyyy-MM-dd");
+                TempData["StickyLiveRate"] = vm.LiveRate.ToString();
+                TempData["StickyConsRate"] = vm.ConsignmentRate?.ToString();
                 TempData["StickyProgramCode"] = vm.ProgramCode;
+                TempData["StickyAnimalType"] = vm.AnimalType;
+                TempData["StickyPurchaseDateTicks"] = vm.PurchaseDate.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                //TempData["StickyPurchaseDate"] = vm.PurchaseDate.ToString("yyyy-MM-dd");
+
                 TempData["LastSavedControlNo"] = animal.ControlNo;
-                TempData["LastSavedTag1"]      = animal.TagNumber1;
-                TempData["LastSavedVendorId"]  = vm.VendorID;
-                TempData["LastSavedLiveWt"]    = vm.LiveWeight.ToString();
-                TempData["LastSavedLiveRate"]  = vm.LiveRate.ToString();
-                TempData["LastSavedAnimalType"]= vm.AnimalType;
+                //TempData["LastSavedControlNo"] = animal.ControlNo;
+                TempData["LastSavedTag1"] = vm.TagNumber1 ?? "";
+                TempData["LastSavedTag2"] = vm.TagNumber2 ?? "";
+                TempData["LastSavedVendorId"] = vm.VendorID;
+                TempData["LastSavedLiveWt"] = vm.LiveWeight?.ToString() ?? "0";
+                TempData["LastSavedLiveRate"] = vm.LiveRate.ToString();
+                TempData["LastSavedAnimalType"] = vm.AnimalType;
                 return RedirectToAction(nameof(CreateSticky));
+            }
+
+            if (Request.Form.ContainsKey("saveAndList"))
+            {
+                return RedirectToAction(nameof(Index), new { status = "pending" });
             }
 
             return RedirectToAction(nameof(Index), new { status = "pending" });
         }
+
 
         //  CREATE STICKY - blank form with fields pre-filled 
         public async Task<IActionResult> CreateSticky()
@@ -191,12 +239,28 @@ namespace BarnData.Web.Controllers
             // Restore sticky fields from TempData
             if (TempData["StickyVendorId"] is int vendorId && vendorId > 0)
                 vm.VendorID = vendorId;
+            
+            if (TempData["StickyAnimalType"] is string at && !string.IsNullOrEmpty(at))
+                vm.AnimalType = at;
 
             if (TempData["StickyPurchaseType"] is string pt && !string.IsNullOrEmpty(pt))
                 vm.PurchaseType = pt;
+            
 
-            if (TempData["StickyPurchaseDate"] is string pd && DateTime.TryParse(pd, out var purchDate))
+            if (TempData["StickyPurchaseDateTicks"] is string ticksText &&
+            long.TryParse(ticksText, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var ticks))
+                {
+                    vm.PurchaseDate = new DateTime(ticks);
+                 }
+            else if (TempData["StickyPurchaseDate"] is string pd &&
+            DateTime.TryParseExact(pd, "yyyy-MM-dd",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out var purchDate))
+            {
                 vm.PurchaseDate = purchDate;
+            }
 
             if (TempData["StickyLiveRate"] is string lr && decimal.TryParse(lr, out var liveRate))
                 vm.LiveRate = liveRate;
@@ -246,7 +310,7 @@ namespace BarnData.Web.Controllers
                 return View(vm);
             }
 
-            vm.ShowWeightWarning = _animalService.IsWeightOutOfRange(vm.LiveWeight);
+            vm.ShowWeightWarning = _animalService.IsWeightOutOfRange(vm.LiveWeight ?? 0m);
             if (vm.ShowWeightWarning && !vm.WeightWarningConfirmed)
             {
                 await PopulateVendorDropdown(vm);
@@ -267,8 +331,27 @@ namespace BarnData.Web.Controllers
             }
 
             TempData["SuccessMessage"] = $"Animal record #{id} updated successfully.";
-            return RedirectToAction(nameof(Index),
-                new { killDate = vm.KillDate.HasValue ? vm.KillDate.Value.ToString("yyyy-MM-dd") : DateTime.Today.ToString("yyyy-MM-dd") });
+
+        // keep sticky values so New Animal page remains prefilled
+        TempData["StickyVendorId"] = vm.VendorID;
+        TempData["StickyPurchaseType"] = vm.PurchaseType;
+        TempData["StickyPurchaseDate"] = vm.PurchaseDate.ToString("yyyy-MM-dd");
+        TempData["StickyPurchaseDateTicks"] = vm.PurchaseDate.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        TempData["StickyLiveRate"] = vm.LiveRate.ToString();
+        TempData["StickyConsRate"] = vm.ConsignmentRate?.ToString();
+        TempData["StickyProgramCode"] = vm.ProgramCode;
+        TempData["StickyAnimalType"] = vm.AnimalType;
+
+        // push updated row back to session preview payload
+        TempData["LastSavedControlNo"] = vm.ControlNo;
+        TempData["LastSavedTag1"] = vm.TagNumber1 ?? "";
+        TempData["LastSavedTag2"] = vm.TagNumber2 ?? "";
+        TempData["LastSavedVendorId"] = vm.VendorID;
+        TempData["LastSavedLiveWt"] = vm.LiveWeight?.ToString() ?? "0";
+        TempData["LastSavedLiveRate"] = vm.LiveRate.ToString();
+        TempData["LastSavedAnimalType"] = vm.AnimalType ?? "";
+
+        return RedirectToAction(nameof(CreateSticky));
         }
 
         //  DETAIL - read-only view 
@@ -431,7 +514,7 @@ namespace BarnData.Web.Controllers
             ProgramCode          = vm.ProgramCode,
             PurchaseDate         = vm.PurchaseDate,
             PurchaseType         = vm.PurchaseType,
-            LiveWeight           = vm.LiveWeight,
+            LiveWeight           = vm.LiveWeight ?? 0m,
             LiveRate             = vm.LiveRate,
             ConsignmentRate      = vm.ConsignmentRate,
             KillDate             = vm.KillDate,
