@@ -39,7 +39,7 @@
 </form>
 
 @section Scripts {
-    <script src="~/js/animal-form.js"></script>
+    <script src="~/js/animal-form.js" asp-append-version="true"></script>
     <script>
         const CONTROL_NO    = @Model.ControlNo;
         const CHECK_TAG_URL = '@Url.Action("CheckTag", "Animal")';

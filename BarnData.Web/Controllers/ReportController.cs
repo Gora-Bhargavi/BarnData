@@ -69,35 +69,104 @@ namespace BarnData.Web.Controllers
             return (await _animalService.GetFilteredAsync(single)).ToList();
         }
 
-        //  KILLED ANIMALS LIST 
-        public async Task<IActionResult> Tally(DateTime? killDate, int? vendorId, string? vendorIds)
+        private async Task<List<Animal>> LoadByFilterAsync(ExportFilter baseFilter, int? legacyVendorId, List<int> multiIds)
         {
-            var date    = killDate ?? DateTime.Today;
-            var vendors = await _vendorService.GetAllActiveAsync();
-            var multi   = ParseVendorIds(vendorIds);
-            var animals = await LoadKilledAsync(date, vendorId, multi);
+            if (multiIds.Count > 0)
+            {
+                var all = new List<Animal>();
+                foreach (var vid in multiIds)
+                {
+                    var f = new ExportFilter
+                    {
+                        VendorId = vid,
+                        Status = baseFilter.Status,
+                        KillDateFrom = baseFilter.KillDateFrom,
+                        KillDateTo = baseFilter.KillDateTo,
+                        PurchDateFrom = baseFilter.PurchDateFrom,
+                        PurchDateTo = baseFilter.PurchDateTo
+                    };
+                    all.AddRange(await _animalService.GetFilteredAsync(f));
+                }
 
-            ViewBag.KillDate   = date;
-            ViewBag.KillDateStr = date.ToString("yyyy-MM-dd");
-            ViewBag.VendorId   = vendorId;
-            ViewBag.VendorIds  = vendorIds ?? "";
+                return all
+                    .GroupBy(a => a.ControlNo)
+                    .Select(g => g.First())
+                    .ToList();
+            }
+
+            var single = new ExportFilter
+            {
+                VendorId = legacyVendorId,
+                Status = baseFilter.Status,
+                KillDateFrom = baseFilter.KillDateFrom,
+                KillDateTo = baseFilter.KillDateTo,
+                PurchDateFrom = baseFilter.PurchDateFrom,
+                PurchDateTo = baseFilter.PurchDateTo
+            };
+
+            return (await _animalService.GetFilteredAsync(single)).ToList();
+        }
+
+        //  KILLED ANIMALS LIST 
+        public async Task<IActionResult> Tally(
+            DateTime? killDate,
+            int? vendorId,
+            string? vendorIds,
+            string? status,
+            DateTime? killDateFrom,
+            DateTime? killDateTo,
+            DateTime? purchDateFrom,
+            DateTime? purchDateTo)
+        {
+            var anchorDate = killDate ?? DateTime.Today;
+            var from = killDateFrom ?? anchorDate;
+            var to = killDateTo ?? anchorDate;
+
+            var normalizedStatus = string.IsNullOrWhiteSpace(status) ? "Killed" : status;
+
+            var vendors = await _vendorService.GetAllActiveAsync();
+            var multi = ParseVendorIds(vendorIds);
+
+            var baseFilter = new ExportFilter
+            {
+                Status = normalizedStatus,
+                KillDateFrom = from,
+                KillDateTo = to,
+                PurchDateFrom = purchDateFrom,
+                PurchDateTo = purchDateTo
+            };
+
+            var animals = await LoadByFilterAsync(baseFilter, vendorId, multi);
+
+            ViewBag.KillDate = anchorDate;
+            ViewBag.KillDateStr = anchorDate.ToString("yyyy-MM-dd");
+            ViewBag.VendorId = vendorId;
+            ViewBag.VendorIds = vendorIds ?? "";
+            ViewBag.Status = normalizedStatus;
+            ViewBag.KillDateFrom = from.ToString("yyyy-MM-dd");
+            ViewBag.KillDateTo = to.ToString("yyyy-MM-dd");
+            ViewBag.PurchDateFrom = purchDateFrom?.ToString("yyyy-MM-dd");
+            ViewBag.PurchDateTo = purchDateTo?.ToString("yyyy-MM-dd");
+
             ViewBag.VendorList = vendors.Select(v =>
                 new Microsoft.AspNetCore.Mvc.Rendering.SelectListItem(
                     v.VendorName, v.VendorID.ToString(),
                     multi.Contains(v.VendorID) || v.VendorID == vendorId));
+
             ViewBag.SelectedVendorNames = (multi.Count > 0
                     ? vendors.Where(v => multi.Contains(v.VendorID))
                     : vendors.Where(v => v.VendorID == vendorId))
                 .Select(v => v.VendorName).ToList();
-            ViewBag.TotalCount     = animals.Count;
-            ViewBag.TotalCondemned = animals.Count(a => a.IsCondemned);
-            ViewBag.TotalPassed    = animals.Count(a => !a.IsCondemned);
-            ViewBag.TotalLiveWt    = animals.Sum(a => a.LiveWeight);
-            ViewBag.TotalHotWt     = animals.Sum(a => a.HotWeight ?? 0);
-            ViewBag.TotalCost      = animals.Sum(a => a.SaleCost);
 
-            ViewData["Title"]    = "Nightly tally";
-            ViewData["Subtitle"] = "Killed animals — " + date.ToString("dddd, MMMM d, yyyy");
+            ViewBag.TotalCount = animals.Count;
+            ViewBag.TotalCondemned = animals.Count(a => a.IsCondemned);
+            ViewBag.TotalPassed = animals.Count(a => !a.IsCondemned);
+            ViewBag.TotalLiveWt = animals.Sum(a => a.LiveWeight);
+            ViewBag.TotalHotWt = animals.Sum(a => a.HotWeight ?? 0);
+            ViewBag.TotalCost = animals.Sum(a => a.SaleCost);
+
+            ViewData["Title"] = "Nightly tally";
+            ViewData["Subtitle"] = "Killed animals — " + anchorDate.ToString("dddd, MMMM d, yyyy");
             return View(animals);
         }
 
@@ -153,39 +222,82 @@ namespace BarnData.Web.Controllers
         }
 
         //  EXPORT EXCEL - KILLED ANIMALS LIST
-        public async Task<IActionResult> ExportKilledExcel(DateTime? killDate, int? vendorId, string? vendorIds)
+        public async Task<IActionResult> ExportKilledExcel(
+            DateTime? killDate,
+            int? vendorId,
+            string? vendorIds,
+            string? status,
+            DateTime? killDateFrom,
+            DateTime? killDateTo,
+            DateTime? purchDateFrom,
+            DateTime? purchDateTo)
         {
-            var date    = killDate ?? DateTime.Today;
-            var multi   = ParseVendorIds(vendorIds);
-            var animals = await LoadKilledAsync(date, vendorId, multi);
-            var bytes   = BuildExcel(animals, $"Killed animals — {date:MM/dd/yyyy}");
-            return File(bytes,
+            var anchorDate = killDate ?? DateTime.Today;
+            var from = killDateFrom ?? anchorDate;
+            var to = killDateTo ?? anchorDate;
+            var normalizedStatus = string.IsNullOrWhiteSpace(status) ? "Killed" : status;
+            var multi = ParseVendorIds(vendorIds);
+
+            var baseFilter = new ExportFilter
+            {
+                Status = normalizedStatus,
+                KillDateFrom = from,
+                KillDateTo = to,
+                PurchDateFrom = purchDateFrom,
+                PurchDateTo = purchDateTo
+            };
+
+            var animals = await LoadByFilterAsync(baseFilter, vendorId, multi);
+            var bytes = BuildExcel(animals, $"Killed animals — {from:MM/dd/yyyy} to {to:MM/dd/yyyy}");
+
+            return File(
+                bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"KilledAnimals_{date:yyyyMMdd}.xlsx");
+                $"KilledAnimals_{from:yyyyMMdd}_{to:yyyyMMdd}.xlsx");
         }
 
-        //  EXPORT PDF - PAGE 1 
-        public async Task<IActionResult> ExportKilledPdf(DateTime? killDate, int? vendorId, string? vendorIds)
+        public async Task<IActionResult> ExportKilledPdf(
+            DateTime? killDate,
+            int? vendorId,
+            string? vendorIds,
+            string? status,
+            DateTime? killDateFrom,
+            DateTime? killDateTo,
+            DateTime? purchDateFrom,
+            DateTime? purchDateTo)
         {
-            var date    = killDate ?? DateTime.Today;
-            var multi   = ParseVendorIds(vendorIds);
-            var animals = await LoadKilledAsync(date, vendorId, multi);
+            var anchorDate = killDate ?? DateTime.Today;
+            var from = killDateFrom ?? anchorDate;
+            var to = killDateTo ?? anchorDate;
+            var normalizedStatus = string.IsNullOrWhiteSpace(status) ? "Killed" : status;
+            var multi = ParseVendorIds(vendorIds);
 
-            ViewBag.KillDate       = date;
-            ViewBag.TotalCount     = animals.Count;
+            var baseFilter = new ExportFilter
+            {
+                Status = normalizedStatus,
+                KillDateFrom = from,
+                KillDateTo = to,
+                PurchDateFrom = purchDateFrom,
+                PurchDateTo = purchDateTo
+            };
+
+            var animals = await LoadByFilterAsync(baseFilter, vendorId, multi);
+
+            ViewBag.KillDate = anchorDate;
+            ViewBag.TotalCount = animals.Count;
             ViewBag.TotalCondemned = animals.Count(a => a.IsCondemned);
-            ViewBag.TotalPassed    = animals.Count(a => !a.IsCondemned);
-            ViewBag.TotalLiveWt    = animals.Sum(a => a.LiveWeight);
-            ViewBag.TotalHotWt     = animals.Sum(a => a.HotWeight ?? 0);
-            ViewBag.TotalCost      = animals.Sum(a => a.SaleCost);
+            ViewBag.TotalPassed = animals.Count(a => !a.IsCondemned);
+            ViewBag.TotalLiveWt = animals.Sum(a => a.LiveWeight);
+            ViewBag.TotalHotWt = animals.Sum(a => a.HotWeight ?? 0);
+            ViewBag.TotalCost = animals.Sum(a => a.SaleCost);
 
             return new ViewAsPdf("TallyPrint", animals)
             {
-                FileName        = $"KilledAnimals_{date:yyyyMMdd}.pdf",
-                PageSize        = Rotativa.AspNetCore.Options.Size.Letter,
+                FileName = $"KilledAnimals_{from:yyyyMMdd}_{to:yyyyMMdd}.pdf",
+                PageSize = Rotativa.AspNetCore.Options.Size.Letter,
                 PageOrientation = Rotativa.AspNetCore.Options.Orientation.Landscape,
-                PageMargins     = new Rotativa.AspNetCore.Options.Margins(8, 8, 8, 8),
-                CustomSwitches  = "--print-media-type"
+                PageMargins = new Rotativa.AspNetCore.Options.Margins(8, 8, 8, 8),
+                CustomSwitches = "--print-media-type"
             };
         }
 

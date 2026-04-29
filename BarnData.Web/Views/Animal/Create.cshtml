@@ -282,7 +282,7 @@
 </div>
 
 @section Scripts {
-<script src="~/js/animal-form.js"></script>
+<script src="~/js/animal-form.js" asp-append-version="true"></script>
 <script>
     window.BarnUrls = window.BarnUrls || {};
     window.BarnUrls.saveAndAddAjax = '@Url.Action("CreateAjaxSaveAndAdd", "Animal")';

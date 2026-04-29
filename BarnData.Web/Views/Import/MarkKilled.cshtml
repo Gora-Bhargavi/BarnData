@@ -192,6 +192,7 @@
                                 data-s="@($"{a.ControlNo} {a.VendorName} {a.Tag1} {a.Tag2} {a.AnimalControlNumber} {a.Grade} {a.HealthScore} {a.Comment}".ToLower().Trim())"
                                 data-id="@a.ControlNo"
                                 data-purchase-type="@a.PurchaseType"
+                                data-animal-type="@a.AnimalType"
                                 data-orig-live="@a.LiveWeight.ToString("0.0")"
                                 data-orig-acn="@(a.AnimalControlNumber ?? "")"
                                 data-orig-hw="@(a.HotWeight?.ToString("0.0") ?? "")"
@@ -208,6 +209,8 @@
                                            value="@a.ControlNo"
                                            class="animal-chk"
                                            onchange="highlightRow(this); updateCount()" />
+                                    <input type="hidden" name="purchaseType_@a.ControlNo" value="@a.PurchaseType" />
+                                    <input type="hidden" name="animalType_@a.ControlNo" value="@a.AnimalType" />
                                 </td>
                                 <td class="mono sticky-col sticky-col-1">@a.ControlNo</td>
                                 <td>@a.AnimalType</td>
@@ -344,6 +347,22 @@
     tr.hw-imported-row td.sticky-col { background: #EFF6FF; }
     tr.hw-imported-row.selected-row td { background: #DBEAFE !important; }
     tr.hw-imported-row.edited-row td { background: #FEF9C3 !important; }
+    tr.validation-error td {
+    background: #fff7ed !important;
+    color: inherit !important;
+    }
+
+    .row-error-msg {
+        margin-top: 4px;
+        padding: 3px 6px;
+        border-radius: 4px;
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #b91c1c;
+        font-size: 11px;
+        line-height: 1.3;
+        white-space: normal;
+    }
     /* Dark sticky headers inside xl-scroll-box */
     .xl-scroll-inner thead th { background: #1e2f47 !important; color: #fff !important; }
     .xl-scroll-inner thead th.sticky-col { background: #1e2f47 !important; color: #fff !important; z-index: 5 !important; }
@@ -358,6 +377,7 @@ function readRow(tr) {
     return {
         controlNo:           parseInt(id),
         purchaseType:        tr.dataset.purchaseType || '',
+        animalType:          tr.dataset.animalType || '',
         animalControlNumber: (tr.querySelector(`input[name="animalCtrlNo_${id}"]`)?.value || '').trim(),
         killDate:            tr.querySelector(`input[name="killDate_${id}"]`)?.value || '',
         liveWeight:          parseFloat(tr.querySelector(`input[name="liveWeight_${id}"]`)?.value) || 0,
@@ -505,8 +525,36 @@ async function saveEdits() {
             body:    JSON.stringify({ rows })
         });
         const data = await res.json();
-        showMsg(data.message, !data.success);
-        if (data.success) {
+        
+        // Remove previous error highlights
+        document.querySelectorAll('tr.animal-row.validation-error').forEach(tr => {
+            tr.classList.remove('validation-error');
+        });
+
+        // Highlight invalid rows if any
+        if (data.invalidRows && data.invalidRows.length > 0) {
+            data.invalidRows.forEach(invalid => {
+                const tr = document.querySelector(`tr.animal-row[data-id="${invalid.id}"]`);
+                if (tr) {
+                    tr.classList.add('validation-error');
+                    // Optional: Update row style with a visual indicator
+                    tr.style.backgroundColor = '#ffe6e6';
+                    tr.style.borderLeft = '4px solid #d32f2f';
+                }
+            });
+            
+            // Show detailed error list
+            const errorList = data.invalidRows
+                .map(inv => `Ctrl No ${inv.controlNo}: ${inv.error}`)
+                .slice(0, 5)
+                .join('\n');
+            const moreText = data.invalidRows.length > 5 ? `\n... and ${data.invalidRows.length - 5} more rows` : '';
+            
+            showMsg(`✗ Invalid rows found (highlighted in red):\n\n${errorList}${moreText}`, true);
+        }
+
+        // If valid rows were saved, update them
+        if (data.saved > 0) {
             document.querySelectorAll('tr.animal-row').forEach(tr => {
                 const r = readRow(tr);
                 if (r.hotWeight > 0) tr.dataset.origHw = r.hotWeight.toFixed(1);
@@ -520,8 +568,15 @@ async function saveEdits() {
                 tr.dataset.origComment = r.comment;
                 tr.dataset.origCondemned = r.isCondemned ? '1' : '0';
                 tr.dataset.hwImported  = '0';
-                tr.classList.remove('edited-row', 'hw-imported-row');
+                // Only remove edited flags from rows that DON'T have errors
+                if (!data.invalidRows || !data.invalidRows.find(inv => inv.id === r.controlNo)) {
+                    tr.classList.remove('edited-row', 'hw-imported-row');
+                }
             });
+        }
+
+        if (data.message) {
+            showMsg(data.message, !data.success);
         }
     } catch (e) {
         showMsg('Save failed: ' + e.message, true);

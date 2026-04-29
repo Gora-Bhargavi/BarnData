@@ -43,32 +43,32 @@
 <!-- Summary strip -->
 <div class="summary-strip" style="margin-bottom:16px">
     <div class="summary-stat">
-        <div class="summary-val">@ViewBag.TotalCount</div>
+        <div class="summary-val" id="sumKilled">@ViewBag.TotalCount</div>
         <div class="summary-lbl">Killed</div>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val" style="color:var(--red)">@ViewBag.TotalCondemned</div>
+        <div class="summary-val" id="sumCondemned" style="color:var(--red)">@ViewBag.TotalCondemned</div>
         <div class="summary-lbl">Condemned</div>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val" style="color:var(--green)">@ViewBag.TotalPassed</div>
+        <div class="summary-val" id="sumPassed" style="color:var(--green)">@ViewBag.TotalPassed</div>
         <div class="summary-lbl">Passed</div>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val">@(((decimal)ViewBag.TotalLiveWt).ToString("N0"))</div>
+        <div class="summary-val" id="sumLiveWt">@(((decimal)ViewBag.TotalLiveWt).ToString("N0"))</div>
         <div class="summary-lbl">Total live wt (lbs)</div>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val">@(((decimal)ViewBag.TotalHotWt).ToString("N0"))</div>
+        <div class="summary-val" id="sumHotWt">@(((decimal)ViewBag.TotalHotWt).ToString("N0"))</div>
         <div class="summary-lbl">Total hot wt (lbs)</div>
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val">$@(((decimal)ViewBag.TotalCost).ToString("N2"))</div>
+        <div class="summary-val" id="sumCost">$@(((decimal)ViewBag.TotalCost).ToString("N2"))</div>
         <div class="summary-lbl">Total cost</div>
     </div>
 </div>
@@ -92,7 +92,7 @@ else
             <div id="scrollTopInner" style="height:1px"></div>
         </div>
         <div id="scrollMain" style="overflow-x:auto">
-            <table class="data-table" data-colfilter-table id="mainTable" style="min-width:2400px;font-size:12px;">
+            <table class="data-table" id="mainTable" data-colfilter-table style="min-width:2400px;font-size:12px;">
                 <thead>
                     <tr>
                         <th data-colfilter="number" class="sticky-col sticky-col-1" style="min-width:70px;left:0">Ctrl No.</th>
@@ -123,7 +123,11 @@ else
                 <tbody>
                     @foreach (var a in Model)
                     {
-                        <tr class="@(a.IsCondemned ? "row-condemned" : "")">
+                        <tr class="@(a.IsCondemned ? "row-condemned" : "")"
+                                data-live="@a.LiveWeight"
+                                data-hot="@(a.HotWeight ?? 0)"
+                                data-condemned="@(a.IsCondemned ? "1" : "0")"
+                                data-cost="@a.SaleCost">
                             <td class="mono sticky-col sticky-col-1" style="left:0">@a.ControlNo</td>
                             <td>@a.AnimalType</td>
                             <td class="mono">@a.TagNumber1</td>
@@ -160,10 +164,10 @@ else
                 <tfoot>
                     <tr class="table-total-row">
                         <td colspan="7" class="text-right total-label">Totals</td>
-                        <td class="text-right mono">@Model.Sum(a => a.LiveWeight).ToString("N1")</td>
+                        <td id="footLiveWt" class="text-right mono">@Model.Sum(a => a.LiveWeight).ToString("N1")</td>
                         <td></td>
                         <td></td>
-                        <td class="text-right mono">@Model.Sum(a => a.HotWeight ?? 0).ToString("N1")</td>
+                        <td id="footHotWt" class="text-right mono">@Model.Sum(a => a.HotWeight ?? 0).ToString("N1")</td>
                         <td colspan="12"></td>
                     </tr>
                 </tfoot>
@@ -200,5 +204,60 @@ document.addEventListener('vp:apply', function (e) {
     top.addEventListener('scroll', function() { if (syncing) return; syncing = true; main.scrollLeft = top.scrollLeft; syncing = false; });
     main.addEventListener('scroll', function() { if (syncing) return; syncing = true; top.scrollLeft = main.scrollLeft; syncing = false; });
 })();
+
+function recalcTallySummaryFromVisibleRows() {
+    const rows = Array.from(document.querySelectorAll('#mainTable tbody tr'))
+        .filter(tr => tr.offsetParent !== null); // visible rows only
+
+    let killed = rows.length;
+    let condemned = 0;
+    let live = 0;
+    let hot = 0;
+    let cost = 0;
+
+    rows.forEach(tr => {
+        const isCond = tr.dataset.condemned === '1';
+        const lw = parseFloat(tr.dataset.live || '0') || 0;
+        const hw = parseFloat(tr.dataset.hot || '0') || 0;
+        const sc = parseFloat(tr.dataset.cost || '0') || 0;
+
+        if (isCond) condemned++;
+        live += lw;
+        hot += hw;
+        cost += sc;
+    });
+
+    const passed = killed - condemned;
+
+    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+
+    setText('sumKilled', String(killed));
+    setText('sumCondemned', String(condemned));
+    setText('sumPassed', String(passed));
+    setText('sumLiveWt', live.toLocaleString(undefined, { maximumFractionDigits: 0 }));
+    setText('sumHotWt', hot.toLocaleString(undefined, { maximumFractionDigits: 0 }));
+    setText('sumCost', '$' + cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    setText('footLiveWt', live.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    setText('footHotWt', hot.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    recalcTallySummaryFromVisibleRows();
+
+    const tbody = document.querySelector('#mainTable tbody');
+    if (!tbody) return;
+
+    // React to column-filter hide/show changes
+    const mo = new MutationObserver(() => recalcTallySummaryFromVisibleRows());
+    mo.observe(tbody, { attributes: true, subtree: true, attributeFilter: ['style', 'class'] });
+
+    // Extra safety for filter control interactions
+    document.addEventListener('input', function (e) {
+        if (e.target.closest('thead')) recalcTallySummaryFromVisibleRows();
+    });
+    document.addEventListener('change', function (e) {
+        if (e.target.closest('thead')) recalcTallySummaryFromVisibleRows();
+    });
+});
 </script>
 }

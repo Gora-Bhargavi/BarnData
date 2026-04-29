@@ -226,6 +226,113 @@ namespace BarnData.Web.Controllers
             return RedirectToAction(nameof(Index), new { status = "pending" });
         }
 
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CreateAjaxSaveAndAdd(AnimalViewModel vm)
+        {
+            if (vm.VendorID == 0 && !string.IsNullOrWhiteSpace(vm.VendorNameFreeText))
+            {
+                vm.VendorID = await _vendorService.GetOrCreateAsync(vm.VendorNameFreeText.Trim());
+            }
+
+            ModelState.Remove("VendorID");
+
+            if (vm.VendorID == 0 && string.IsNullOrWhiteSpace(vm.VendorNameFreeText))
+                ModelState.AddModelError("VendorID", "Vendor is required.");
+
+            if (string.IsNullOrWhiteSpace(vm.PurchaseType))
+                ModelState.AddModelError("PurchaseType", "Purchase type is required.");
+
+            if (vm.PurchaseDate == default)
+                ModelState.AddModelError("PurchaseDate", "Purchase date is required.");
+
+            if (string.IsNullOrWhiteSpace(vm.TagNumber1))
+                ModelState.AddModelError("TagNumber1", "Tag Number 1 is required.");
+
+            if (string.IsNullOrWhiteSpace(vm.AnimalType))
+                ModelState.AddModelError("AnimalType", "Animal type is required.");
+
+            var isConsignment = string.Equals(vm.PurchaseType, "Consignment Bill", StringComparison.OrdinalIgnoreCase);
+            if (!isConsignment)
+            {
+                if (!vm.LiveWeight.HasValue || vm.LiveWeight.Value <= 0)
+                    ModelState.AddModelError("LiveWeight", "Live weight is required for Sale Bill.");
+
+                if (vm.LiveRate <= 0)
+                    ModelState.AddModelError("LiveRate", "Live rate is required for Sale Bill.");
+            }
+
+            if (!ModelState.IsValid)
+            {
+                var errors = ModelState
+                    .Where(x => x.Value?.Errors.Count > 0)
+                    .ToDictionary(
+                        kv => kv.Key,
+                        kv => kv.Value!.Errors.Select(e => e.ErrorMessage).ToArray()
+                    );
+
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Please fix validation errors.",
+                    errors
+                });
+            }
+
+            vm.ShowWeightWarning = _animalService.IsWeightOutOfRange(vm.LiveWeight ?? 0m);
+            if (vm.ShowWeightWarning && !vm.WeightWarningConfirmed)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = $"Live weight {vm.LiveWeight} lbs is outside the expected range. Confirm weight to continue."
+                });
+            }
+
+            var animal = MapToEntity(vm);
+            animal.KillDate = null;
+            animal.KillStatus = "Pending";
+
+            var (success, error) = await _animalService.CreateAsync(animal);
+            if (!success)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = error ?? "Unable to save record.",
+                    errors = new Dictionary<string, string[]> {
+                        { "TagNumber1", new[] { error ?? "Duplicate tag." } }
+                    }
+                });
+            }
+
+            var vendorName = "";
+            var vendors = await _vendorService.GetAllActiveAsync();
+            var v = vendors.FirstOrDefault(x => x.VendorID == vm.VendorID);
+            if (v != null) vendorName = v.VendorName;
+
+            var liveWt = vm.LiveWeight ?? 0m;
+            var liveRate = vm.LiveRate;
+            var cost = liveWt * liveRate;
+
+            return Json(new
+            {
+                success = true,
+                message = $"Animal #{animal.ControlNo} saved.",
+                record = new
+                {
+                    controlNo = animal.ControlNo,
+                    tag1 = vm.TagNumber1 ?? "",
+                    tag2 = vm.TagNumber2 ?? "",
+                    vendor = vendorName,
+                    liveWt = liveWt.ToString("0.0"),
+                    liveRate = liveRate.ToString("0.0000"),
+                    type = vm.AnimalType ?? "",
+                    cost = cost.ToString("0.00")
+                }
+            });
+        }
+
 
         //  CREATE STICKY - blank form with fields pre-filled 
         public async Task<IActionResult> CreateSticky()

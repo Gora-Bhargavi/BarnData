@@ -97,7 +97,7 @@
     </div>
     <div class="summary-divider"></div>
     <div class="summary-stat">
-        <div class="summary-val" id="summary-cost">@(((decimal)ViewBag.TotalCost).ToString("N1"))</div>
+        <div class="summary-val" id="summary-cost">@(((decimal)ViewBag.TotalCost).ToString("N2"))</div>
         <div class="summary-lbl">Total cost</div>
     </div>
     @if (statusFilter == "killed")
@@ -326,7 +326,7 @@ else
 
         if (countEl) countEl.textContent = count.toString();
         if (liveWtEl) liveWtEl.textContent = totalLiveWt.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-        if (costEl) costEl.textContent = totalCost.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        if (costEl) costEl.textContent = totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         if (hotWtEl) hotWtEl.textContent = totalHotWt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 

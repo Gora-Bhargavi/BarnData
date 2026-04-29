@@ -81,6 +81,7 @@
             </div>
             <div style="display:flex;gap:8px;padding-bottom:2px;flex-wrap:wrap;align-items:flex-end">
                 <button type="button" onclick="saveEdits()" class="btn btn-secondary">Save edits</button>
+                <button type="button" onclick="clearDraftAll()" class="btn btn-secondary btn-sm">Clear unsaved</button>
                 <button type="button" onclick="saveAllHwData()" id="saveHwBtn" class="btn btn-secondary" style="display:none;background:#eff6ff;border-color:#93c5fd;color:#1e40af">Save HW data</button>
                 <button type="button" onclick="selectAll(true)"  class="btn btn-secondary btn-sm">Select all</button>
                 <button type="button" onclick="selectAll(false)" class="btn btn-secondary btn-sm">Deselect all</button>
@@ -118,7 +119,7 @@
             </div>
 
             <div class="xl-scroll-box">
-            <div class="xl-scroll-inner" id="scrollMain">
+            <div class="xl-scroll-inner mkf-scroll" id="scrollMain">
                 <table class="data-table mark-killed-table" data-colfilter-table id="mainTable" style="min-width:3200px;font-size:12px;">
                     <thead>
                         <tr>
@@ -168,6 +169,7 @@
                                 data-s="@($"{a.ControlNo} {a.VendorName} {a.Tag1} {a.Tag2} {a.AnimalControlNumber} {a.Grade} {a.HealthScore} {a.Comment}".ToLower().Trim())"
                                 data-id="@a.ControlNo"
                                 data-purchase-type="@a.PurchaseType"
+                                data-animal-type="@a.AnimalType"
                                 data-orig-live="@a.LiveWeight.ToString("0.0")"
                                 data-orig-acn="@(a.AnimalControlNumber ?? "")"
                                 data-orig-hw="@(a.HotWeight?.ToString("0.0") ?? "")"
@@ -331,6 +333,7 @@
 
         <div class="form-actions" style="margin-top:12px">
             <button type="button" onclick="saveEdits()" class="btn btn-secondary">Save edits</button>
+            <button type="button" onclick="clearDraftAll()" class="btn btn-secondary btn-sm">Clear unsaved</button>
             <button type="button" onclick="saveAllHwData()" id="saveHwBtn2" class="btn btn-secondary" style="display:none;background:#eff6ff;border-color:#93c5fd;color:#1e40af">Save HW data</button>
             <button type="button" onclick="markKilled()" class="btn btn-primary">Mark selected as killed</button>
             <a asp-controller="Animal" asp-action="Index" asp-route-status="pending" class="btn btn-secondary">View animal list</a>
@@ -363,6 +366,15 @@
     box-shadow: inset 0 0 0 1px #f59e0b;
     background: #fffbeb !important;
     }
+
+    tr.validation-error {
+    background-color: #ffe6e6 !important;
+    border-left: 4px solid #d32f2f !important;
+    }
+
+    tr.validation-error td {
+        color: #b71c1c;
+    }
     
     tr.hw-imported-row td { background: #EFF6FF; }
     tr.hw-imported-row td.sticky-col,
@@ -382,21 +394,22 @@
 const AF_TOKEN = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
 
 function readRow(tr) {
-    const id = tr.dataset.id;
-    return {
-        controlNo:           parseInt(id),
-        purchaseType:        tr.dataset.purchaseType || '',
-        animalControlNumber: (tr.querySelector(`input[name="animalCtrlNo_${id}"]`)?.value || '').trim(),
-        killDate:            tr.querySelector(`input[name="killDate_${id}"]`)?.value || '',
-        liveWeight:          parseFloat(tr.querySelector(`input[name="liveWeight_${id}"]`)?.value) || 0,
-        hotWeight:           parseFloat(tr.querySelector(`input[name="hotWeight_${id}"]`)?.value) || 0,
-        grade:               tr.querySelector(`select[name="grade_${id}"]`)?.value || '',
-        healthScore:         parseInt(tr.querySelector(`input[name="healthScore_${id}"]`)?.value) || 0,
-        isCondemned:         !!tr.querySelector(`input[name="condemned_${id}"][type="checkbox"]`)?.checked,
-        state:               (tr.querySelector(`input[name="state_${id}"]`)?.value || '').trim(),
-        vetName:             (tr.querySelector(`input[name="vetName_${id}"]`)?.value || '').trim(),
-        officeUse2:          (tr.querySelector(`input[name="officeUse2_${id}"]`)?.value || '').trim(),
-        comment:             (tr.querySelector(`input[name="comment_${id}"]`)?.value || '').trim(),
+const id = tr.dataset.id;
+return {
+        controlNo: parseInt(id),
+        purchaseType: tr.dataset.purchaseType || '',
+        animalType: tr.dataset.animalType || '',
+        animalControlNumber: (tr.querySelector('input[name="animalCtrlNo_' + id + '"]')?.value || '').trim(),
+        killDate: tr.querySelector('input[name="killDate_' + id + '"]')?.value || '',
+        liveWeight: parseFloat(tr.querySelector('input[name="liveWeight_' + id + '"]')?.value) || 0,
+        hotWeight: parseFloat(tr.querySelector('input[name="hotWeight_' + id + '"]')?.value) || 0,
+        grade: tr.querySelector('select[name="grade_' + id + '"]')?.value || '',
+        healthScore: parseInt(tr.querySelector('input[name="healthScore_' + id + '"]')?.value) || 0,
+        isCondemned: !!tr.querySelector('input[name="condemned_' + id + '"][type="checkbox"]')?.checked,
+        state: (tr.querySelector('input[name="state_' + id + '"]')?.value || '').trim(),
+        vetName: (tr.querySelector('input[name="vetName_' + id + '"]')?.value || '').trim(),
+        officeUse2: (tr.querySelector('input[name="officeUse2_' + id + '"]')?.value || '').trim(),
+        comment: (tr.querySelector('input[name="comment_' + id + '"]')?.value || '').trim()
     };
 }
 
@@ -517,6 +530,97 @@ try {
 }
 }
 
+function mkDraftKey() {
+    const ids = document.getElementById('mk-hidden')?.value || '';
+    const q = document.getElementById('mk-table-search')?.value || '';
+    return 'mkfast:draft:' + ids + ':' + q;
+}
+function loadDraftMap() {
+    try { return JSON.parse(localStorage.getItem(mkDraftKey()) || '{}'); }
+    catch { return {}; }
+}
+
+function saveDraftMap(map) {
+    localStorage.setItem(mkDraftKey(), JSON.stringify(map));
+}
+
+function persistVisibleEdits() {
+    const map = loadDraftMap();
+    document.querySelectorAll('tr.animal-row').forEach(tr => {
+        const row = readRow(tr);
+        if (isEdited(tr)) map[String(row.controlNo)] = row;
+    });
+    saveDraftMap(map);
+}
+
+function restoreVisibleEdits() {
+    const map = loadDraftMap();
+    document.querySelectorAll('tr.animal-row').forEach(tr => {
+        const id = String(tr.dataset.id || '');
+        const d = map[id];
+        if (!d) return;
+
+        const set = (name, val) => {
+            const el = tr.querySelector('[name="' + name + '_' + id + '"]');
+            if (!el) return;
+            if (el.type === 'checkbox') el.checked = !!val;
+            else el.value = val ?? '';
+        };
+
+        set('animalCtrlNo', d.animalControlNumber);
+        set('liveWeight', d.liveWeight);
+        set('hotWeight', d.hotWeight);
+        set('grade', d.grade);
+        set('healthScore', d.healthScore);
+        set('state', d.state);
+        set('vetName', d.vetName);
+        set('officeUse2', d.officeUse2);
+        set('comment', d.comment);
+        set('killDate', d.killDate);
+        set('condemned', d.isCondemned);
+
+        tr.classList.add('edited-row');
+    });
+}
+
+function clearDraftAll() {
+    localStorage.removeItem(mkDraftKey());
+    showMsg('Unsaved draft cleared.', false);
+}
+
+function wirePaginationDraftPersistence() {
+    document.querySelectorAll('a[href*="page="]').forEach(a => {
+        a.addEventListener('click', function () {
+            persistVisibleEdits();
+        });
+    });
+}
+
+function autoPageSizeIfNeeded() {
+    var current = @pgSize;
+    var rowPx = 33; // approx row height
+    var available = window.innerHeight - 300; // same offset idea as CSS
+    var fitRows = Math.max(100, Math.floor(available / rowPx));
+
+    // clamp like controller does (100..500)
+    fitRows = Math.min(500, Math.max(100, fitRows));
+
+    if (Math.abs(fitRows - current) < 5) return; // avoid noisy reloads
+
+    var url = new URL(window.location.href);
+    url.searchParams.set('page', '1');
+    url.searchParams.set('pageSize', String(fitRows));
+    // keep existing q/vendorIds params if already present
+    persistVisibleEdits();
+    window.location.replace(url.toString());
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    restoreVisibleEdits();
+    wirePaginationDraftPersistence();
+    autoPageSizeIfNeeded();
+});
+
 function isEdited(tr) {
     const d = tr.dataset;
     const r = readRow(tr);
@@ -552,6 +656,37 @@ function showMsg(msg, isError) {
     el._t = setTimeout(() => el.style.opacity = '0', 4000);
 }
 
+function clearRowErrors() {
+    document.querySelectorAll('tr.animal-row.validation-error').forEach(tr => {
+        tr.classList.remove('validation-error');
+        tr.style.borderLeft = '';
+    });
+    document.querySelectorAll('.row-error-msg').forEach(el => el.remove());
+}
+
+function showRowErrors(invalidRows) {
+    if (!Array.isArray(invalidRows)) return;
+
+    invalidRows.forEach(inv => {
+        const rowId = inv.id ?? inv.controlNo;
+        const tr = document.querySelector(`tr.animal-row[data-id="${rowId}"]`);
+        if (!tr) return;
+
+        tr.classList.add('validation-error');
+        tr.style.borderLeft = '4px solid #dc2626';
+
+        // Put message under the editable Comments cell
+        const commentInput = tr.querySelector(`input[name="comment_${rowId}"]`);
+        const hostTd = commentInput ? commentInput.closest('td') : tr.lastElementChild;
+        if (!hostTd) return;
+
+        const msg = document.createElement('div');
+        msg.className = 'row-error-msg';
+        msg.textContent = inv.error || 'Row has validation error.';
+        hostTd.appendChild(msg);
+    });
+}
+
 async function saveEdits() {
     const rows = [...document.querySelectorAll('tr.animal-row')].filter(isEdited).map(readRow);
     if (!rows.length) { showMsg('No changes detected — nothing to save.', false); return; }
@@ -560,30 +695,115 @@ async function saveEdits() {
     btns.forEach(b => { b.disabled = true; b.textContent = 'Saving…'; });
 
     try {
-        const res  = await fetch('/Import/SaveEditsApi', {
+        const res = await fetch('/Import/SaveEditsApi', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': AF_TOKEN },
             body:    JSON.stringify({ rows })
         });
         const data = await res.json();
-        showMsg(data.message, !data.success);
-        if (data.success) {
+
+        clearRowErrors();
+        showRowErrors(data.invalidRows || []);
+
+        const invalidIdSet = new Set((data.invalidRows || []).map(x => Number(x.id ?? x.controlNo)));
+
+        const map = loadDraftMap();
+        document.querySelectorAll('tr.animal-row').forEach(tr => {
+            const r = readRow(tr);
+            if (!invalidIdSet.has(Number(r.controlNo))) {
+                delete map[String(r.controlNo)];
+            }
+        });
+        saveDraftMap(map);
+
+        // Clear all previous error highlights
+        document.querySelectorAll('tr.animal-row').forEach(tr => {
+            const r = readRow(tr);
+            if (invalidIdSet.has(Number(r.controlNo))) return; // keep edited state for bad rows
+
+            if (r.hotWeight > 0) tr.dataset.origHw = r.hotWeight.toFixed(1);
+            tr.dataset.origGrade = r.grade;
+            tr.dataset.origHs = r.healthScore || '';
+            tr.dataset.origLive = r.liveWeight;
+            tr.dataset.origAcn = r.animalControlNumber;
+            tr.dataset.origState = r.state;
+            tr.dataset.origVet = r.vetName;
+            tr.dataset.origOffice = r.officeUse2;
+            tr.dataset.origComment = r.comment;
+            tr.dataset.origCondemned = r.isCondemned ? '1' : '0';
+            tr.dataset.hwImported = '0';
+            tr.classList.remove('edited-row', 'hw-imported-row');
+        });
+
+        // Highlight invalid rows if any
+        if (data.invalidRows && data.invalidRows.length > 0) {
+            data.invalidRows.forEach(invalid => {
+                const tr = document.querySelector(`tr.animal-row[data-id="${invalid.id}"]`);
+                if (tr) {
+                    tr.classList.add('validation-error');
+                    tr.style.backgroundColor = '#ffe6e6';
+                    tr.style.borderLeft = '4px solid #d32f2f';
+                }
+            });
+
+            // Show detailed error list in popup
+            const errorList = data.invalidRows
+                .map(inv => `Ctrl No ${inv.controlNo}: ${inv.error}`)
+                .slice(0, 5)
+                .join('\n');
+            const moreText = data.invalidRows.length > 5 
+                ? `\n... and ${data.invalidRows.length - 5} more rows` 
+                : '';
+
+            showMsg(`⚠️ Errors found (highlighted in red):\n\n${errorList}${moreText}`, true);
+        }
+
+        // If valid rows were saved, update them
+        if (data.saved > 0) {
             document.querySelectorAll('tr.animal-row').forEach(tr => {
                 const r = readRow(tr);
-                if (r.hotWeight > 0) tr.dataset.origHw = r.hotWeight.toFixed(1);
-                tr.dataset.origGrade    = r.grade;
-                tr.dataset.origHs      = r.healthScore || '';
-                tr.dataset.origLive    = r.liveWeight;
-                tr.dataset.origAcn     = r.animalControlNumber;
-                tr.dataset.origState   = r.state;
-                tr.dataset.origVet     = r.vetName;
-                tr.dataset.origOffice  = r.officeUse2;
-                tr.dataset.origComment = r.comment;
-                tr.dataset.origCondemned = r.isCondemned ? '1' : '0';
-                tr.dataset.hwImported  = '0';
-                tr.classList.remove('edited-row', 'hw-imported-row');
+                const isInvalid = data.invalidRows && data.invalidRows.find(inv => inv.id === r.controlNo);
+
+                // Only reset if this row is valid (not in invalidRows list)
+                if (!isInvalid) {
+                    if (r.hotWeight > 0) tr.dataset.origHw = r.hotWeight.toFixed(1);
+                    tr.dataset.origGrade    = r.grade;
+                    tr.dataset.origHs       = r.healthScore || '';
+                    tr.dataset.origLive     = r.liveWeight;
+                    tr.dataset.origAcn      = r.animalControlNumber;
+                    tr.dataset.origState    = r.state;
+                    tr.dataset.origVet      = r.vetName;
+                    tr.dataset.origOffice   = r.officeUse2;
+                    tr.dataset.origComment  = r.comment;
+                    tr.dataset.origCondemned = r.isCondemned ? '1' : '0';
+                    tr.dataset.hwImported   = '0';
+                    tr.classList.remove('edited-row', 'hw-imported-row');
+                }
             });
+
+            // Show success message for saved rows
+            if (data.saved > 0) {
+                showMsg(`✓ ${data.saved} row${data.saved !== 1 ? 's' : ''} saved successfully.`, false);
+            }
         }
+
+        // Show combined message if provided
+        if (data.message && !data.invalidRows?.length) {
+            showMsg(data.message, !data.success);
+        }
+        const failed = Number(data.failed || (data.invalidRows || []).length || 0);
+        const saved = Number(data.saved || 0);
+
+        if (failed > 0 && saved > 0) {
+            showMsg(`${saved} row(s) saved. ${failed} row(s) have errors (shown inline on rows).`, true);
+        } else if (failed > 0) {
+            showMsg(`${failed} row(s) have errors (shown inline on rows).`, true);
+        } else if (saved > 0) {
+            showMsg(`${saved} row(s) saved successfully.`, false);
+        } else {
+            showMsg(data.message || 'No rows were saved.', true);
+        }
+
     } catch (e) {
         showMsg('Save failed: ' + e.message, true);
     } finally {
@@ -641,6 +861,7 @@ function updateCount() {
     if (el2) el2.textContent = txt;
 }
 function markEdited(id) {
+    persistVisibleEdits();
     var row = document.getElementById('row-' + id);
     if (row) row.classList.add('edited-row');
     refreshCompleteCount();
@@ -650,6 +871,7 @@ function markEdited(id) {
 function applyMkSearch() {
     var q = document.getElementById('mk-table-search')?.value || '';
     var ids = document.getElementById('mk-hidden')?.value || '';
+    persistVisibleEdits();
     window.location = '/Import/MarkKilledFast?page=1&pageSize=@pgSize&vendorIds='
         + encodeURIComponent(ids)
         + '&q=' + encodeURIComponent(q);
@@ -664,6 +886,7 @@ document.addEventListener('vp:apply', function (e) {
     if (!e.detail || e.detail.id !== 'mk') return;
     var ids = e.detail.vendorIds || '';
     var q = document.getElementById('mk-table-search')?.value || '';
+    persistVisibleEdits();
     window.location = '/Import/MarkKilledFast?page=1&pageSize=@pgSize&vendorIds='
         + encodeURIComponent(ids)
         + '&q=' + encodeURIComponent(q);
@@ -768,13 +991,6 @@ document.addEventListener("DOMContentLoaded", function () {
         wrap: true,
         onRowFocus: function (rowEl) {
             if (!rowEl) return;
-            var chk = rowEl.querySelector(".animal-chk");
-            if (chk && !chk.checked) {
-                chk.checked = true;
-                if (typeof highlightRow === "function") highlightRow(chk);
-                if (typeof updateCount === "function") updateCount();
-                refreshCompleteCount();
-            }
         }
     });
 });

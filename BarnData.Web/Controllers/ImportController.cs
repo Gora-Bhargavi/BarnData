@@ -327,6 +327,7 @@ namespace BarnData.Web.Controllers
             return View("SaleBillResult", vm);
         }
 
+        
         // AJAX: Save edits (only edited rows - no form size limit) 
         [HttpPost]
         [ValidateAntiForgeryToken]
@@ -339,41 +340,76 @@ namespace BarnData.Web.Controllers
                 _logger.LogWarning("[SAVE-API] No rows to save.");
                 return Json(new { success = false, message = "No edits to save." });
             }
-            _logger.LogInformation("[SAVE-API] Sample rows: {Sample}",
-                string.Join(", ", req.Rows.Take(3).Select(r => $"CtrlNo={r.ControlNo} HW={r.HotWeight} Grade={r.Grade} HS={r.HealthScore}")));
 
-            var animalData = req.Rows.Select(r => new KillAnimalData
+            // Validate each row individually and collect error details
+            var rowValidationResults = req.Rows
+                .Select(r => new
+                {
+                    Row = r,
+                    Error = ValidateMarkKilledRow(r)
+                })
+                .ToList();
+
+            var validRows = rowValidationResults.Where(x => string.IsNullOrWhiteSpace(x.Error)).Select(x => x.Row).ToList();
+            var invalidRows = rowValidationResults
+                .Where(x => !string.IsNullOrWhiteSpace(x.Error))
+                .Select(x => new
+                {
+                    id = x.Row.ControlNo,
+                    controlNo = x.Row.ControlNo,
+                    error = x.Error
+                })
+                .ToList();
+
+            // Save valid rows
+            int savedCount = 0;
+            if (validRows.Any())
             {
-                ControlNo           = r.ControlNo,
-                AnimalControlNumber = NormalizeAcn(r.AnimalControlNumber),
-                KillDate            = DateTime.TryParse(r.KillDate, out var kd) ? kd : (DateTime?)null,
-                LiveWeight          = r.LiveWeight > 0
-                                        ? r.LiveWeight
-                                        : (r.PurchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase) && r.HotWeight > 0
-                                        ? r.HotWeight
-                                        : (decimal?)null),
-                HotWeight           = r.HotWeight > 0 ? r.HotWeight : (decimal?)null,
-                Grade               = string.IsNullOrWhiteSpace(r.Grade) ? null : r.Grade,
-                HealthScore         = r.HealthScore > 0 ? r.HealthScore : (int?)null,
-                IsCondemned         = r.IsCondemned,
-                State               = string.IsNullOrWhiteSpace(r.State) ? null : r.State,
-                VetName             = string.IsNullOrWhiteSpace(r.VetName) ? null : r.VetName,
-                OfficeUse2          = string.IsNullOrWhiteSpace(r.OfficeUse2) ? null : r.OfficeUse2,
-                Comment             = string.IsNullOrWhiteSpace(r.Comment) ? null : r.Comment,
-            }).ToList();
+                var animalData = validRows.Select(r => new KillAnimalData
+                {
+                    ControlNo           = r.ControlNo,
+                    AnimalControlNumber = NormalizeAcn(r.AnimalControlNumber),
+                    KillDate            = DateTime.TryParse(r.KillDate, out var kd) ? kd : (DateTime?)null,
+                    LiveWeight          = r.LiveWeight > 0
+                                            ? r.LiveWeight
+                                            : (r.PurchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase) && r.HotWeight > 0
+                                            ? r.HotWeight
+                                            : (decimal?)null),
+                    HotWeight           = r.HotWeight > 0 ? r.HotWeight : (decimal?)null,
+                    Grade               = string.IsNullOrWhiteSpace(r.Grade) ? null : r.Grade,
+                    HealthScore         = r.HealthScore > 0 ? r.HealthScore : (int?)null,
+                    IsCondemned         = r.IsCondemned,
+                    State               = string.IsNullOrWhiteSpace(r.State) ? null : r.State,
+                    VetName             = string.IsNullOrWhiteSpace(r.VetName) ? null : r.VetName,
+                    OfficeUse2          = string.IsNullOrWhiteSpace(r.OfficeUse2) ? null : r.OfficeUse2,
+                    Comment             = string.IsNullOrWhiteSpace(r.Comment) ? null : r.Comment,
+                }).ToList();
 
-            int count = await _animalService.SaveKillDataAsync(animalData);
-return Json(new
-{
-    success = count > 0,
-    count,
-    message = count > 0
-        ? $"{count} record{(count != 1 ? "s" : "")} saved."
-        : "No records were updated."
-});
-        }
+                savedCount = await _animalService.SaveKillDataAsync(animalData);
+            }
 
-        // AJAX: Mark as killed (only selected rows — no form size limit) 
+            // Build response message
+            string message = savedCount > 0 
+                ? $"{savedCount} record{(savedCount != 1 ? "s" : "")} saved."
+                : "";
+
+            if (invalidRows.Any())
+            {
+                message += (message.Length > 0 ? " " : "") +
+                        $"⚠️ {invalidRows.Count} row{(invalidRows.Count != 1 ? "s" : "")} have errors and were NOT saved.";
+            }
+
+            return Json(new
+            {
+                success = savedCount > 0, // True if at least some rows saved
+                saved = savedCount,
+                failed = invalidRows.Count,
+                invalidRows = invalidRows,
+                message = message
+            });
+}
+
+        // AJAX: Mark as killed (only selected rows - no form size limit) 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> MarkKilledApi([FromBody] MarkKilledRequest req)
@@ -401,15 +437,18 @@ return Json(new
                 });
             }
 
-            var validationErrors = new List<string>();
-            foreach (var r in req.Rows)
-            {
-                if (!r.PurchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase)) continue;
-                if (r.HotWeight > 0 && r.LiveWeight > 0 && r.HotWeight > r.LiveWeight)
-                    validationErrors.Add($"Ctrl No {r.ControlNo}: Hot Wt ({r.HotWeight:N1}) cannot exceed Live Wt ({r.LiveWeight:N1}).");
-            }
+            var validationErrors = req.Rows
+            .Select(ValidateMarkKilledRow)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
             if (validationErrors.Any())
-                return Json(new { success = false, message = string.Join(" ", validationErrors.Take(3)) });
+            {
+                return Json(new
+                {
+                    success = false,
+                    message = string.Join(" ", validationErrors.Take(3))
+                });
+            }
 
             var animalData = req.Rows.Select(r => new KillAnimalData
             {
@@ -568,7 +607,7 @@ return Json(new
         {
             // Sanity: reasonable page size limits
             if (page < 1) page = 1;
-            if (pageSize < 10) pageSize = 10;
+            if (pageSize < 100) pageSize = 100;
             if (pageSize > 500) pageSize = 500;
 
             // Parse optional vendor filter
@@ -766,26 +805,17 @@ return Json(new
     }
 
     //Consignment validation: If hot weight entered, live weight is required and must be >= Hot weight
-        var validationErrors = new List<string>();
-        foreach (var id in editedIds)
+        var validationErrors = editedIds
+            .Select(id => ValidateLegacyMarkKilledRow(id, form))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+
+        if (validationErrors.Any())
         {
-            var purchaseType = form[$"purchaseType_{id}"].FirstOrDefault() ?? "";
-            var isConsignment = purchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase);
-            if (!isConsignment) continue;
-
-            bool hasHot  = decimal.TryParse(form[$"hotWeight_{id}"], out var hot) && hot > 0;
-            bool hasLive = decimal.TryParse(form[$"liveWeight_{id}"], out var live) && live > 0;
-
-            if (hasHot && hasLive && hot > live)
-                validationErrors.Add($"Ctrl No {id}: Hot Wt ({hot:N1}) cannot exceed Live Wt ({live:N1}).");
+            TempData["ErrorMessage"] = string.Join(" ", validationErrors.Take(3)) +
+                (validationErrors.Count > 3 ? " More rows have the same issue." : "");
+            return RedirectToAction(nameof(MarkKilled), new { vendorId });
         }
-
-            if (validationErrors.Any())
-            {
-                TempData["ErrorMessage"] = string.Join(" ", validationErrors.Take(3)) +
-                    (validationErrors.Count > 3 ? " More rows have the same issue." : "");
-                return RedirectToAction(nameof(MarkKilled), new { vendorId });
-            }
 
     var animalData = editedIds.Select(id =>
     {
@@ -843,29 +873,17 @@ return Json(new
                 return RedirectToAction(nameof(MarkKilled));
             }
 
-            var validationErrors = new List<string>();
-                foreach (var id in selectedIds)
-                {
-                    var purchaseType = form[$"purchaseType_{id}"].FirstOrDefault() ?? "";
-                    var isConsignment = purchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase);
-    
-                    bool hasHot = decimal.TryParse(form[$"hotWeight_{id}"], out var hot) && hot > 0;
-                    bool hasLive = decimal.TryParse(form[$"liveWeight_{id}"], out var live) && live > 0;
-    
-                    if(!isConsignment) continue;
-    
-                    if(hasHot && !hasLive)
-                        validationErrors.Add($"Ctrl No {id}: Live Wt is required for consignment when Hot Wt is entered.");
-                    else if (hasHot && hasLive && hot > live)
-                        validationErrors.Add($"Ctrl No {id}: Hot Wt ({hot:N1}) cannot exceed Live Wt ({live:N1})."); 
-                }
+            var validationErrors = selectedIds
+                .Select(id => ValidateLegacyMarkKilledRow(id, form))
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToList();
 
-                if(validationErrors.Any())
-                {
-                    TempData["ErrorMessage"] = string.Join(" ", validationErrors.Take(3)) +
-                        (validationErrors.Count > 3 ? " More rows have the same issue." : "");
-                    return RedirectToAction(nameof(MarkKilled));
-                }
+            if (validationErrors.Any())
+            {
+                TempData["ErrorMessage"] = string.Join(" ", validationErrors.Take(3)) +
+                    (validationErrors.Count > 3 ? " More rows have the same issue." : "");
+                return RedirectToAction(nameof(MarkKilled));
+            }
 
             var animalData = selectedIds.Select(id =>
             {
@@ -2345,12 +2363,98 @@ var acnGrouped = acnResults
         
         private static string? NormalizeAcn(string? acn)
         {
-            if (string.IsNullOrWhiteSpace(acn)) return null;
-            var v = acn.Trim();
-            return v.All(ch => ch == '0') ? null : v;
+        if (string.IsNullOrWhiteSpace(acn)) return null;
+        var v = acn.Trim();
+        return v.All(ch => ch == '0') ? null : v;
         }
 
         private static bool IsAcnMissing(string? acn) => NormalizeAcn(acn) == null;
+
+    private static bool IsBullLikeAnimal(string? animalType)
+    {
+        var value = animalType ?? "";
+        return value.Contains("Bull", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("Steer", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCowLikeAnimal(string? animalType)
+    {
+        var value = animalType ?? "";
+        return value.Contains("Cow", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("Heifer", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ValidateMarkKilledRow(AnimalRowDto row)
+    {
+        var isConsignment = (row.PurchaseType ?? "").Contains("consignment", StringComparison.OrdinalIgnoreCase);
+
+        if (isConsignment && row.HotWeight > 0 && row.LiveWeight <= 0)
+            return $"Ctrl No {row.ControlNo}: Live Wt is required for consignment when Hot Wt is entered.";
+
+        if (row.HotWeight > 0 && row.LiveWeight > 0 && row.HotWeight > row.LiveWeight)
+            return $"Ctrl No {row.ControlNo}: Hot Wt ({row.HotWeight:N1}) cannot exceed Live Wt ({row.LiveWeight:N1}).";
+
+        var grade = (row.Grade ?? "").Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(grade))
+            return null;
+
+        var bullGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "BB", "LB", "UB", "FB"
+        };
+
+        var cowGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "CN", "SH", "CT", "B1", "B2", "BR"
+        };
+
+        if (IsBullLikeAnimal(row.AnimalType) && !bullGrades.Contains(grade))
+            return $"Ctrl No {row.ControlNo}: Grade {grade} is not valid for {row.AnimalType}. Allowed: {string.Join(", ", bullGrades)}.";
+
+        if (IsCowLikeAnimal(row.AnimalType) && !cowGrades.Contains(grade))
+            return $"Ctrl No {row.ControlNo}: Grade {grade} is not valid for {row.AnimalType}. Allowed: {string.Join(", ", cowGrades)}.";
+
+        return null;
+    }
+
+    private static string? ValidateLegacyMarkKilledRow(int id, IFormCollection form)
+{
+    var purchaseType = form[$"purchaseType_{id}"].FirstOrDefault() ?? "";
+    var animalType = form[$"animalType_{id}"].FirstOrDefault() ?? "";
+    var grade = (form[$"grade_{id}"].FirstOrDefault() ?? "").Trim().ToUpperInvariant();
+
+    var isConsignment = purchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase);
+
+    bool hasHot = decimal.TryParse(form[$"hotWeight_{id}"], out var hot) && hot > 0;
+    bool hasLive = decimal.TryParse(form[$"liveWeight_{id}"], out var live) && live > 0;
+
+    if (isConsignment && hasHot && !hasLive)
+        return $"Ctrl No {id}: Live Wt is required for consignment when Hot Wt is entered.";
+
+    if (hasHot && hasLive && hot > live)
+        return $"Ctrl No {id}: Hot Wt ({hot:N1}) cannot exceed Live Wt ({live:N1}).";
+
+    if (string.IsNullOrEmpty(grade))
+        return null;
+
+    var bullGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "BB", "LB", "UB", "FB"
+    };
+
+    var cowGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "CN", "SH", "CT", "B1", "B2", "BR"
+    };
+
+    if (IsBullLikeAnimal(animalType) && !bullGrades.Contains(grade))
+        return $"Ctrl No {id}: Grade {grade} is not valid for {animalType}. Allowed: {string.Join(", ", bullGrades)}.";
+
+    if (IsCowLikeAnimal(animalType) && !cowGrades.Contains(grade))
+        return $"Ctrl No {id}: Grade {grade} is not valid for {animalType}. Allowed: {string.Join(", ", cowGrades)}.";
+
+    return null;
+}
         private static string GetCellString(IXLCell cell)
         {
             if (cell == null) return "";
@@ -3244,18 +3348,19 @@ public class MarkKilledRequest
 
 public class AnimalRowDto
 {
-    public int     ControlNo           { get; set; }
-    public string  AnimalControlNumber { get; set; } = "";
-    public string  KillDate            { get; set; } = "";
-    public decimal LiveWeight          { get; set; }
-    public decimal HotWeight           { get; set; }
-    public string  Grade               { get; set; } = "";
-    public int     HealthScore         { get; set; }
-    public bool    IsCondemned         { get; set; }
-    public string  State               { get; set; } = "";
-    public string  VetName             { get; set; } = "";
-    public string  OfficeUse2          { get; set; } = "";
-    public string  Comment             { get; set; } = "";
-    public string  PurchaseType        { get; set; } = "";
+public int ControlNo { get; set; }
+public string AnimalControlNumber { get; set; } = "";
+public string KillDate { get; set; } = "";
+public decimal LiveWeight { get; set; }
+public decimal HotWeight { get; set; }
+public string Grade { get; set; } = "";
+public int HealthScore { get; set; }
+public bool IsCondemned { get; set; }
+public string State { get; set; } = "";
+public string VetName { get; set; } = "";
+public string OfficeUse2 { get; set; } = "";
+public string Comment { get; set; } = "";
+public string PurchaseType { get; set; } = "";
+public string AnimalType { get; set; } = "";
 }
 
