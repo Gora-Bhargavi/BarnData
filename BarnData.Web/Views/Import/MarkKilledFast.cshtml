@@ -42,6 +42,7 @@
 <form id="mkForm" method="post" asp-action="MarkKilled">
     @Html.AntiForgeryToken()
     <input type="hidden" name="VendorId" value="@Model.VendorId" />
+    
 
     <!-- Kill date + vendor filter + actions -->
     <div class="form-section" style="margin-bottom:12px">
@@ -399,6 +400,7 @@ return {
         controlNo: parseInt(id),
         purchaseType: tr.dataset.purchaseType || '',
         animalType: tr.dataset.animalType || '',
+        hwImported: tr.dataset.hwImported === '1',
         animalControlNumber: (tr.querySelector('input[name="animalCtrlNo_' + id + '"]')?.value || '').trim(),
         killDate: tr.querySelector('input[name="killDate_' + id + '"]')?.value || '',
         liveWeight: parseFloat(tr.querySelector('input[name="liveWeight_' + id + '"]')?.value) || 0,
@@ -619,6 +621,11 @@ document.addEventListener("DOMContentLoaded", function () {
     restoreVisibleEdits();
     wirePaginationDraftPersistence();
     autoPageSizeIfNeeded();
+    // Auto-fill Live Wt from Hot Wt on load for consignment rows where Live Wt is 0
+    document.querySelectorAll('tr.animal-row').forEach(function(tr) {
+        var id = tr.dataset.id;
+        if (id) syncLiveFromHotForConsignment(id);
+    });
 });
 
 function isEdited(tr) {

@@ -455,7 +455,13 @@ namespace BarnData.Web.Controllers
                 ControlNo           = r.ControlNo,
                 AnimalControlNumber = NormalizeAcn(r.AnimalControlNumber),
                 KillDate            = killDate,
-                LiveWeight          = r.LiveWeight > 0 ? r.LiveWeight : (decimal?)null,
+                LiveWeight          = r.LiveWeight > 0
+                                        ? r.LiveWeight
+                                        : (r.HwImported
+                                            && (r.PurchaseType ?? "").Contains("consignment", StringComparison.OrdinalIgnoreCase)
+                                            && r.HotWeight > 0
+                                                ? r.HotWeight
+                                                : (decimal?)null),
                 HotWeight           = r.HotWeight > 0 ? r.HotWeight : (decimal?)null,
                 Grade               = string.IsNullOrWhiteSpace(r.Grade) ? null : r.Grade,
                 HealthScore         = r.HealthScore > 0 ? r.HealthScore : (int?)null,
@@ -823,16 +829,25 @@ namespace BarnData.Web.Controllers
         var rowKillRaw = form[$"killDate_{id}"].FirstOrDefault();
         if (DateTime.TryParse(rowKillRaw, out var parsedRowDate))
             rowKillDate = parsedRowDate;
+            var purchaseType = form[$"purchaseType_{id}"].FirstOrDefault() ?? "";
+            var isConsignment = purchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase);
+            var hwImported = form[$"hwImported_{id}"].FirstOrDefault() == "1";
 
-        return new KillAnimalData
-        {
-            ControlNo = id,
-            AnimalControlNumber = NormalizeAcn(form[$"animalCtrlNo_{id}"].FirstOrDefault()),
-            KillDate = rowKillDate,
-            LiveWeight = decimal.TryParse(form[$"liveWeight_{id}"], out var lw) && lw > 0 ? lw : null,
-            HotWeight = decimal.TryParse(form[$"hotWeight_{id}"], out var hw) && hw > 0 ? hw
-          : decimal.TryParse(form[$"origHotWeight_{id}"].FirstOrDefault(), out var origHwFallback) && origHwFallback > 0 ? origHwFallback
-          : null,
+            return new KillAnimalData
+            {
+                ControlNo = id,
+                AnimalControlNumber = NormalizeAcn(form[$"animalCtrlNo_{id}"].FirstOrDefault()),
+                KillDate = rowKillDate,
+                LiveWeight = decimal.TryParse(form[$"liveWeight_{id}"], out var lw) && lw > 0
+                    ? lw
+                    : (hwImported
+                        && isConsignment
+                        && decimal.TryParse(form[$"hotWeight_{id}"], out var hwForLive) && hwForLive > 0
+                            ? hwForLive
+                            : (decimal?)null),
+                HotWeight = decimal.TryParse(form[$"hotWeight_{id}"], out var hw) && hw > 0 ? hw
+            : decimal.TryParse(form[$"origHotWeight_{id}"].FirstOrDefault(), out var origHwFallback) && origHwFallback > 0 ? origHwFallback
+            : null,
             Grade = NullIfEmpty(form[$"grade_{id}"].FirstOrDefault())
                 ?? NullIfEmpty(form[$"origGrade_{id}"].FirstOrDefault()),
             HealthScore = int.TryParse(form[$"healthScore_{id}"], out var hs) && hs > 0 ? hs
@@ -892,11 +907,22 @@ namespace BarnData.Web.Controllers
                 if (DateTime.TryParse(rowKillRaw, out var parsedRowDate))
                     rowKillDate = parsedRowDate;
 
+                var purchaseType = form[$"purchaseType_{id}"].FirstOrDefault() ?? "";
+                var isConsignment = purchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase);
+                var hwImported = form[$"hwImported_{id}"].FirstOrDefault() == "1";
+
                 return new KillAnimalData
                 {
                     ControlNo = id,
                     AnimalControlNumber = NormalizeAcn(form[$"animalCtrlNo_{id}"].FirstOrDefault()),
                     KillDate = rowKillDate ?? defaultKillDate,
+                    LiveWeight = decimal.TryParse(form[$"liveWeight_{id}"], out var lw) && lw > 0
+                        ? lw
+                        : (hwImported
+                            && isConsignment
+                            && decimal.TryParse(form[$"hotWeight_{id}"], out var hwForLive) && hwForLive > 0
+                                ? hwForLive
+                                : (decimal?)null),
                     HotWeight = decimal.TryParse(form[$"hotWeight_{id}"], out var hw) && hw > 0 ? hw : null,
                     Grade = NullIfEmpty(form[$"grade_{id}"].FirstOrDefault()),
                     HealthScore = int.TryParse(form[$"healthScore_{id}"], out var hs) && hs > 0 ? hs : null,
@@ -2385,56 +2411,68 @@ var acnGrouped = acnResults
     }
 
     private static string? ValidateMarkKilledRow(AnimalRowDto row)
-    {
-        var isConsignment = (row.PurchaseType ?? "").Contains("consignment", StringComparison.OrdinalIgnoreCase);
+{
+    var isConsignment = (row.PurchaseType ?? "").Contains("consignment", StringComparison.OrdinalIgnoreCase);
+    var isHwImported = row.HwImported;
 
-        if (isConsignment && row.HotWeight > 0 && row.LiveWeight <= 0)
-            return $"Ctrl No {row.ControlNo}: Live Wt is required for consignment when Hot Wt is entered.";
+    // Imported HW rows can save without Live Wt for consignment.
+    // Live Wt will be backfilled from Hot Wt in the save mapping.
+    if (!isHwImported && isConsignment && row.HotWeight > 0 && row.LiveWeight <= 0)
+        return $"Ctrl No {row.ControlNo}: Live Wt is required for consignment when Hot Wt is entered.";
 
-        if (row.HotWeight > 0 && row.LiveWeight > 0 && row.HotWeight > row.LiveWeight)
-            return $"Ctrl No {row.ControlNo}: Hot Wt ({row.HotWeight:N1}) cannot exceed Live Wt ({row.LiveWeight:N1}).";
+    if (row.HotWeight > 0 && row.LiveWeight > 0 && row.HotWeight > row.LiveWeight)
+        return $"Ctrl No {row.ControlNo}: Hot Wt ({row.HotWeight:N1}) cannot exceed Live Wt ({row.LiveWeight:N1}).";
 
-        var grade = (row.Grade ?? "").Trim().ToUpperInvariant();
-        if (string.IsNullOrEmpty(grade))
-            return null;
-
-        var bullGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "BB", "LB", "UB", "FB"
-        };
-
-        var cowGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "CN", "SH", "CT", "B1", "B2", "BR"
-        };
-
-        if (IsBullLikeAnimal(row.AnimalType) && !bullGrades.Contains(grade))
-            return $"Ctrl No {row.ControlNo}: Grade {grade} is not valid for {row.AnimalType}. Allowed: {string.Join(", ", bullGrades)}.";
-
-        if (IsCowLikeAnimal(row.AnimalType) && !cowGrades.Contains(grade))
-            return $"Ctrl No {row.ControlNo}: Grade {grade} is not valid for {row.AnimalType}. Allowed: {string.Join(", ", cowGrades)}.";
-
+    var grade = (row.Grade ?? "").Trim().ToUpperInvariant();
+    if (string.IsNullOrEmpty(grade))
         return null;
-    }
 
-    private static string? ValidateLegacyMarkKilledRow(int id, IFormCollection form)
+    // HW-import grade/type mismatches are already flagged during preview.
+    // Do not block persistence here for imported rows.
+    if (isHwImported)
+        return null;
+
+    var bullGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "BB", "LB", "UB", "FB"
+    };
+
+    var cowGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "CN", "SH", "CT", "B1", "B2", "BR"
+    };
+
+    if (IsBullLikeAnimal(row.AnimalType) && !bullGrades.Contains(grade))
+        return $"Ctrl No {row.ControlNo}: Grade {grade} is not valid for {row.AnimalType}. Allowed: {string.Join(", ", bullGrades)}.";
+
+    if (IsCowLikeAnimal(row.AnimalType) && !cowGrades.Contains(grade))
+        return $"Ctrl No {row.ControlNo}: Grade {grade} is not valid for {row.AnimalType}. Allowed: {string.Join(", ", cowGrades)}.";
+
+    return null;
+}
+
+   private static string? ValidateLegacyMarkKilledRow(int id, IFormCollection form)
 {
     var purchaseType = form[$"purchaseType_{id}"].FirstOrDefault() ?? "";
     var animalType = form[$"animalType_{id}"].FirstOrDefault() ?? "";
     var grade = (form[$"grade_{id}"].FirstOrDefault() ?? "").Trim().ToUpperInvariant();
+    var hwImported = form[$"hwImported_{id}"].FirstOrDefault() == "1";
 
     var isConsignment = purchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase);
 
     bool hasHot = decimal.TryParse(form[$"hotWeight_{id}"], out var hot) && hot > 0;
     bool hasLive = decimal.TryParse(form[$"liveWeight_{id}"], out var live) && live > 0;
 
-    if (isConsignment && hasHot && !hasLive)
+    if (!hwImported && isConsignment && hasHot && !hasLive)
         return $"Ctrl No {id}: Live Wt is required for consignment when Hot Wt is entered.";
 
     if (hasHot && hasLive && hot > live)
         return $"Ctrl No {id}: Hot Wt ({hot:N1}) cannot exceed Live Wt ({live:N1}).";
 
     if (string.IsNullOrEmpty(grade))
+        return null;
+
+    if (hwImported)
         return null;
 
     var bullGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -3362,5 +3400,7 @@ public string OfficeUse2 { get; set; } = "";
 public string Comment { get; set; } = "";
 public string PurchaseType { get; set; } = "";
 public string AnimalType { get; set; } = "";
+
+public bool HwImported { get; set;}
 }
 

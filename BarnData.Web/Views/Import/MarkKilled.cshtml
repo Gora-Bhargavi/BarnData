@@ -211,6 +211,7 @@
                                            onchange="highlightRow(this); updateCount()" />
                                     <input type="hidden" name="purchaseType_@a.ControlNo" value="@a.PurchaseType" />
                                     <input type="hidden" name="animalType_@a.ControlNo" value="@a.AnimalType" />
+                                    <input type="hidden" name="hwImported_@a.ControlNo" value="@(a.HwImported ? "1" : "0")" />
                                 </td>
                                 <td class="mono sticky-col sticky-col-1">@a.ControlNo</td>
                                 <td>@a.AnimalType</td>
@@ -378,6 +379,7 @@ function readRow(tr) {
         controlNo:           parseInt(id),
         purchaseType:        tr.dataset.purchaseType || '',
         animalType:          tr.dataset.animalType || '',
+        hwImported:         tr.dataset.hwImported === '1',
         animalControlNumber: (tr.querySelector(`input[name="animalCtrlNo_${id}"]`)?.value || '').trim(),
         killDate:            tr.querySelector(`input[name="killDate_${id}"]`)?.value || '',
         liveWeight:          parseFloat(tr.querySelector(`input[name="liveWeight_${id}"]`)?.value) || 0,
