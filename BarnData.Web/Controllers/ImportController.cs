@@ -849,17 +849,7 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
             public string? Q         { get; set; }
         }
 
-        // AJAX: Save Hot Weight data for ALL HW-loaded bills across every page.
-        // ----------------------------------------------------------------------
-        //
-        // Operator clicks one button. Server reads the entire HW preview from
-        // session, builds KillAnimalData records for every row that has HW values,
-        // and saves them via SaveKillDataAsync (HotWeight, Grade, HS, ACN written
-        // to bills; KillStatus stays Pending). Then marks those rows Loaded in
-        // staging.
-        //
-        // Replaces the per-page DOM-iterating button. Saves all rows regardless
-        // of which page is currently visible.
+        
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> SaveAllHwData()
@@ -995,14 +985,7 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
             });
         }
 
-        //  MARK AS KILLED — Legacy full-list (deprecated, redirects to fast page)
-        //  -----------------------------------------------------------------
-        //  This route used to render all pending animals at once, which is
-        //  slow when the list is large (browser DOM render of 800+ rows × 20
-        //  form inputs takes 50+ seconds). It now redirects to the paginated
-        //  MarkKilledFast page. The original implementation below is kept
-        //  in place but unreachable from the GET — anyone hitting this URL
-        //  via bookmark gets the fast page automatically.
+
         public async Task<IActionResult> MarkKilled(int? vendorId, string? vendorIds)
         {
             // Forward query string so vendor filters survive the redirect.
@@ -1016,7 +999,7 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
             return RedirectToAction(nameof(MarkKilledFast), routeValues);
 
             // ----- Legacy implementation kept below for reference; never reached -----
-#pragma warning disable CS0162 // Unreachable code
+            #pragma warning disable CS0162 // Unreachable code
             var vendors = await _vendorService.GetAllActiveAsync();
 
             // Multi-vendor support
@@ -1148,9 +1131,6 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
             int pageSize = 500,
             string? q = null)
         {
-            // Sanity: reasonable page size limits.
-            // Default 500: a typical kill-day has 200-800 pending animals, so most
-            // cases fit on one page. Pagination only kicks in for high-volume days.
             if (page < 1) page = 1;
             if (pageSize < 100) pageSize = 100;
             if (pageSize > 1000) pageSize = 1000;
@@ -1186,25 +1166,17 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
                         .Select(v => v.VendorName).ToList()
                 : new List<string>();
 
-            // Hot Weight pre-fill data must persist across paginated requests.
-            // Implementation note:
-            //   On the FIRST hit after HW Load, the data arrives in TempData (because
-            //   the load action used redirect-and-flash). We want to copy that to
-            //   Session immediately so subsequent page-2/page-3 requests can find it.
-            //   We use TempData.Peek (not the indexer) so reading doesn't consume.
+            
             string? tempHwLoaded   = TempData.Peek("HWLoaded")  as string;
             string? tempHwPreview  = TempData.Peek("HWPreview") as string;
             string? sessHwLoaded   = HttpContext.Session.GetString("HWLoaded");
             string? sessHwPreview  = HttpContext.Session.GetString("HWPreview");
 
-            // Prefer fresh TempData; fall back to whatever session is holding from
-            // a previous request in this same browsing session.
+            
             var hwLoaded = (tempHwLoaded == "1") || (sessHwLoaded == "1");
             var hwJson   = !string.IsNullOrEmpty(tempHwPreview) ? tempHwPreview : sessHwPreview;
 
-            // If we got fresh data from TempData, persist it to Session for future
-            // paginated requests. (TempData is single-request even with Peek if you
-            // don't use Peek; we use Peek but still need Session for cross-request.)
+            
             if (hwLoaded && !string.IsNullOrEmpty(hwJson))
             {
                 if (sessHwLoaded != "1")
@@ -1229,15 +1201,7 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
                     var hwVm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(hwJson);
                     if (hwVm != null)
                     {
-                        // Build hwLookup ONLY from rows not yet saved to bills.
-                        // After "Save HW data" runs, rows are marked Status="Loaded"
-                        // and their values now live on the bill itself — overlaying
-                        // pre-fill would just re-show data the bill already has.
-                        // Excluding Loaded rows here means:
-                        //  - saved rows render as plain bills (no yellow HW highlight)
-                        //  - ViewBag.HwLoadedCount reflects only rows-still-to-save
-                        //  - "Save HW data" button shows the true remaining count,
-                        //    and hides itself when nothing is left to save.
+                        
                         foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue && r.Status != "Loaded"))
                             hwLookup[r.ControlNo] = r;
                         foreach (var r in hwVm.FlaggedRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue && r.Status != "Loaded"))
@@ -1245,9 +1209,7 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
                         foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && !string.IsNullOrEmpty(r.NewAnimalControlNumber) && r.Status != "Loaded"))
                             if (!hwLookup.ContainsKey(r.ControlNo)) hwLookup[r.ControlNo] = r;
 
-                        // Counts shown in the table header so operators understand
-                        // why "X complete" is the number it is. Also persist to TempData
-                        // so the top banner still works on first request.
+                        
                         var hwLoadedCount       = hwLookup.Count;
                         var hwFlaggedCount      = hwVm.FlaggedRows.Count(r => r.Status != "Loaded" && !hwLookup.ContainsKey(r.ControlNo));
                         var hwAlreadyKilledCount = hwVm.AutoRows.Count(r => r.Status == "Loaded");
@@ -1267,9 +1229,7 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
                 }
             }
 
-            // Build the same MarkKilledViewModel the legacy page uses, so we can
-            // reuse PendingAnimalRow / MarkKilledViewModel shape and keep the save
-            // endpoints fully compatible.
+            
             var vm = new MarkKilledViewModel
             {
                 KillDate = DateTime.Today,
@@ -1326,13 +1286,7 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
             return View("MarkKilledFast", vm);
         }
 
-        //  AJAX: list of all ControlNos that are complete-for-kill across ALL pages.
-        //  ----------------------------------------------------------------------
-        //  Backs the "Select complete across all pages" button. Without this, the
-        //  client-side "Select complete rows" can only see the current page's DOM,
-        //  so the operator would have to navigate page-by-page. This endpoint runs
-        //  the same query MarkKilledFast uses (vendor + search filters), joins with
-        //  HW pre-fill from session, and returns the IDs that pass IsCompleteForKill.
+        
         [HttpGet]
         public async Task<IActionResult> MarkKilledFastCompleteCandidates(
             string? vendorIds,
@@ -1348,8 +1302,7 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
                     .Where(id => id > 0).ToList();
             }
 
-            // Pull the FULL filtered list (no paging).
-            // Capping at 5000 to keep this safe for unusually large data sets.
+            
             var (allPending, totalCount) = await _animalQueryService.GetPendingPagedAsync(
                 vendorIdList.Count > 0 ? vendorIdList : null,
                 page: 1,
@@ -1380,8 +1333,7 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
                 }
             }
 
-            // Determine which rows are complete-for-kill, applying HW pre-fill.
-            // Mirrors IsCompleteForKill in MarkKilledApi (with HW values overriding bill values).
+            
             static bool IsCompleteForKill(string? acn, decimal? hotWeight, string? grade, int? hs, bool isCondemned)
             {
                 var trimmed = (acn ?? "").Trim().TrimStart('0');
@@ -3726,6 +3678,15 @@ var acnGrouped = acnResults
 
         private static bool IsAcnMissing(string? acn) => NormalizeAcn(acn) == null;
 
+        private static readonly HashSet<string> PlaceholderTagWords =
+            new(StringComparer.OrdinalIgnoreCase) { "ear", "rt", "slow", "nt", "none", "no tag", "lt", "tag" };
+
+        private static bool IsPlaceholderTag(string? tag)
+        {
+            if (string.IsNullOrWhiteSpace(tag)) return false;
+            return PlaceholderTagWords.Contains(tag.Trim());
+        }
+
         private static string NormalizeTagToken(string? tag)
         {
             if (string.IsNullOrWhiteSpace(tag)) return "";
@@ -3792,6 +3753,7 @@ var acnGrouped = acnResults
 
         private static bool TagEquivalent(string? left, string? right)
         {
+            if(IsPlaceholderTag(left) || IsPlaceholderTag(right)) return false;
             var l = NormalizeTagToken(left);
             var r = NormalizeTagToken(right);
             if (l.Length == 0 || r.Length == 0) return false;
@@ -3855,16 +3817,15 @@ var acnGrouped = acnResults
     if (string.IsNullOrEmpty(grade))
         return null;
 
-    // Condemnation grades (anything starting with X) bypass allow-list checks.
+    
     if (GradeRules.IsCondemnationCode(grade))
         return null;
 
-    // HW-import grade/type mismatches are already flagged during preview.
-    // Do not block persistence here for imported rows.
+    
     if (isHwImported)
         return null;
 
-    // Use shared rules so this matches the Hot Weight pipeline exactly.
+    
     var bullGrades = GradeRules.BullGrades;
     var cowGrades  = GradeRules.CowGrades;
 
@@ -3956,8 +3917,6 @@ var acnGrouped = acnResults
         //  EXCEL IMPORT — GET 
         public IActionResult Excel()
         {
-            // Always render ExcelPreview — upload form lives inside panel 0
-            // Restore session if available, otherwise show empty tabs
             var sessionJson = HttpContext.Session.GetString("ExcelPreview");
             ExcelImportViewModel? vm = null;
             if (!string.IsNullOrEmpty(sessionJson))
@@ -3967,18 +3926,6 @@ var acnGrouped = acnResults
             }
             return View("ExcelPreview", vm ?? new ExcelImportViewModel());
         }
-
-        // EXCEL IMPORT — CLEAR SESSION
-        /*[HttpPost]
-        [ValidateAntiForgeryToken]
-        public IActionResult ExcelClearSession()
-        {
-            HttpContext.Session.Remove("ExcelPreview");
-            TempData.Remove("ExcelPreview");
-            TempData["SuccessMessage"] = "Excel import session cleared.";
-            return RedirectToAction(nameof(Excel));
-        }*/
-
         public async Task<IActionResult> ExcelPreview()
         {
             var json = await StagingBridge.ReadAsync(
@@ -4002,12 +3949,12 @@ var acnGrouped = acnResults
                 return RedirectToAction(nameof(Excel));
             }
 
-            // Show a banner indicating the preview was restored
+            
             ViewBag.RestoredFromStaging = true;
             return View("ExcelPreview", vm);
         }
 
-        //  EXCEL IMPORT — POST (parse & preview) 
+         
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Excel(IFormFile? file)
