@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BarnData.Data")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6eef69002cd96bd5d4eecca2b4db5bf8124f8deb")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9ff1f104b002552bad5a9f294898339f32a93b5e")]
 [assembly: System.Reflection.AssemblyProductAttribute("BarnData.Data")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BarnData.Data")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

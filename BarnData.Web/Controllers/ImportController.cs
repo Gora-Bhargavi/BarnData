@@ -2400,20 +2400,46 @@ var acnGrouped = acnResults
                             goto AddFlag;
                         }
                     }
+                    
                     //Direct ACN match 
                     if (!string.IsNullOrEmpty(acn))
                         acnAnimals.TryGetValue(acn, out animal);
+                    if (animal != null
+                        && animal.HotWeight.HasValue && animal.HotWeight.Value > 0
+                        && AnimalMatchesAnyFileTag(animal, backTag, tag1, tag2))
+                    {
+                        var dbAcn = (animal.AnimalControlNumber ?? "").TrimStart('0');
+                        var dbHw  = animal.HotWeight!.Value;
+                        vm.DupRows.Add(new HotWeightPreviewRow
+                        {
+                            ControlNo            = animal.ControlNo,
+                            AnimalControlNumber  = dbAcn,
+                            CurrentHotWeight     = dbHw.ToString("N1"),
+                            CurrentGrade         = animal.Grade,
+                            CurrentHealthScore   = animal.HealthScore?.ToString(),
+                            Side1                = s1,
+                            Side2                = s2,
+                            NewGrade             = grade,
+                            NewGrade2            = grade2,
+                            NewHealthScore       = hs,
+                            FileLiveWeight       = liveWt,
+                            FileLot              = fileLot,
+                            FileSex              = fileSex,
+                            FileType             = fileType,
+                            FileOrigin           = fileOrigin,
+                            FileBackTag          = backTag,
+                            FileTag1             = tag1,
+                            FileTag2             = tag2,
+                            FileProgram          = fileProgram,
+                            MatchMethod          = "ACN+Tag (already complete)",
+                            Status               = "Dup",
+                            FlagReason           = $"Already complete — DB has HotWeight {dbHw:N1} lbs, Grade {animal.Grade ?? "-"}, HS {animal.HealthScore?.ToString() ?? "-"}, ACN {dbAcn}",
+                        });
+                        vm.AlreadyHasData++;
+                        matchedControlNos.Add(animal.ControlNo);
+                        continue;
+                    }
 
-                    // Tag-verification guard: if ACN matched a bill, but both the
-                    // bill and the Hot Scale row have tag data AND none overlap,
-                    // the bill probably has a stale/wrong ACN from a previous
-                    // mis-import. Don't trust the match — flag it for human review.
-                    //
-                    // Real-world example: bill 18235 has ACN=2001535 saved (wrongly)
-                    // pointing at a Cow. Hot Scale row 2001535 is actually a Bull
-                    // with BackTag 23NP0402. Tags don't overlap (bill has 6236/1402).
-                    // The pipeline used to silently confirm this wrong assignment.
-                    // Now it flags it instead.
                     if (animal != null)
                     {
                         bool fileHasAnyTag = !string.IsNullOrWhiteSpace(backTag)
@@ -2426,8 +2452,6 @@ var acnGrouped = acnResults
                             && !AnimalMatchesAnyFileTag(animal, backTag, tag1, tag2))
                         {
                             flagReason = $"ACN {acn} matches Ctrl No {animal.ControlNo}, but tags differ — bill has {animal.TagNumber1}/{animal.TagNumber2}/{animal.Tag3}, file has {backTag}/{tag1}/{tag2}. Possible wrong bill assignment — verify before saving.";
-                            // Reset animal so the row falls through to AddFlag below
-                            // instead of being treated as a confirmed match.
                             animal = null;
                             goto AddFlag;
                         }
@@ -3723,12 +3747,68 @@ var acnGrouped = acnResults
             return cleaned;
         }
 
+        private static string TrailingFourDigits(string? tag)
+        {
+            if(string.IsNullOrWhiteSpace(tag)) return "";
+            var m = System.Text.RegularExpressions.Regex.Match(tag.Trim().ToUpperInvariant(), @"(\d{1,4})$");
+            return m.Success ? m.Groups[1].Value : "";
+        }
+
+        // Returns true if either side has wildcard '?' chars and the two
+        // tokens are the same length and match position-for-position
+        // (with each '?' covering any single character on the other side).
+        // Used to recognise file tags like '299?' as equivalent to bill
+        // tag '2998' — same animal, just one digit was unreadable on the
+        // floor when the operator scanned/typed.
+        private static bool WildcardTagMatch(string? rawLeft, string? rawRight)
+        {
+            if (string.IsNullOrWhiteSpace(rawLeft) || string.IsNullOrWhiteSpace(rawRight))
+                return false;
+
+            // Normalise: trim, uppercase, strip non-alphanumeric EXCEPT '?'
+            // (the wildcard char must survive the normaliser).
+            string Norm(string s) => new string(
+                s.Trim().ToUpperInvariant()
+                 .Where(c => char.IsLetterOrDigit(c) || c == '?')
+                 .ToArray());
+
+            var l = Norm(rawLeft);
+            var r = Norm(rawRight);
+
+            if (l.Length == 0 || r.Length == 0) return false;
+            if (l.Length != r.Length) return false;
+
+            // Bail early if neither side has wildcards — the direct compare
+            // path in TagEquivalent already covers exact equality.
+            if (!l.Contains('?') && !r.Contains('?')) return false;
+
+            for (int i = 0; i < l.Length; i++)
+            {
+                if (l[i] == '?' || r[i] == '?') continue;
+                if (l[i] != r[i]) return false;
+            }
+            return true;
+        }
+
         private static bool TagEquivalent(string? left, string? right)
         {
             var l = NormalizeTagToken(left);
             var r = NormalizeTagToken(right);
-            return l.Length > 0 && r.Length > 0 &&
-                string.Equals(l, r, StringComparison.OrdinalIgnoreCase);
+            if (l.Length == 0 || r.Length == 0) return false;
+
+            if (string.Equals(l, r, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var lTail = TrailingFourDigits(left);
+            var rTail = TrailingFourDigits(right);
+            if (lTail.Length == 4 && rTail.Length == 4
+                && string.Equals(lTail, rTail, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (WildcardTagMatch(left, right))
+                return true;
+
+            return false;
         }
 
         private static bool AnimalMatchesAnyFileTag(BarnData.Data.Entities.Animal a, string? backTag, string? tag1, string? tag2)
