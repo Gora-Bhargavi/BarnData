@@ -53,6 +53,18 @@ namespace BarnData.Web.Models
         // Match info
         public string MatchMethod { get; set; } = "ACN";
         public string? NewAnimalControlNumber { get; set; }
+
+        // Smart-merge flag.
+        // Set to true when a user has manually fixed/edited this row in the
+        // shared staging (e.g. assigned an ACN to a flagged row, corrected a
+        // grade). When the GET auto-refresh runs the matching pipeline against
+        // a fresh Hot Scale pull, MergeHotWeightStaging() preserves rows where
+        // this is true so user work is not wiped by the re-pull.
+        public bool IsManuallyEdited { get; set; } = false;
+        // Condemnation flag — set when the row's grade is an X-code (XML, XO, XTOX, etc.).
+        // Condemned animals have no carcass weight and bypass side/grade/HS validation.
+        // When loaded into Mark Killed, this pre-checks the existing Condemned checkbox.
+        public bool IsCondemned { get; set; } = false;
     }
 
     // Candidate animal for multi-match picker — all 24 DB fields

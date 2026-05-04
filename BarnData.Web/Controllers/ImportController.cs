@@ -1,9 +1,12 @@
 using BarnData.Core.Services;
+using BarnData.Core.Validation;
 using BarnData.Data.Entities;
 using BarnData.Web.Models;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
 using NPOI.HSSF.UserModel;
 using NPOI.SS.UserModel;
 using System.Data;
@@ -19,17 +22,20 @@ namespace BarnData.Web.Controllers
         private readonly IAnimalQueryService _animalQueryService;
         private readonly IImportStagingService _stagingService;
         private readonly ILogger<ImportController> _logger;
+        private readonly IConfiguration _configuration;
 
         public ImportController(IAnimalService animalService, IVendorService vendorService,
                                  IAnimalQueryService animalQueryService,
                                  IImportStagingService stagingService,
-                                 ILogger<ImportController> logger)
+                                 ILogger<ImportController> logger,
+                                 IConfiguration configuration)
         {
             _animalService = animalService;
             _vendorService = vendorService;
             _animalQueryService = animalQueryService;
             _stagingService = stagingService;
             _logger = logger;
+            _configuration = configuration;
         }
 
         //  SALE BILL IMPORT — GET 
@@ -37,6 +43,103 @@ namespace BarnData.Web.Controllers
         {
             return View();
         }
+
+        private async Task<HotWeightImportViewModel?> ReadHotWeightPreviewVmAsync()
+        {
+            // HW staging is shared across all users (see StagingBridge.SharedHotWeightKey).
+            // Per-user Session/TempData are NOT consulted because they would shadow the
+            // collaborative state any teammate may have just updated.
+            var json = await StagingBridge.ReadSharedAsync(
+                _stagingService,
+                StagingBridge.Types.HotWeight,
+                StagingBridge.SharedHotWeightKey);
+
+        if (string.IsNullOrWhiteSpace(json)) return null;
+
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+private async Task PersistHotWeightPreviewVmAsync(HotWeightImportViewModel vm)
+{
+    var updatedJson = System.Text.Json.JsonSerializer.Serialize(vm);
+
+    await StagingBridge.WriteSharedAsync(
+        _stagingService,
+        StagingBridge.Types.HotWeight,
+        StagingBridge.SharedHotWeightKey,
+        updatedJson,
+        sourceFileName: null);
+}
+
+private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, AnimalRowDto dto)
+{
+    if (dto.HotWeight > 0) row.NewHotWeight = dto.HotWeight;
+    if (!string.IsNullOrWhiteSpace(dto.Grade)) row.NewGrade = dto.Grade.Trim().ToUpperInvariant();
+    if (dto.HealthScore > 0) row.NewHealthScore = dto.HealthScore;
+
+    if (!string.IsNullOrWhiteSpace(dto.AnimalControlNumber))
+    {
+        var normalizedAcn = dto.AnimalControlNumber.Trim().TrimStart('0');
+        row.NewAnimalControlNumber = normalizedAcn;
+        row.AnimalControlNumber = normalizedAcn;
+    }
+
+    row.Status = "Loaded";
+    row.FlagReason = "";
+}
+
+    private async Task SyncHotWeightPreviewAfterSaveAsync(IEnumerable<AnimalRowDto> savedRows)
+    {
+        var vm = await ReadHotWeightPreviewVmAsync();
+        if (vm == null) return;
+
+        var dataList = savedRows.Where(r => r.ControlNo > 0).ToList();
+        if (dataList.Count == 0) return;
+
+        bool changed = false;
+
+        foreach (var dto in dataList)
+        {
+            var controlNo = dto.ControlNo;
+            var origNo    = dto.OriginalControlNo > 0 ? dto.OriginalControlNo : controlNo;
+
+            // Try to find the flagged row by either its original ControlNo OR the saved/picked ControlNo
+            var flagged = vm.FlaggedRows.FirstOrDefault(r => r.ControlNo == origNo)
+                    ?? vm.FlaggedRows.FirstOrDefault(r => r.ControlNo == controlNo);
+
+            if (flagged != null)
+            {
+                ApplySavedValuesToPreviewRow(flagged, dto);
+                vm.FlaggedRows.Remove(flagged);
+
+                var autoExisting = vm.AutoRows.FirstOrDefault(r => r.ControlNo == controlNo);
+                if (autoExisting == null)
+                    vm.AutoRows.Add(flagged);
+                else
+                    ApplySavedValuesToPreviewRow(autoExisting, dto);
+
+                changed = true;
+                continue;
+            }
+
+            var auto = vm.AutoRows.FirstOrDefault(r => r.ControlNo == controlNo);
+            if (auto != null)
+            {
+                ApplySavedValuesToPreviewRow(auto, dto);
+                changed = true;
+            }
+        }
+
+        if (changed)
+            await PersistHotWeightPreviewVmAsync(vm);
+    }
 
         //  SALE BILL IMPORT — POST 
         [HttpPost]
@@ -386,6 +489,18 @@ namespace BarnData.Web.Controllers
                 }).ToList();
 
                 savedCount = await _animalService.SaveKillDataAsync(animalData);
+
+                if (savedCount > 0)
+                {
+                    try
+                    {
+                        await SyncHotWeightPreviewAfterSaveAsync(validRows);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[SAVE-API] Saved DB rows but failed to sync HWPreview state.");
+                    }
+                }
             }
 
             // Build response message
@@ -403,6 +518,7 @@ namespace BarnData.Web.Controllers
             {
                 success = savedCount > 0, // True if at least some rows saved
                 saved = savedCount,
+                count = savedCount,
                 failed = invalidRows.Count,
                 invalidRows = invalidRows,
                 message = message
@@ -420,37 +536,53 @@ namespace BarnData.Web.Controllers
             if (!DateTime.TryParse(req.KillDate, out var killDate))
                 killDate = DateTime.Today;
 
-             bool IsCompleteForKill(AnimalRowDto r) =>
-                NormalizeAcn(r.AnimalControlNumber) != null
-                && r.HotWeight > 0
-                && !string.IsNullOrWhiteSpace(r.Grade)
-                && r.HealthScore >= 1 && r.HealthScore <= 5;
-
-            var incomplete = req.Rows.Where(r => !IsCompleteForKill(r)).ToList();
-            if (incomplete.Any())
+            bool IsCompleteForKill(AnimalRowDto r)
             {
-                var sample = string.Join(", ", incomplete.Take(5).Select(x => x.ControlNo));
+                // ACN is always required.
+                if (NormalizeAcn(r.AnimalControlNumber) == null) return false;
+
+                // Condemned animals don't have carcass weight, grade, or HS.
+                // The condemnation grade itself (X-code) is sufficient.
+                if (r.IsCondemned) return true;
+
+                // Production-killed animals need full weight, grade, and HS.
+                return r.HotWeight > 0
+                    && !string.IsNullOrWhiteSpace(r.Grade)
+                    && r.HealthScore >= 1 && r.HealthScore <= 5;
+            }
+
+            // ---- CHANGED: validate per-row; split into valid / invalid ----
+            var rowResults = req.Rows.Select(r =>
+            {
+                if (!IsCompleteForKill(r))
+                {
+                    var msg = r.IsCondemned
+                        ? $"Ctrl No {r.ControlNo}: ACN is required even for condemned animals."
+                        : $"Ctrl No {r.ControlNo}: missing required fields (ACN, Hot Wt, Grade, HS).";
+                    return (Row: r, Error: msg);
+                }
+                var err = ValidateMarkKilledRow(r);
+                return (Row: r, Error: err);
+            }).ToList();
+
+            var validRows   = rowResults.Where(x => string.IsNullOrWhiteSpace(x.Error)).Select(x => x.Row).ToList();
+            var invalidRows = rowResults.Where(x => !string.IsNullOrWhiteSpace(x.Error))
+                                        .Select(x => new { row = x.Row, x.Row.ControlNo, error = x.Error })
+                                        .ToList();
+
+            if (!validRows.Any())
+            {
+                // All rows failed — return the first few errors
                 return Json(new
                 {
                     success = false,
-                    message = $"Selected rows missing required fields (ACN, Hot Wt, Grade, HS). Ctrl No: {sample}"
+                    message = string.Join(" ", invalidRows.Take(3).Select(x => x.error)),
+                    failed  = invalidRows
                 });
             }
+            // ---- END CHANGED ----
 
-            var validationErrors = req.Rows
-            .Select(ValidateMarkKilledRow)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .ToList();
-            if (validationErrors.Any())
-            {
-                return Json(new
-                {
-                    success = false,
-                    message = string.Join(" ", validationErrors.Take(3))
-                });
-            }
-
-            var animalData = req.Rows.Select(r => new KillAnimalData
+            var animalData = validRows.Select(r => new KillAnimalData
             {
                 ControlNo           = r.ControlNo,
                 AnimalControlNumber = NormalizeAcn(r.AnimalControlNumber),
@@ -473,16 +605,418 @@ namespace BarnData.Web.Controllers
             }).ToList();
 
             int count = await _animalService.MarkKilledWithDataAsync(animalData, killDate);
-            return Json(new {
+
+            // ---- CHANGED: partial success response ----
+            bool hasInvalid = invalidRows.Any();
+            string msg = $"{count} animal{(count != 1 ? "s" : "")} marked as killed on {killDate:MM/dd/yyyy}.";
+            if (hasInvalid)
+                msg += $" ⚠️ {invalidRows.Count} row{(invalidRows.Count != 1 ? "s" : "")} had errors and were skipped.";
+
+            return Json(new
+            {
                 success  = true,
-                message  = $"{count} animal{(count != 1 ? "s" : "")} marked as killed on {killDate:MM/dd/yyyy}.",
+                partial  = hasInvalid,
+                message  = msg,
+                failed   = invalidRows,
+                redirect = hasInvalid ? (string?)null : Url.Action("Tally", "Report", new { killDate = killDate.ToString("yyyy-MM-dd") })
+            });
+            // ---- END CHANGED ----
+        }
+
+        // AJAX: Mark ALL complete-for-kill animals as killed across every page.
+        // ----------------------------------------------------------------------
+        //
+        // Operator clicks one button. Server enumerates the entire pending set
+        // matching the current vendor + search filter (no pagination), applies
+        // Hot Weight pre-fill from session, finds the rows that are
+        // complete-for-kill, and saves them in one transaction.
+        //
+        // This replaces the per-page workflow that required operators to
+        // navigate to each page and click "Mark selected as killed" on each.
+        // After save, saved ControlNos are marked Loaded in session HW data so
+        // they don't re-pre-fill on subsequent visits.
+        //
+        // Request body shape:
+        //   { killDate: "2026-05-02", vendorIds: "12,33", q: "search term" }
+        // Response shape:
+        //   { success, savedCount, skippedCount, errors: [...], message }
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> MarkAllCompleteAsKilled([FromBody] MarkAllCompleteRequest req)
+        {
+            if (!DateTime.TryParse(req?.KillDate, out var killDate))
+                killDate = DateTime.Today;
+
+            // 1. Parse vendor filter (same as MarkKilledFast)
+            List<int> vendorIdList = new();
+            if (!string.IsNullOrEmpty(req?.VendorIds))
+            {
+                vendorIdList = req.VendorIds
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(v => int.TryParse(v.Trim(), out var id) ? id : 0)
+                    .Where(id => id > 0).ToList();
+            }
+
+            // 2. Pull ALL pending animals matching filter (cap 5000 for safety)
+            var (pending, totalCount) = await _animalQueryService.GetPendingPagedAsync(
+                vendorIdList.Count > 0 ? vendorIdList : null,
+                page: 1,
+                pageSize: 5000,
+                searchTerm: string.IsNullOrWhiteSpace(req?.Q) ? null : req!.Q);
+
+            _logger.LogInformation(
+                "[MarkAllComplete] Scanning {Count} pending animals (totalMatching={Total}) for kill date {Date:yyyy-MM-dd}",
+                pending.Count, totalCount, killDate);
+
+            // 3. Build HW lookup from session (TempData is single-request only)
+            HotWeightImportViewModel? hwVm = null;
+            var hwLookup = new Dictionary<int, HotWeightPreviewRow>();
+            var hwJson = HttpContext.Session.GetString("HWPreview");
+            if (!string.IsNullOrEmpty(hwJson))
+            {
+                try
+                {
+                    hwVm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(hwJson);
+                    if (hwVm != null)
+                    {
+                        foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue))
+                            hwLookup[r.ControlNo] = r;
+                        foreach (var r in hwVm.FlaggedRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue))
+                            hwLookup[r.ControlNo] = r;
+                        foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && !string.IsNullOrEmpty(r.NewAnimalControlNumber)))
+                            if (!hwLookup.ContainsKey(r.ControlNo)) hwLookup[r.ControlNo] = r;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[MarkAllComplete] Could not deserialize HWPreview JSON");
+                }
+            }
+
+            // 4. For each pending animal, build the merged row and check completeness
+            bool IsCompleteForKill(string? acn, decimal? hotWeight, string? grade, int? hs, bool isCondemned)
+            {
+                if (NormalizeAcn(acn) == null) return false;
+                if (isCondemned) return true;
+                return hotWeight.HasValue && hotWeight.Value > 0
+                    && !string.IsNullOrWhiteSpace(grade)
+                    && hs.HasValue && hs.Value >= 1 && hs.Value <= 5;
+            }
+
+            var killData = new List<KillAnimalData>();
+            var skipped  = new List<object>();
+            int hwSourcedRows = 0;
+            int billOnlyRows  = 0;
+
+            foreach (var a in pending)
+            {
+                hwLookup.TryGetValue(a.ControlNo, out var hw);
+
+                // Apply HW pre-fill ONLY if the bill itself doesn't have the value.
+                // This matches the MarkKilledFast view behavior where HW values
+                // override bill values when present.
+                var acn = (hw != null && !string.IsNullOrEmpty(hw.NewAnimalControlNumber))
+                            ? hw.NewAnimalControlNumber
+                            : a.AnimalControlNumber;
+                var hotWeight = hw != null ? hw.NewHotWeight : a.HotWeight;
+                var grade     = hw != null ? hw.NewGrade : a.Grade;
+                var hs        = hw != null ? hw.NewHealthScore : a.HealthScore;
+                var condemned = (hw != null && hw.IsCondemned) ? true : a.IsCondemned;
+
+                if (!IsCompleteForKill(acn, hotWeight, grade, hs, condemned))
+                {
+                    // Don't add to skipped list — we only report rows where the operator
+                    // would expect a save. A pending row with no HW data and incomplete
+                    // bill data isn't an "error", it's just not ready yet.
+                    continue;
+                }
+
+                if (hw != null) hwSourcedRows++; else billOnlyRows++;
+
+                // Trim comment append for trim-variance rows
+                string? mergedComment = a.Comment;
+                if (hw != null && !string.IsNullOrEmpty(hw.TrimComment))
+                {
+                    mergedComment = string.IsNullOrEmpty(a.Comment)
+                        ? hw.TrimComment
+                        : a.Comment + " " + hw.TrimComment;
+                }
+
+                killData.Add(new KillAnimalData
+                {
+                    ControlNo           = a.ControlNo,
+                    AnimalControlNumber = NormalizeAcn(acn),
+                    KillDate            = killDate,
+                    LiveWeight          = a.LiveWeight > 0
+                                            ? a.LiveWeight
+                                            : ((a.PurchaseType ?? "").Contains("consignment", StringComparison.OrdinalIgnoreCase)
+                                                && hotWeight.HasValue && hotWeight.Value > 0
+                                                    ? hotWeight
+                                                    : (decimal?)null),
+                    HotWeight           = hotWeight.HasValue && hotWeight.Value > 0 ? hotWeight : (decimal?)null,
+                    Grade               = string.IsNullOrWhiteSpace(grade) ? null : grade,
+                    HealthScore         = hs.HasValue && hs.Value > 0 ? hs : (int?)null,
+                    IsCondemned         = condemned,
+                    State               = string.IsNullOrWhiteSpace(a.State) ? null : a.State,
+                    VetName             = string.IsNullOrWhiteSpace(a.VetName) ? null : a.VetName,
+                    OfficeUse2          = string.IsNullOrWhiteSpace(a.OfficeUse2) ? null : a.OfficeUse2,
+                    Comment             = string.IsNullOrWhiteSpace(mergedComment) ? null : mergedComment,
+                });
+            }
+
+            if (killData.Count == 0)
+            {
+                return Json(new
+                {
+                    success = false,
+                    savedCount = 0,
+                    message = $"No complete-for-kill rows found across {totalCount} pending animals. Make sure Hot Weight data is loaded and rows have ACN, HotWeight, Grade, and HS."
+                });
+            }
+
+            // 5. Save in one transaction
+            int savedCount = 0;
+            try
+            {
+                savedCount = await _animalService.MarkKilledWithDataAsync(killData, killDate);
+                _logger.LogInformation(
+                    "[MarkAllComplete] Saved {Saved} of {Attempted} rows (HW-sourced={HW}, bill-only={Bill}) for {Date:yyyy-MM-dd}",
+                    savedCount, killData.Count, hwSourcedRows, billOnlyRows, killDate);
+            }
+            catch (Exception saveEx)
+            {
+                _logger.LogError(saveEx, "[MarkAllComplete] Save transaction failed");
+                return Json(new
+                {
+                    success = false,
+                    savedCount = 0,
+                    message = "Save failed: " + saveEx.Message
+                });
+            }
+
+            // 6. Update HW session: mark these ControlNos as "Loaded" so they don't
+            //    re-pre-fill on subsequent visits.
+            if (hwVm != null && savedCount > 0)
+            {
+                var savedSet = killData.Select(d => d.ControlNo).ToHashSet();
+                int markedLoaded = 0;
+                foreach (var r in hwVm.AutoRows.Concat(hwVm.FlaggedRows))
+                {
+                    if (savedSet.Contains(r.ControlNo) && r.Status != "Loaded")
+                    {
+                        r.Status = "Loaded";
+                        markedLoaded++;
+                    }
+                }
+                if (markedLoaded > 0)
+                {
+                    try
+                    {
+                        var updatedJson = System.Text.Json.JsonSerializer.Serialize(hwVm);
+                        HttpContext.Session.SetString("HWPreview", updatedJson);
+                        // Persist to shared staging too so other teammates see the update.
+                        await StagingBridge.WriteSharedAsync(
+                            _stagingService,
+                            StagingBridge.Types.HotWeight,
+                            StagingBridge.SharedHotWeightKey,
+                            updatedJson,
+                            sourceFileName: null);
+                        _logger.LogInformation("[MarkAllComplete] Marked {Count} HW preview rows as Loaded.", markedLoaded);
+                    }
+                    catch (Exception updEx)
+                    {
+                        _logger.LogWarning(updEx, "[MarkAllComplete] Could not persist updated HW preview after save.");
+                    }
+                }
+            }
+
+            return Json(new
+            {
+                success    = true,
+                savedCount,
+                skippedCount = totalCount - savedCount,
+                hwSourcedRows,
+                billOnlyRows,
+                message = $"{savedCount} animals marked as killed on {killDate:MM/dd/yyyy} ({hwSourcedRows} from Hot Weight, {billOnlyRows} from existing bill data). Reload to see updated list.",
                 redirect = Url.Action("Tally", "Report", new { killDate = killDate.ToString("yyyy-MM-dd") })
             });
         }
 
-        //  MARK AS KILLED 
+        public class MarkAllCompleteRequest
+        {
+            public string? KillDate  { get; set; }
+            public string? VendorIds { get; set; }
+            public string? Q         { get; set; }
+        }
+
+        // AJAX: Save Hot Weight data for ALL HW-loaded bills across every page.
+        // ----------------------------------------------------------------------
+        //
+        // Operator clicks one button. Server reads the entire HW preview from
+        // session, builds KillAnimalData records for every row that has HW values,
+        // and saves them via SaveKillDataAsync (HotWeight, Grade, HS, ACN written
+        // to bills; KillStatus stays Pending). Then marks those rows Loaded in
+        // staging.
+        //
+        // Replaces the per-page DOM-iterating button. Saves all rows regardless
+        // of which page is currently visible.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> SaveAllHwData()
+        {
+            // 1. Read HW preview from session (TempData is single-request only)
+            var hwJson = HttpContext.Session.GetString("HWPreview");
+            if (string.IsNullOrEmpty(hwJson))
+            {
+                // Fall back to shared staging if session is empty
+                hwJson = await StagingBridge.ReadSharedAsync(
+                    _stagingService,
+                    StagingBridge.Types.HotWeight,
+                    StagingBridge.SharedHotWeightKey);
+            }
+            if (string.IsNullOrEmpty(hwJson))
+            {
+                return Json(new { success = false, message = "No Hot Weight session found. Refresh from Hot Scale first." });
+            }
+
+            HotWeightImportViewModel? hwVm = null;
+            try
+            {
+                hwVm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(hwJson);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[SaveAllHw] Could not deserialize HW preview JSON");
+                return Json(new { success = false, message = "Could not parse Hot Weight session data." });
+            }
+            if (hwVm == null)
+            {
+                return Json(new { success = false, message = "Hot Weight session was empty." });
+            }
+
+            // 2. Collect all rows that have HW data to save and aren't already Loaded
+            var rowsToPersist = hwVm.AutoRows.Concat(hwVm.FlaggedRows)
+                .Where(r => r.ControlNo > 0
+                            && r.Status != "Loaded"
+                            && (r.NewHotWeight.HasValue
+                                || !string.IsNullOrWhiteSpace(r.NewGrade)
+                                || r.NewHealthScore.HasValue
+                                || !string.IsNullOrWhiteSpace(r.NewAnimalControlNumber)
+                                || r.IsCondemned))
+                .ToList();
+
+            if (rowsToPersist.Count == 0)
+            {
+                return Json(new
+                {
+                    success = false,
+                    message = "No Hot Weight data to save. All HW rows are either already Loaded or have no data."
+                });
+            }
+
+            // 3. Build KillAnimalData and persist via SaveKillDataAsync
+            //    (writes HotWeight, Grade, HS, ACN, IsCondemned to bills — does NOT touch KillStatus)
+            int billsUpdated = 0;
+            var savedControlNos = new HashSet<int>();
+            try
+            {
+                var killData = rowsToPersist.Select(r => new KillAnimalData
+                {
+                    ControlNo           = r.ControlNo,
+                    AnimalControlNumber = !string.IsNullOrWhiteSpace(r.NewAnimalControlNumber)
+                                            ? r.NewAnimalControlNumber
+                                            : r.AnimalControlNumber,
+                    HotWeight           = r.NewHotWeight,
+                    Grade               = r.NewGrade,
+                    HealthScore         = r.NewHealthScore,
+                    IsCondemned         = r.IsCondemned,
+                    Comment             = string.IsNullOrWhiteSpace(r.TrimComment) ? null : r.TrimComment
+                }).ToList();
+
+                billsUpdated = await _animalService.SaveKillDataAsync(killData);
+                foreach (var d in killData) savedControlNos.Add(d.ControlNo);
+                _logger.LogInformation(
+                    "[SaveAllHw] Persisted HW data to {Count} bills across all pages. KillStatus unchanged.",
+                    billsUpdated);
+            }
+            catch (Exception saveEx)
+            {
+                _logger.LogError(saveEx, "[SaveAllHw] Failed to persist HW data");
+                return Json(new
+                {
+                    success = false,
+                    message = "Save failed: " + saveEx.Message
+                });
+            }
+
+            // 4. Mark saved rows as Loaded in staging so they don't reappear as Ready
+            int markedLoaded = 0;
+            foreach (var r in hwVm.AutoRows.Concat(hwVm.FlaggedRows))
+            {
+                if (savedControlNos.Contains(r.ControlNo) && r.Status != "Loaded")
+                {
+                    r.Status = "Loaded";
+                    markedLoaded++;
+                }
+            }
+
+            // Move newly-Loaded rows out of FlaggedRows into AutoRows so the breakdown stays sane
+            var loadedFromFlagged = hwVm.FlaggedRows.Where(r => r.Status == "Loaded").ToList();
+            foreach (var r in loadedFromFlagged)
+            {
+                hwVm.FlaggedRows.Remove(r);
+                if (!hwVm.AutoRows.Any(a => a.ControlNo > 0 && a.ControlNo == r.ControlNo))
+                    hwVm.AutoRows.Add(r);
+            }
+
+            // 5. Persist updated staging back to session AND shared staging
+            try
+            {
+                var updatedJson = System.Text.Json.JsonSerializer.Serialize(hwVm);
+                HttpContext.Session.SetString("HWPreview", updatedJson);
+                await StagingBridge.WriteSharedAsync(
+                    _stagingService,
+                    StagingBridge.Types.HotWeight,
+                    StagingBridge.SharedHotWeightKey,
+                    updatedJson,
+                    sourceFileName: null);
+            }
+            catch (Exception updEx)
+            {
+                _logger.LogWarning(updEx, "[SaveAllHw] Could not persist updated HW preview after save.");
+            }
+
+            return Json(new
+            {
+                success = true,
+                billsUpdated,
+                markedLoaded,
+                message = $"Saved Hot Weight data for {billsUpdated} bills (HotWeight, Grade, HS, ACN written). Bills stay Pending — click 'Mark all complete (all pages)' when ready to finalize."
+            });
+        }
+
+        //  MARK AS KILLED — Legacy full-list (deprecated, redirects to fast page)
+        //  -----------------------------------------------------------------
+        //  This route used to render all pending animals at once, which is
+        //  slow when the list is large (browser DOM render of 800+ rows × 20
+        //  form inputs takes 50+ seconds). It now redirects to the paginated
+        //  MarkKilledFast page. The original implementation below is kept
+        //  in place but unreachable from the GET — anyone hitting this URL
+        //  via bookmark gets the fast page automatically.
         public async Task<IActionResult> MarkKilled(int? vendorId, string? vendorIds)
         {
+            // Forward query string so vendor filters survive the redirect.
+            var routeValues = new Microsoft.AspNetCore.Routing.RouteValueDictionary();
+            if (!string.IsNullOrEmpty(vendorIds))
+                routeValues["vendorIds"] = vendorIds;
+            else if (vendorId.HasValue)
+                routeValues["vendorIds"] = vendorId.Value.ToString();
+
+            await Task.CompletedTask; // method must remain async to match controller convention
+            return RedirectToAction(nameof(MarkKilledFast), routeValues);
+
+            // ----- Legacy implementation kept below for reference; never reached -----
+#pragma warning disable CS0162 // Unreachable code
             var vendors = await _vendorService.GetAllActiveAsync();
 
             // Multi-vendor support
@@ -592,7 +1126,9 @@ namespace BarnData.Web.Controllers
                         OfficeUse2          = a.OfficeUse2,
                         ProgramCode         = a.ProgramCode,
                         Selected            = false,
-                        IsCondemned         = a.IsCondemned,
+                        // When HW Load brings a condemned row in, pre-check the Condemned
+                        // box. Otherwise preserve whatever's already on the bill.
+                        IsCondemned         = (hw != null && hw.IsCondemned) ? true : a.IsCondemned,
                         HotWeight    = hw != null ? hw.NewHotWeight  : a.HotWeight,
                         Grade        = hw != null ? hw.NewGrade       : a.Grade,
                         HealthScore  = hw != null ? hw.NewHealthScore : a.HealthScore,
@@ -602,19 +1138,22 @@ namespace BarnData.Web.Controllers
             };
 
             return View(vm);
+#pragma warning restore CS0162
         }
 
         //  MARK AS KILLED — FAST, PAGINATED  (Phase 2b)
         public async Task<IActionResult> MarkKilledFast(
             string? vendorIds,
             int page = 1,
-            int pageSize = 100,
+            int pageSize = 500,
             string? q = null)
         {
-            // Sanity: reasonable page size limits
+            // Sanity: reasonable page size limits.
+            // Default 500: a typical kill-day has 200-800 pending animals, so most
+            // cases fit on one page. Pagination only kicks in for high-volume days.
             if (page < 1) page = 1;
             if (pageSize < 100) pageSize = 100;
-            if (pageSize > 500) pageSize = 500;
+            if (pageSize > 1000) pageSize = 1000;
 
             // Parse optional vendor filter
             List<int> vendorIdList = new();
@@ -647,12 +1186,40 @@ namespace BarnData.Web.Controllers
                         .Select(v => v.VendorName).ToList()
                 : new List<string>();
 
-            // Hot Weight pre-fill (same logic as the legacy MarkKilled action)
-            var hwLoaded = (TempData["HWLoaded"] as string == "1")
-                        || (HttpContext.Session.GetString("HWLoaded") == "1");
-            var hwJson = TempData.Peek("HWPreview") as string
-                    ?? HttpContext.Session.GetString("HWPreview");
-            HttpContext.Session.Remove("HWLoaded");
+            // Hot Weight pre-fill data must persist across paginated requests.
+            // Implementation note:
+            //   On the FIRST hit after HW Load, the data arrives in TempData (because
+            //   the load action used redirect-and-flash). We want to copy that to
+            //   Session immediately so subsequent page-2/page-3 requests can find it.
+            //   We use TempData.Peek (not the indexer) so reading doesn't consume.
+            string? tempHwLoaded   = TempData.Peek("HWLoaded")  as string;
+            string? tempHwPreview  = TempData.Peek("HWPreview") as string;
+            string? sessHwLoaded   = HttpContext.Session.GetString("HWLoaded");
+            string? sessHwPreview  = HttpContext.Session.GetString("HWPreview");
+
+            // Prefer fresh TempData; fall back to whatever session is holding from
+            // a previous request in this same browsing session.
+            var hwLoaded = (tempHwLoaded == "1") || (sessHwLoaded == "1");
+            var hwJson   = !string.IsNullOrEmpty(tempHwPreview) ? tempHwPreview : sessHwPreview;
+
+            // If we got fresh data from TempData, persist it to Session for future
+            // paginated requests. (TempData is single-request even with Peek if you
+            // don't use Peek; we use Peek but still need Session for cross-request.)
+            if (hwLoaded && !string.IsNullOrEmpty(hwJson))
+            {
+                if (sessHwLoaded != "1")
+                    HttpContext.Session.SetString("HWLoaded", "1");
+                if (string.IsNullOrEmpty(sessHwPreview) || sessHwPreview != hwJson)
+                    HttpContext.Session.SetString("HWPreview", hwJson);
+            }
+
+            _logger.LogInformation(
+                "[MKFast-GET] page={Page} hwLoaded={HwLoaded} hwJsonLen={Len} src={Src}",
+                page,
+                hwLoaded,
+                hwJson?.Length ?? 0,
+                tempHwPreview != null ? "TempData" : (sessHwPreview != null ? "Session" : "none"));
+
             var hwLookup = new Dictionary<int, HotWeightPreviewRow>();
 
             if (hwLoaded && !string.IsNullOrEmpty(hwJson))
@@ -662,14 +1229,36 @@ namespace BarnData.Web.Controllers
                     var hwVm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(hwJson);
                     if (hwVm != null)
                     {
-                        foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue))
+                        // Build hwLookup ONLY from rows not yet saved to bills.
+                        // After "Save HW data" runs, rows are marked Status="Loaded"
+                        // and their values now live on the bill itself — overlaying
+                        // pre-fill would just re-show data the bill already has.
+                        // Excluding Loaded rows here means:
+                        //  - saved rows render as plain bills (no yellow HW highlight)
+                        //  - ViewBag.HwLoadedCount reflects only rows-still-to-save
+                        //  - "Save HW data" button shows the true remaining count,
+                        //    and hides itself when nothing is left to save.
+                        foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue && r.Status != "Loaded"))
                             hwLookup[r.ControlNo] = r;
-                        foreach (var r in hwVm.FlaggedRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue))
+                        foreach (var r in hwVm.FlaggedRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue && r.Status != "Loaded"))
                             hwLookup[r.ControlNo] = r;
-                        foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && !string.IsNullOrEmpty(r.NewAnimalControlNumber)))
+                        foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && !string.IsNullOrEmpty(r.NewAnimalControlNumber) && r.Status != "Loaded"))
                             if (!hwLookup.ContainsKey(r.ControlNo)) hwLookup[r.ControlNo] = r;
-                        TempData["HWLoadedCount"] = hwLookup.Count.ToString();
-                        TempData["HWFlaggedCount"] = hwVm.FlaggedRows.Count(r => !hwLookup.ContainsKey(r.ControlNo)).ToString();
+
+                        // Counts shown in the table header so operators understand
+                        // why "X complete" is the number it is. Also persist to TempData
+                        // so the top banner still works on first request.
+                        var hwLoadedCount       = hwLookup.Count;
+                        var hwFlaggedCount      = hwVm.FlaggedRows.Count(r => r.Status != "Loaded" && !hwLookup.ContainsKey(r.ControlNo));
+                        var hwAlreadyKilledCount = hwVm.AutoRows.Count(r => r.Status == "Loaded");
+
+                        TempData["HWLoadedCount"]  = hwLoadedCount.ToString();
+                        TempData["HWFlaggedCount"] = hwFlaggedCount.ToString();
+
+                        ViewBag.HwLoadedCount        = hwLoadedCount;
+                        ViewBag.HwFlaggedCount       = hwFlaggedCount;
+                        ViewBag.HwAlreadyKilledCount = hwAlreadyKilledCount;
+                        ViewBag.HwTotalInExcel       = hwVm.TotalInExcel;
                     }
                 }
                 catch (Exception ex)
@@ -717,7 +1306,8 @@ namespace BarnData.Web.Controllers
                         OfficeUse2          = a.OfficeUse2,
                         ProgramCode         = a.ProgramCode,
                         Selected            = false,
-                        IsCondemned         = a.IsCondemned,
+                        // Pre-check Condemned when HW row is condemned. Otherwise preserve bill state.
+                        IsCondemned         = (hw != null && hw.IsCondemned) ? true : a.IsCondemned,
                         HotWeight           = hw != null ? hw.NewHotWeight : a.HotWeight,
                         Grade               = hw != null ? hw.NewGrade : a.Grade,
                         HealthScore         = hw != null ? hw.NewHealthScore : a.HealthScore,
@@ -734,6 +1324,105 @@ namespace BarnData.Web.Controllers
             ViewBag.SearchTerm  = q ?? "";
 
             return View("MarkKilledFast", vm);
+        }
+
+        //  AJAX: list of all ControlNos that are complete-for-kill across ALL pages.
+        //  ----------------------------------------------------------------------
+        //  Backs the "Select complete across all pages" button. Without this, the
+        //  client-side "Select complete rows" can only see the current page's DOM,
+        //  so the operator would have to navigate page-by-page. This endpoint runs
+        //  the same query MarkKilledFast uses (vendor + search filters), joins with
+        //  HW pre-fill from session, and returns the IDs that pass IsCompleteForKill.
+        [HttpGet]
+        public async Task<IActionResult> MarkKilledFastCompleteCandidates(
+            string? vendorIds,
+            string? q = null)
+        {
+            // Same filter parsing as MarkKilledFast
+            List<int> vendorIdList = new();
+            if (!string.IsNullOrEmpty(vendorIds))
+            {
+                vendorIdList = vendorIds
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(v => int.TryParse(v.Trim(), out var id) ? id : 0)
+                    .Where(id => id > 0).ToList();
+            }
+
+            // Pull the FULL filtered list (no paging).
+            // Capping at 5000 to keep this safe for unusually large data sets.
+            var (allPending, totalCount) = await _animalQueryService.GetPendingPagedAsync(
+                vendorIdList.Count > 0 ? vendorIdList : null,
+                page: 1,
+                pageSize: 5000,
+                searchTerm: string.IsNullOrWhiteSpace(q) ? null : q);
+
+            // Build HW lookup from session (NOT TempData — that's per-request).
+            var hwLookup = new Dictionary<int, HotWeightPreviewRow>();
+            var hwJson = HttpContext.Session.GetString("HWPreview");
+            if (!string.IsNullOrEmpty(hwJson))
+            {
+                try
+                {
+                    var hwVm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(hwJson);
+                    if (hwVm != null)
+                    {
+                        foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue))
+                            hwLookup[r.ControlNo] = r;
+                        foreach (var r in hwVm.FlaggedRows.Where(r => r.ControlNo > 0 && r.NewHotWeight.HasValue))
+                            hwLookup[r.ControlNo] = r;
+                        foreach (var r in hwVm.AutoRows.Where(r => r.ControlNo > 0 && !string.IsNullOrEmpty(r.NewAnimalControlNumber)))
+                            if (!hwLookup.ContainsKey(r.ControlNo)) hwLookup[r.ControlNo] = r;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[MKFast-Candidates] Could not deserialize HWPreview JSON");
+                }
+            }
+
+            // Determine which rows are complete-for-kill, applying HW pre-fill.
+            // Mirrors IsCompleteForKill in MarkKilledApi (with HW values overriding bill values).
+            static bool IsCompleteForKill(string? acn, decimal? hotWeight, string? grade, int? hs, bool isCondemned)
+            {
+                var trimmed = (acn ?? "").Trim().TrimStart('0');
+                if (string.IsNullOrEmpty(trimmed)) return false;
+                if (isCondemned) return true;
+                return hotWeight.HasValue && hotWeight.Value > 0
+                    && !string.IsNullOrWhiteSpace(grade)
+                    && hs.HasValue && hs.Value >= 1 && hs.Value <= 5;
+            }
+
+            var completeIds = new List<int>();
+            int hwLoadedComplete = 0;
+            int billOnlyComplete = 0;
+            foreach (var a in allPending)
+            {
+                hwLookup.TryGetValue(a.ControlNo, out var hw);
+
+                var acn = (hw != null && !string.IsNullOrEmpty(hw.NewAnimalControlNumber))
+                            ? hw.NewAnimalControlNumber
+                            : a.AnimalControlNumber;
+                var hotWeight = hw != null ? hw.NewHotWeight : a.HotWeight;
+                var grade     = hw != null ? hw.NewGrade : a.Grade;
+                var hs        = hw != null ? hw.NewHealthScore : a.HealthScore;
+                var condemned = (hw != null && hw.IsCondemned) ? true : a.IsCondemned;
+
+                if (IsCompleteForKill(acn, hotWeight, grade, hs, condemned))
+                {
+                    completeIds.Add(a.ControlNo);
+                    if (hw != null) hwLoadedComplete++; else billOnlyComplete++;
+                }
+            }
+
+            return Json(new
+            {
+                success = true,
+                totalScanned = totalCount,
+                completeCount = completeIds.Count,
+                hwLoadedComplete,
+                billOnlyComplete,
+                controlNos = completeIds
+            });
         }
 
 
@@ -942,25 +1631,105 @@ namespace BarnData.Web.Controllers
 
 
         // HOT WEIGHT IMPORT — GET
-        public async Task<IActionResult> HotWeightImport()
+        // ---------------------------------------------------------------------
+        // New flow (auto-pull from Hot Scale DB on every visit):
+        //   1. Read existing SHARED staging (everyone's collaborative session).
+        //   2. Try to pull today's rows from the Hot Scale source DB.
+        //      - On success: parse + match the rows through the existing pipeline,
+        //        then SMART-MERGE the fresh VM with any manual fixes already in
+        //        existing staging (preserves user work across auto-refreshes).
+        //      - On failure: keep existing staging intact, show inline warning.
+        //   3. Render the preview.
+        //
+        // The Excel upload form remains available on the preview page as a
+        // fallback for cases when the Hot Scale DB is unreachable.
+        // ---------------------------------------------------------------------
+        public async Task<IActionResult> HotWeightImport(int? tab = null)
         {
-            var json = await StagingBridge.ReadAsync(
-                HttpContext.Session, _stagingService,
-                StagingBridge.Types.HotWeight,
-                StagingBridge.GetUserKey(HttpContext));
-
-            HotWeightImportViewModel? vm = null;
-            if (!string.IsNullOrEmpty(json))
+            // Manual-refresh design: this GET just rehydrates whatever is in
+            // shared staging and renders. It does NOT pull from Hot Scale on
+            // every visit — that turned a routine page-click into a 50+ second
+            // wait while the SQL query, matching pipeline and staging write all
+            // ran. Operators trigger fresh pulls explicitly via the
+            // "Refresh from Hot Scale" button on the preview page.
+            HotWeightImportViewModel? existingVm = null;
+            DateTime? lastRefreshedUtc = null;
+            try
             {
-                try { vm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(json); }
-                catch { /* corrupt payload — show empty tabs */ }
+                var existingJson = await StagingBridge.ReadSharedAsync(
+                    _stagingService,
+                    StagingBridge.Types.HotWeight,
+                    StagingBridge.SharedHotWeightKey);
+
+                if (!string.IsNullOrEmpty(existingJson))
+                {
+                    try { existingVm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(existingJson); }
+                    catch (Exception dex) { _logger.LogWarning(dex, "[HW] Existing shared staging payload could not be deserialized; treating as empty."); }
+                }
+
+                // Read the staging batch metadata so we can show "last refreshed" to the operator.
+                lastRefreshedUtc = await GetSharedHotWeightLastRefreshedAsync();
+            }
+            catch (Exception rex)
+            {
+                _logger.LogWarning(rex, "[HW] Could not read shared staging; rendering empty.");
             }
 
-            if (vm != null) ViewBag.RestoredFromStaging = true;
-            return View("HotWeightPreview", vm ?? new HotWeightImportViewModel());
+            var finalVm = existingVm ?? new HotWeightImportViewModel();
+            if (existingVm != null) ViewBag.RestoredFromStaging = true;
+            if (lastRefreshedUtc.HasValue)
+            {
+                ViewBag.LastRefreshedUtc = lastRefreshedUtc.Value;
+                ViewBag.LastRefreshedAgeMinutes = (DateTime.UtcNow - lastRefreshedUtc.Value).TotalMinutes;
+            }
+
+            _logger.LogInformation(
+                "[HW-GET] Rendering HotWeightPreview. TotalInExcel={Total}, AutoRows={Auto} (OK={Ok}, Loaded={Loaded}), FlaggedRows={Flagged}, DupRows={Dups}. LastRefreshed={Last}.",
+                finalVm.TotalInExcel,
+                finalVm.AutoRows.Count,
+                finalVm.AutoRows.Count(r => r.Status == "OK"),
+                finalVm.AutoRows.Count(r => r.Status == "Loaded"),
+                finalVm.FlaggedRows.Count,
+                finalVm.DupRows.Count,
+                lastRefreshedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "never");
+
+            return View("HotWeightPreview", finalVm);
         }
 
-        // HOT WEIGHT IMPORT — PREVIEW POST
+        // Looks up the most recent shared HotWeight batch's UpdatedAt (UTC).
+        // Returns null if no shared batch exists yet.
+        private async Task<DateTime?> GetSharedHotWeightLastRefreshedAsync()
+        {
+            try
+            {
+                var batch = await _stagingService.GetActiveBatchAsync(
+                    StagingBridge.Types.HotWeight,
+                    StagingBridge.SharedHotWeightKey);
+                if (batch == null) return null;
+                // Prefer LoadedAt if set; else CreatedAt.
+                return batch.LoadedAt ?? batch.CreatedAt;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[HW] Could not read shared HotWeight batch metadata.");
+                return null;
+            }
+        }
+
+
+        // HOT WEIGHT IMPORT — PREVIEW POST (Excel upload fallback)
+        // -----------------------------------------------------------------
+        // Behaviour:
+        //   1. Validate file.
+        //   2. Parse and match using the shared helper (same code path as
+        //      the auto-pull from Hot Scale DB).
+        //   3. Smart-merge with any existing shared staging so manual
+        //      fixes already in progress are preserved.
+        //   4. Persist merged VM to shared staging.
+        //
+        // The Excel upload remains valid as a backup path for cases where
+        // the Hot Scale DB is unreachable.
+        // -----------------------------------------------------------------
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> HotWeightImport(IFormFile? file)
@@ -983,11 +1752,93 @@ namespace BarnData.Web.Controllers
                 return View("HotWeightPreview", vm);
             }
 
-            var bullGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { "BB", "LB", "UB", "FB" };
+            // Parse and match through the shared helper.
+            HotWeightImportViewModel freshVm;
+            try
+            {
+                freshVm = await ParseAndMatchHotWeightFileAsync(file, treatAsAutoPull: false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[HW-IMPORT] Parse/match failed for upload {File}", file.FileName);
+                vm.Errors.Add($"Parse error: {ex.Message}");
+                return View("HotWeightPreview", vm);
+            }
 
-            var cowGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { "CN", "SH", "CT", "B1", "B2", "BR" };
+            // Smart-merge with existing shared staging (preserves manual fixes
+            // from any in-progress collaborative review).
+            HotWeightImportViewModel? existingVm = null;
+            try
+            {
+                var existingJson = await StagingBridge.ReadSharedAsync(
+                    _stagingService,
+                    StagingBridge.Types.HotWeight,
+                    StagingBridge.SharedHotWeightKey);
+                if (!string.IsNullOrEmpty(existingJson))
+                    existingVm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(existingJson);
+            }
+            catch (Exception rex)
+            {
+                _logger.LogWarning(rex, "[HW-IMPORT] Could not read existing shared staging; treating as empty.");
+            }
+
+            // Pre-compute currently-killed bills so the merge can drop stale Loaded markers.
+            HashSet<int>? killedControlNos = null;
+            try
+            {
+                var allKilled = await _animalService.GetAllAsync();
+                killedControlNos = allKilled
+                    .Where(a => string.Equals(a.KillStatus, "Killed", StringComparison.OrdinalIgnoreCase))
+                    .Select(a => a.ControlNo)
+                    .ToHashSet();
+            }
+            catch (Exception kex)
+            {
+                _logger.LogWarning(kex, "[HW-IMPORT] Could not load currently-killed bills; merge will preserve all Loaded markers conservatively.");
+            }
+
+            var merged = MergeHotWeightStaging(freshVm, existingVm, killedControlNos);
+
+            // Persist to shared staging
+            try
+            {
+                var mergedJson = System.Text.Json.JsonSerializer.Serialize(merged);
+                await StagingBridge.WriteSharedAsync(
+                    _stagingService,
+                    StagingBridge.Types.HotWeight,
+                    StagingBridge.SharedHotWeightKey,
+                    mergedJson,
+                    sourceFileName: file.FileName);
+            }
+            catch (Exception wex)
+            {
+                _logger.LogWarning(wex, "[HW-IMPORT] Could not write merged VM to shared staging; preview will still render.");
+            }
+
+            return View("HotWeightPreview", merged);
+        }
+
+        // ---------------------------------------------------------------------
+        // ParseAndMatchHotWeightFileAsync
+        //
+        // Shared helper used by both the Excel-upload POST and the auto-pull
+        // GET (via a synthesized in-memory workbook). Runs the existing
+        // 8-step matching pipeline against the workbook and returns a
+        // populated HotWeightImportViewModel (no staging side-effects).
+        // ---------------------------------------------------------------------
+        private async Task<HotWeightImportViewModel> ParseAndMatchHotWeightFileAsync(
+            IFormFile file,
+            bool treatAsAutoPull)
+        {
+            var vm = new HotWeightImportViewModel
+            {
+                FileName = file?.FileName ?? ""
+            };
+
+            // Use shared rules so this matches MarkKilledApi exactly.
+            // Includes NP on both lists per operations spec.
+            var bullGrades = GradeRules.BullGrades;
+            var cowGrades  = GradeRules.CowGrades;
 
 
             string? NormalizeSexCode(string? sex)
@@ -1082,7 +1933,7 @@ namespace BarnData.Web.Controllers
                 if (colACN < 0 && !hasTagCols && (colSide1 < 0 && colSide2 < 0))
                 {
                     vm.Errors.Add("Wrong file: could not find required columns. Need Side1+Side2 columns AND either ACN ('Number') or tag columns ('BackTag','Tag1','Tag2'). Please upload the Hot Scale Parsed Data report.");
-                    return View("HotWeightPreview", vm);
+                    return vm;
                 }
 
                 
@@ -1166,7 +2017,7 @@ namespace BarnData.Web.Controllers
                 {
                     vm.Errors.Add("No valid rows found in Excel file. Ensure you have at least one row with an Animal Control Number (ACN), BackTag, or Tag 1/2 value.");
                     _logger.LogWarning("[HW-IMPORT] No valid rows parsed from file");
-                    return View("HotWeightPreview", vm);
+                    return vm;
                 }
 
                 //  Match against system — 8-step pipeline 
@@ -1212,7 +2063,7 @@ var acnGrouped = acnResults
                     _logger.LogError(acnEx, "[HW-IMPORT] ACN lookup failed. AllAcns: {Acns}", 
                         string.Join(", ", allAcns.Take(10)));
                     vm.Errors.Add($"Database error during ACN lookup: {acnEx.Message}");
-                    return View("HotWeightPreview", vm);
+                    return vm;
                 }
                 static bool IsEidShaped(string t) =>
                     !string.IsNullOrEmpty(t) && t.Length >= 10
@@ -1231,6 +2082,12 @@ var acnGrouped = acnResults
                     .SelectMany(r => new[] { r.backTag, r.tag1, r.tag2 })
                     .Where(t => !string.IsNullOrEmpty(t) && IsEidShaped(t))
                     .SelectMany(EidSuffixLadder))
+                .Concat(excelRows
+                    .Select(r => r.backTag)
+                    .Where(t => !string.IsNullOrEmpty(t))
+                    .Select(t => System.Text.RegularExpressions.Regex.Match(t, @"^(\d+)([A-Z]+)(\d{4})$"))
+                    .Where(m => m.Success)
+                    .Select(m => m.Groups[3].Value))
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
                 _logger.LogInformation("[HW-IMPORT] Tag lookup: {Count} distinct tags", allExactTags.Count);
@@ -1248,7 +2105,7 @@ var acnGrouped = acnResults
                     _logger.LogError(tagEx, "[HW-IMPORT] Tag lookup failed. SampleTags: {Tags}", 
                         string.Join(", ", allExactTags.Take(10)));
                     vm.Errors.Add($"Database error during tag lookup: {tagEx.Message}");
-                    return View("HotWeightPreview", vm);
+                    return vm;
                 }
                 var tagIndex = new Dictionary<string, List<BarnData.Data.Entities.Animal>>(StringComparer.OrdinalIgnoreCase);
                 foreach (var a in tagAnimals)
@@ -1272,20 +2129,30 @@ var acnGrouped = acnResults
                     return new();
                 }
                 List<BarnData.Data.Entities.Animal> PrepareTagCandidates(
-                    List<BarnData.Data.Entities.Animal> hits,
-                    string context,
-                    ref string reason)
+                List<BarnData.Data.Entities.Animal> hits,
+                string context,
+                ref string reason)
                 {
-                    var unassigned = hits
-                    .Where(a => IsAcnMissing(a.AnimalControlNumber))
-                    .ToList();
+                    var pendingHits = hits
+                        .Where(a => string.Equals(a.KillStatus ?? "", "Pending", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
 
-                    if (!unassigned.Any() && hits.Any())
+                    if (!pendingHits.Any() && hits.Any())
                     {
-                        reason = $"{context} only matches already-assigned ACN records";
+                        reason = context + " only matches non-pending records";
+                        return new List<BarnData.Data.Entities.Animal>();
                     }
 
-                    return unassigned;
+                    var missingAcnPendingHits = pendingHits
+                        .Where(a => IsAcnMissing(a.AnimalControlNumber))
+                        .ToList();
+
+                    if (!missingAcnPendingHits.Any() && pendingHits.Any())
+                    {
+                        reason = context + " only matches pending records that already have ACN assigned";
+                    }
+
+                    return missingAcnPendingHits;
                 }
 
                 (BarnData.Data.Entities.Animal? match,
@@ -1482,9 +2349,89 @@ var acnGrouped = acnResults
                     string flagReason  = "";
                     List<HwCandidate>? _candidateBuffer = null;
 
+                    if (animal == null && (!string.IsNullOrWhiteSpace(backTag) || !string.IsNullOrWhiteSpace(tag1) || !string.IsNullOrWhiteSpace(tag2)))
+                    {
+                        var completeByBackTagMatches = tagAnimals
+                                                        .Where(a =>
+                                                            !IsAcnMissing(a.AnimalControlNumber) &&
+                                                            a.HotWeight.HasValue && a.HotWeight.Value > 0 &&
+                                                            AnimalMatchesAnyFileTag(a, backTag, tag1, tag2))
+                                                        .ToList();
+
+                        if (completeByBackTagMatches.Count == 1)
+                        {
+                            var completeByBackTag = completeByBackTagMatches[0];
+                            var dbAcn = (completeByBackTag.AnimalControlNumber ?? "").TrimStart('0');
+                            var dbHw = completeByBackTag.HotWeight!.Value;
+
+                            vm.DupRows.Add(new HotWeightPreviewRow
+                            {
+                                ControlNo = completeByBackTag.ControlNo,
+                                AnimalControlNumber = dbAcn,
+                                CurrentHotWeight = dbHw.ToString("N1"),
+                                CurrentGrade = completeByBackTag.Grade,
+                                CurrentHealthScore = completeByBackTag.HealthScore?.ToString(),
+                                Side1 = s1,
+                                Side2 = s2,
+                                NewGrade = grade,
+                                NewGrade2 = grade2,
+                                NewHealthScore = hs,
+                                FileLiveWeight = liveWt,
+                                FileLot = fileLot,
+                                FileSex = fileSex,
+                                FileType = fileType,
+                                FileOrigin = fileOrigin,
+                                FileBackTag = backTag,
+                                FileTag1 = tag1,
+                                FileTag2 = tag2,
+                                FileProgram = fileProgram,
+                                Status = "Dup",
+                                FlagReason = $"Duplicate by ACN/Tag match — ACN {dbAcn}, HotWeight {dbHw:N1} already in DB"
+                            });
+
+                            vm.AlreadyHasData++;
+                            matchedControlNos.Add(completeByBackTag.ControlNo);
+                            continue;
+                        }
+                        else if (completeByBackTagMatches.Count > 1)
+                        {
+                            flagReason = $"Tag identifiers (BackTag/Tag1/Tag2) match {completeByBackTagMatches.Count} complete animals (ACN + HotWeight already set) — manual review required";
+                            _candidateBuffer = BuildCandidates(completeByBackTagMatches, liveWt);
+                            goto AddFlag;
+                        }
+                    }
                     //Direct ACN match 
                     if (!string.IsNullOrEmpty(acn))
                         acnAnimals.TryGetValue(acn, out animal);
+
+                    // Tag-verification guard: if ACN matched a bill, but both the
+                    // bill and the Hot Scale row have tag data AND none overlap,
+                    // the bill probably has a stale/wrong ACN from a previous
+                    // mis-import. Don't trust the match — flag it for human review.
+                    //
+                    // Real-world example: bill 18235 has ACN=2001535 saved (wrongly)
+                    // pointing at a Cow. Hot Scale row 2001535 is actually a Bull
+                    // with BackTag 23NP0402. Tags don't overlap (bill has 6236/1402).
+                    // The pipeline used to silently confirm this wrong assignment.
+                    // Now it flags it instead.
+                    if (animal != null)
+                    {
+                        bool fileHasAnyTag = !string.IsNullOrWhiteSpace(backTag)
+                                             || !string.IsNullOrWhiteSpace(tag1)
+                                             || !string.IsNullOrWhiteSpace(tag2);
+                        bool billHasAnyTag = !string.IsNullOrWhiteSpace(animal.TagNumber1)
+                                             || !string.IsNullOrWhiteSpace(animal.TagNumber2)
+                                             || !string.IsNullOrWhiteSpace(animal.Tag3);
+                        if (fileHasAnyTag && billHasAnyTag
+                            && !AnimalMatchesAnyFileTag(animal, backTag, tag1, tag2))
+                        {
+                            flagReason = $"ACN {acn} matches Ctrl No {animal.ControlNo}, but tags differ — bill has {animal.TagNumber1}/{animal.TagNumber2}/{animal.Tag3}, file has {backTag}/{tag1}/{tag2}. Possible wrong bill assignment — verify before saving.";
+                            // Reset animal so the row falls through to AddFlag below
+                            // instead of being treated as a confirmed match.
+                            animal = null;
+                            goto AddFlag;
+                        }
+                    }
 
                     
                     
@@ -1765,6 +2712,41 @@ var acnGrouped = acnResults
                         }
                     }
 
+                    //Wildcard 
+                    if (animal == null && !string.IsNullOrEmpty(backTag) && backTag.Contains('?'))
+                    {
+                    var zeroTag = backTag.Replace("?", "0");
+                    if (!string.IsNullOrWhiteSpace(zeroTag))
+                    {
+                    var zHitsAll = ExactTagLookup(zeroTag);
+                    var zHits = PrepareTagCandidates(zHitsAll, "ZeroSub '" + backTag + "' -> '" + zeroTag + "'", ref flagReason);
+                        if (zHits.Count == 1)
+                        {
+                            animal = zHits[0];
+                            matchMethod = "ZeroSub(" + backTag + "->" + zeroTag + ")";
+                        }
+                        else if (zHits.Count > 1)
+                        {
+                            var picked = WeightPickFromCandidates(zHits, liveWt, "ZeroSub '" + backTag + "' -> '" + zeroTag + "'");
+                            if (picked.animal != null)
+                            {
+                                animal = picked.animal;
+                                matchMethod = "ZeroSub+Weight(" + backTag + "->" + zeroTag + ")";
+                                flagReason = picked.reason;
+                            }
+                            else
+                            {
+                                flagReason = picked.reason;
+                                _candidateBuffer = BuildCandidates(zHits, liveWt);
+                                goto AddFlag;
+                            }
+                        }
+                        else if (zHitsAll.Count > 0)
+                        {
+                            goto AddFlag;
+                        }
+                    }
+                    }
                     // Wildcard ? match 
                     if (animal == null && !string.IsNullOrEmpty(backTag) && backTag.Contains('?'))
                     {
@@ -1852,7 +2834,6 @@ var acnGrouped = acnResults
                                     FlagReason = flagReason,
                                     Candidates = _candidateBuffer
                                 });
-
                                 matchedControlNos.Add(bestAnimal.ControlNo);
                                 continue;
                             }
@@ -1889,6 +2870,13 @@ var acnGrouped = acnResults
 
                     goto DoneMatch;
                     AddFlag:
+                    // Condemnation detection runs here too, not just for matched rows.
+                    // Without this, a flagged condemned animal (Grade or Grade2 starts
+                    // with X, sides = 0) lands in FlaggedRows with IsCondemned=false,
+                    // and the JS validator falsely demands Side1/Side2/Grade/HS.
+                    bool flaggedIsCondemned = GradeRules.IsCondemnationCode(grade)
+                                              || GradeRules.IsCondemnationCode(grade2);
+
                     vm.FlaggedRows.Add(new HotWeightPreviewRow
                     {
                         AnimalControlNumber = acn, Side1 = s1, Side2 = s2,
@@ -1904,6 +2892,7 @@ var acnGrouped = acnResults
                         FileTag1       = tag1,
                         FileTag2       = tag2,
                         FileProgram    = fileProgram,
+                        IsCondemned    = flaggedIsCondemned,
                         Status         = "Flag",
                         FlagReason     = flagReason,
                         // Store candidates if this is a multi-match flag (for picker UI)
@@ -1921,9 +2910,62 @@ var acnGrouped = acnResults
                     }
                     matchedControlNos.Add(animal.ControlNo);
 
+                    // Already-complete check: ACN assigned + HotWeight saved + tag matches BackTag → Duplicate
+                    var fileAcnNorm = NormalizeAcn(acn)?.TrimStart('0');
+                    var dbAcnNorm   = NormalizeAcn(animal.AnimalControlNumber)?.TrimStart('0');
+
+                    bool acnDirectMatch = !string.IsNullOrWhiteSpace(fileAcnNorm)
+                                    && !string.IsNullOrWhiteSpace(dbAcnNorm)
+                                    && string.Equals(fileAcnNorm, dbAcnNorm, StringComparison.OrdinalIgnoreCase);
+
+                    bool anyTagMatch = AnimalMatchesAnyFileTag(animal, backTag, tag1, tag2);
+
+                    bool alreadyComplete = !IsAcnMissing(animal.AnimalControlNumber)
+                                        && animal.HotWeight.HasValue
+                                        && animal.HotWeight.Value > 0
+                                        && (acnDirectMatch || anyTagMatch);
+
+                    if (alreadyComplete)
+                    {
+                        var dbAcn = (animal.AnimalControlNumber ?? "").TrimStart('0');
+                        var dbHw  = animal.HotWeight!.Value;
+                        vm.DupRows.Add(new HotWeightPreviewRow
+                        {
+                            ControlNo           = animal.ControlNo,
+                            AnimalControlNumber = dbAcn,
+                            CurrentHotWeight    = dbHw.ToString("N1"),
+                            CurrentGrade        = animal.Grade,
+                            CurrentHealthScore  = animal.HealthScore?.ToString(),
+                            Side1 = s1, Side2 = s2,
+                            NewGrade       = grade,
+                            NewGrade2      = grade2,
+                            NewHealthScore = hs,
+                            FileLiveWeight = liveWt,
+                            FileLot        = fileLot,
+                            FileSex        = fileSex,
+                            FileType       = fileType,
+                            FileOrigin     = fileOrigin,
+                            FileBackTag    = backTag,
+                            FileTag1       = tag1,
+                            FileTag2       = tag2,
+                            FileProgram    = fileProgram,
+                            MatchMethod    = matchMethod,
+                            Status         = "Dup",
+                            FlagReason     = $"Already complete — ACN {dbAcn}, HotWeight {dbHw:N1} lbs already in DB",
+                        });
+                        vm.AlreadyHasData++;
+                        continue;
+                    }
+
+
                     // Use the matched animal's ACN (or write from Excel if tag-matched)
-                    var resolvedAcn = !string.IsNullOrEmpty(animal.AnimalControlNumber)
-                        ? animal.AnimalControlNumber.TrimStart('0')
+                    // Bug fix: also fall back to acn when bill ACN is whitespace-only
+                    // OR when it strips to empty after removing leading zeros (e.g. "0", "0000").
+                    string? trimmedBillAcn = !string.IsNullOrWhiteSpace(animal.AnimalControlNumber)
+                        ? animal.AnimalControlNumber.Trim().TrimStart('0')
+                        : null;
+                    var resolvedAcn = !string.IsNullOrEmpty(trimmedBillAcn)
+                        ? trimmedBillAcn
                         : acn;
 
                     vm.Matched++;
@@ -1954,30 +2996,42 @@ var acnGrouped = acnResults
 
                     var flags = new List<string>();
 
-                    // Side checks
+                    // Condemnation detection: any grade starting with X means the
+                    // animal was condemned and didn't make it through processing.
+                    // Condemned rows have no carcass weight and bypass side, grade
+                    // allow-list, and HealthScore validation. The IsCondemned flag
+                    // pre-checks the Condemned checkbox at Mark Killed load time.
+                    bool isCondemned = GradeRules.IsCondemnationCode(grade)
+                                       || GradeRules.IsCondemnationCode(grade2);
+                    row.IsCondemned = isCondemned;
+
+                    // Side checks — skipped for condemned rows.
                     bool side1Ok = s1.HasValue && s1.Value > 0;
                     bool side2Ok = s2.HasValue && s2.Value > 0;
 
-                    if (!side1Ok && !side2Ok)
-                        flags.Add("Both sides missing");
-                    else if (!side1Ok)
-                        flags.Add("Side1 missing");
-                    else if (!side2Ok)
-                        flags.Add("Side2 missing");
-                    else
+                    if (!isCondemned)
                     {
-                        // Both sides present — check for zero and variance
-                        if (s1!.Value == 0) flags.Add("Side1 is zero");
-                        if (s2!.Value == 0) flags.Add("Side2 is zero");
-
-                        if (s1!.Value > 0 && s2!.Value > 0)
+                        if (!side1Ok && !side2Ok)
+                            flags.Add("Both sides missing");
+                        else if (!side1Ok)
+                            flags.Add("Side1 missing");
+                        else if (!side2Ok)
+                            flags.Add("Side2 missing");
+                        else
                         {
-                            var variance = Math.Abs(s1!.Value - s2!.Value) / ((s1!.Value + s2!.Value) / 2);
-                            if (variance > 0.05m)
+                            // Both sides present — check for zero and variance
+                            if (s1!.Value == 0) flags.Add("Side1 is zero");
+                            if (s2!.Value == 0) flags.Add("Side2 is zero");
+
+                            if (s1!.Value > 0 && s2!.Value > 0)
                             {
-                                // NOT flagged - set trim comment and auto-load
-                                // LTrim = left side (Side1) was trimmed more; RTrim = right side (Side2)
-                                row.TrimComment = s1!.Value < s2!.Value ? "LTrim" : "RTrim";
+                                var variance = Math.Abs(s1!.Value - s2!.Value) / ((s1!.Value + s2!.Value) / 2);
+                                if (variance > 0.05m)
+                                {
+                                    // NOT flagged - set trim comment and auto-load
+                                    // LTrim = left side (Side1) was trimmed more; RTrim = right side (Side2)
+                                    row.TrimComment = s1!.Value < s2!.Value ? "LTrim" : "RTrim";
+                                }
                             }
                         }
                     }
@@ -2007,24 +3061,30 @@ var acnGrouped = acnResults
                     else
                         row.NewGrade = g2;
 
-                    if (g1 == null && g2 == null)
+                    if (!isCondemned)
                     {
-                        flags.Add("Grade or Grade2 required");
-                    }
-                    else if (allowedGrades != null)
-                    {
-                        // Primary Grade invalid and Grade2 missing/invalid => flag (review only, never hard-block).
-                        if (!g1Valid && !g2Valid)
+                        if (g1 == null && g2 == null)
                         {
-                            flags.Add($"Invalid grade for Sex={ruleInfo.SexCode}, Type={ruleInfo.TypeCode}. Grade={g1 ?? "-"}, Grade2={g2 ?? "-"}");
+                            flags.Add("Grade or Grade2 required");
+                        }
+                        else if (allowedGrades != null)
+                        {
+                            // Primary Grade invalid and Grade2 missing/invalid => flag (review only, never hard-block).
+                            if (!g1Valid && !g2Valid)
+                            {
+                                flags.Add($"Invalid grade for Sex={ruleInfo.SexCode}, Type={ruleInfo.TypeCode}. Grade={g1 ?? "-"}, Grade2={g2 ?? "-"}");
+                            }
                         }
                     }
 
-                    // HealthScore validation
-                    if (!hs.HasValue)
-                        flags.Add("HealthScore missing");
-                    else if (hs.Value < 1 || hs.Value > 5)
-                        flags.Add($"HealthScore {hs} out of range 1–5");
+                    // HealthScore validation — skipped for condemned rows.
+                    if (!isCondemned)
+                    {
+                        if (!hs.HasValue)
+                            flags.Add("HealthScore missing");
+                        else if (hs.Value < 1 || hs.Value > 5)
+                            flags.Add($"HealthScore {hs} out of range 1–5");
+                    }
 
                     // Compute HotWeight only when both sides valid
                     bool sidesClean = side1Ok && side2Ok && s1!.Value > 0 && s2!.Value > 0;
@@ -2092,42 +3152,88 @@ var acnGrouped = acnResults
                     }
                     else
                     {
-                        row.Status = "OK";
-                        vm.AutoRows.Add(row);
+                        // Final completeness gate — mirrors IsCompleteForKill in the
+                        // MarkKilledApi save endpoint. A row should only be marked
+                        // Ready if it would actually pass save-time validation.
+                        // Without this gate, "ready" rows with missing HW/Grade/HS
+                        // get rejected at save time, producing the
+                        // "N rows had errors and were NOT saved" warning.
+                        var savabilityFlags = new List<string>();
+
+                        // ACN must resolve to a non-empty value (matches NormalizeAcn).
+                        if (string.IsNullOrWhiteSpace(row.AnimalControlNumber))
+                            savabilityFlags.Add("ACN missing — required for save");
+
+                        if (!isCondemned)
+                        {
+                            // Production-killed animals need full weight, grade, and HS.
+                            if (!row.NewHotWeight.HasValue || row.NewHotWeight.Value <= 0)
+                                savabilityFlags.Add("HotWeight missing or zero");
+                            if (string.IsNullOrWhiteSpace(row.NewGrade))
+                                savabilityFlags.Add("Grade missing");
+                            if (!row.NewHealthScore.HasValue
+                                || row.NewHealthScore.Value < 1
+                                || row.NewHealthScore.Value > 5)
+                                savabilityFlags.Add("HealthScore missing or out of 1–5");
+                        }
+
+                        if (savabilityFlags.Any())
+                        {
+                            row.Status     = "Flag";
+                            row.FlagReason = string.Join("; ", savabilityFlags);
+                            if (!string.IsNullOrEmpty(row.TrimComment))
+                                row.FlagReason += $"; {row.TrimComment}";
+                            vm.FlaggedRows.Add(row);
+                        }
+                        else
+                        {
+                            row.Status = "OK";
+                            vm.AutoRows.Add(row);
+                        }
                     }
                 }
                 var hwJson = System.Text.Json.JsonSerializer.Serialize(vm);
-                TempData["HWPreview"] = hwJson;
-                //HttpContext.Session.SetString("HWPreview", hwJson);
-                await StagingBridge.WriteAsync(
-                    HttpContext.Session, _stagingService,
-                    StagingBridge.Types.HotWeight,
-                    StagingBridge.GetUserKey(HttpContext),
-                    hwJson,
-                    sourceFileName: file?.FileName);
-                _logger.LogInformation("[HW-IMPORT] Parsed: TotalInExcel={Total}, AutoRows={Auto}, FlaggedRows={Flagged}, JsonLength={Len}",
-                    vm.TotalInExcel, vm.AutoRows.Count, vm.FlaggedRows.Count, hwJson.Length);
+                _logger.LogInformation(
+                    "[HW-IMPORT] Parsed: TotalInExcel={Total}, AutoRows={Auto} (OK={Ok}, Loaded={Loaded}), FlaggedRows={Flagged}, DupRows={Dups}, Matched={Matched}, JsonLength={Len}. Sum={Sum}.",
+                    vm.TotalInExcel,
+                    vm.AutoRows.Count,
+                    vm.AutoRows.Count(r => r.Status == "OK"),
+                    vm.AutoRows.Count(r => r.Status == "Loaded"),
+                    vm.FlaggedRows.Count,
+                    vm.DupRows.Count,
+                    vm.Matched,
+                    hwJson.Length,
+                    vm.AutoRows.Count + vm.FlaggedRows.Count + vm.DupRows.Count);
                 _logger.LogInformation("[HW-IMPORT] Sample AutoRow ControlNos: {Ids}",
                     string.Join(", ", vm.AutoRows.Take(5).Select(r => $"{r.ControlNo}={r.NewHotWeight}")));
             }
             catch (Exception ex)
             {
                 vm.Errors.Add($"Parse error: {ex.Message}");
-                return View("HotWeightPreview", vm);
+                return vm;
             }
 
-            return View("HotWeightPreview", vm);
+            return vm;
         }
 
         // HOT WEIGHT - LOAD SELECTED ROWS INTO MARK AS KILLED (no DB write yet)
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult HotWeightLoadToMarkKilled([FromForm] string? selectedControlNos, [FromForm] string? fixedFlaggedJson)
+        public async Task<IActionResult> HotWeightLoadToMarkKilled(string? selectedControlNos, string? fixedFlaggedJson)
         {
-            var json = HttpContext.Session.GetString("HWPreview")
-                    ?? TempData.Peek("HWPreview") as string;
+            // Read from SHARED staging — collaborative review across all teammates.
+            var json = await StagingBridge.ReadSharedAsync(
+                _stagingService,
+                StagingBridge.Types.HotWeight,
+                StagingBridge.SharedHotWeightKey);
             if (string.IsNullOrEmpty(json))
-            { TempData["ErrorMessage"] = "Preview session expired. Please re-upload the file."; return RedirectToAction(nameof(HotWeightImport)); }
+            { TempData["ErrorMessage"] = "Preview session expired. Please re-upload the file or refresh from Hot Scale."; return RedirectToAction(nameof(HotWeightImport)); }
+
+            if (string.IsNullOrWhiteSpace(selectedControlNos))
+            {
+            TempData["ErrorMessage"] = "No rows were selected to load.";
+            return RedirectToAction(nameof(HotWeightImport));
+            }
 
             // If specific control numbers were posted, filter the session VM to only those rows
             if (!string.IsNullOrEmpty(selectedControlNos))
@@ -2152,12 +3258,15 @@ var acnGrouped = acnResults
                 catch { /* use full session on error */ }
             }
 
+            var fixedRowsParsed = new List<FixedFlaggedRow>();
+
             // Merge any fixed flagged rows from the JS into the vm
             if (!string.IsNullOrEmpty(fixedFlaggedJson))
             {
                 try
                 {
                     var fixedRows = System.Text.Json.JsonSerializer.Deserialize<List<FixedFlaggedRow>>(fixedFlaggedJson);
+                    fixedRowsParsed = fixedRows;
                     if (fixedRows != null && fixedRows.Any())
                     {
                         var vmForMerge = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(json);
@@ -2174,13 +3283,18 @@ var acnGrouped = acnResults
                                     existing.ControlNo = fix.ControlNo;
                                     if (!string.IsNullOrWhiteSpace(fix.AnimalControlNumber))
                                     existing.AnimalControlNumber = fix.AnimalControlNumber.Trim();
-                                    existing.Side1 = fix.Side1;
-                                    existing.Side2 = fix.Side2;
-                                    existing.NewHotWeight = fix.Side1 + fix.Side2;
-                                    existing.NewGrade = fix.Grade;
-                                    existing.NewHealthScore = fix.HealthScore;
+                                    // Guard each overwrite — picker-only flow sends zeros.
+                                    if (fix.Side1 > 0) existing.Side1 = fix.Side1;
+                                    if (fix.Side2 > 0) existing.Side2 = fix.Side2;
+                                    if (fix.Side1 + fix.Side2 > 0)
+                                        existing.NewHotWeight = fix.Side1 + fix.Side2;
+                                    if (!string.IsNullOrWhiteSpace(fix.Grade))
+                                        existing.NewGrade = fix.Grade;
+                                    if (fix.HealthScore > 0)
+                                        existing.NewHealthScore = fix.HealthScore;
                                     existing.Status = "OK";
                                     existing.FlagReason = "";
+                                    existing.IsManuallyEdited = true; // smart-merge: preserve this fix across auto-refreshes
                                     vmForMerge.FlaggedRows.Remove(existing);
                                     vmForMerge.AutoRows.Add(existing);
                                 }
@@ -2193,13 +3307,18 @@ var acnGrouped = acnResults
                 catch (Exception ex) { _logger.LogWarning(ex, "[HW-LOAD] Could not merge fixed flagged rows"); }
             }
 
-            // Pass the filtered/merged subset to Mark as Killed via TempData ONLY
+            // Don't write session yet — we want session to hold the FULL post-Load
+            // master (with all FlaggedRows, DupRows, and Loaded markers), not the
+            // pre-Load filtered subset. We write below after the master is updated.
             TempData["HWLoaded"]  = "1";
-            TempData["HWPreview"] = json;   // filtered subset for Mark as Killed
             HttpContext.Session.SetString("HWLoaded", "1");
 
-            // ── Update master session — mark loaded rows as "Loaded", keep flagged rows intact ──
-            var masterJson = HttpContext.Session.GetString("HWPreview");
+            
+            //  merge fixed flagged rows, then mark loaded rows --
+           var masterJson = await StagingBridge.ReadSharedAsync(
+                  _stagingService,
+                  StagingBridge.Types.HotWeight,
+                  StagingBridge.SharedHotWeightKey);
             if (!string.IsNullOrEmpty(masterJson))
             {
                 try
@@ -2207,36 +3326,220 @@ var acnGrouped = acnResults
                     var masterVm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(masterJson);
                     if (masterVm != null)
                     {
-                        // If selectedControlNos is provided use it; otherwise mark ALL OK rows as Loaded
+                        // 1) Merge fixed flagged rows into master (same logic as vmForMerge)
+                        if (fixedRowsParsed.Any())
+                        {
+                            foreach (var fix in fixedRowsParsed)
+                            {
+                                var existing = !string.IsNullOrWhiteSpace(fix.RowKey)
+                                    ? masterVm.FlaggedRows.FirstOrDefault(r => r.RowKey == fix.RowKey)
+                                    : masterVm.FlaggedRows.FirstOrDefault(r => r.ControlNo == fix.ControlNo);
+
+                                if (existing == null) continue;
+
+                                existing.ControlNo = fix.ControlNo;
+
+                                if (!string.IsNullOrWhiteSpace(fix.AnimalControlNumber))
+                                    existing.AnimalControlNumber = fix.AnimalControlNumber.Trim();
+
+                                // Only overwrite if the fix has a meaningful value.
+                                // The picker-only flow (operator picked a candidate but
+                                // didn't edit Side/Grade/HS) sends zeros and empties —
+                                // without these guards, the original Hot Scale values
+                                // would be wiped, leaving a "ready" row with no HW data.
+                                if (fix.Side1 > 0) existing.Side1 = fix.Side1;
+                                if (fix.Side2 > 0) existing.Side2 = fix.Side2;
+                                if (fix.Side1 + fix.Side2 > 0)
+                                    existing.NewHotWeight = fix.Side1 + fix.Side2;
+                                if (!string.IsNullOrWhiteSpace(fix.Grade))
+                                    existing.NewGrade = fix.Grade;
+                                if (fix.HealthScore > 0)
+                                    existing.NewHealthScore = fix.HealthScore;
+
+                                existing.Status = "OK";
+                                existing.FlagReason = "";
+                                existing.IsManuallyEdited = true; // smart-merge: preserve this fix across auto-refreshes
+
+                                masterVm.FlaggedRows.Remove(existing);
+
+                                // Avoid duplicate AutoRows entries
+                                var alreadyInAuto = masterVm.AutoRows.Any(r =>
+                                    (!string.IsNullOrWhiteSpace(existing.RowKey) && r.RowKey == existing.RowKey) ||
+                                    (existing.ControlNo > 0 && r.ControlNo == existing.ControlNo));
+
+                                if (!alreadyInAuto)
+                                    masterVm.AutoRows.Add(existing);
+                            }
+                        }
+
+                        // Final completeness re-check. Any AutoRow that fails the
+                        // save-time validation (no HotWeight, no Grade, no HS, no ACN)
+                        // goes back to FlaggedRows with a clear reason. Without this,
+                        // picker-only fixes can land rows in Ready that look complete
+                        // but actually fail at save time → "0 rows updated" surprise.
+                        var demote = masterVm.AutoRows.Where(r =>
+                        {
+                            if (r.IsCondemned) return false; // condemned bypasses HW/Grade/HS
+                            if (string.IsNullOrWhiteSpace(r.AnimalControlNumber)) return true;
+                            if (!r.NewHotWeight.HasValue || r.NewHotWeight.Value <= 0) return true;
+                            if (string.IsNullOrWhiteSpace(r.NewGrade)) return true;
+                            if (!r.NewHealthScore.HasValue
+                                || r.NewHealthScore.Value < 1
+                                || r.NewHealthScore.Value > 5) return true;
+                            return false;
+                        }).ToList();
+
+                        foreach (var d in demote)
+                        {
+                            masterVm.AutoRows.Remove(d);
+                            d.Status = "Flag";
+                            var reasons = new List<string>();
+                            if (string.IsNullOrWhiteSpace(d.AnimalControlNumber)) reasons.Add("ACN missing");
+                            if (!d.NewHotWeight.HasValue || d.NewHotWeight.Value <= 0) reasons.Add("HotWeight missing or zero");
+                            if (string.IsNullOrWhiteSpace(d.NewGrade)) reasons.Add("Grade missing");
+                            if (!d.NewHealthScore.HasValue || d.NewHealthScore.Value < 1 || d.NewHealthScore.Value > 5)
+                                reasons.Add("HealthScore missing or out of 1–5");
+                            d.FlagReason = string.Join("; ", reasons);
+                            // Avoid duplicates in FlaggedRows
+                            if (!masterVm.FlaggedRows.Any(f => f.ControlNo == d.ControlNo))
+                                masterVm.FlaggedRows.Add(d);
+                        }
+                        if (demote.Count > 0)
+                            _logger.LogInformation("[HW-LOAD] Demoted {Count} incomplete rows back to FlaggedRows post-merge.", demote.Count);
+
+                        // 2) Determine which ControlNos to load
                         HashSet<int> loadedIds;
                         if (!string.IsNullOrEmpty(selectedControlNos))
                         {
                             loadedIds = selectedControlNos.Split(',', StringSplitOptions.RemoveEmptyEntries)
                                 .Select(s => int.TryParse(s.Trim(), out int id) ? id : 0)
-                                .Where(id => id > 0).ToHashSet();
+                                .Where(id => id > 0)
+                                .ToHashSet();
                         }
                         else
                         {
-                            // "Load all" - mark every OK (non-Loaded) row as Loaded
                             loadedIds = masterVm.AutoRows
                                 .Where(r => r.Status == "OK")
-                                .Select(r => r.ControlNo).ToHashSet();
+                                .Select(r => r.ControlNo)
+                                .ToHashSet();
                         }
 
+                        // 3) Persist HW data (HotWeight, Grade, HS, ACN) onto the
+                        //    matching bills via SaveKillDataAsync. KillStatus is NOT
+                        //    touched — bills stay Pending until operator clicks
+                        //    "Mark all complete (all pages)" on the Mark Killed page.
+                        //
+                        //    This step is the meaningful work of the Load button:
+                        //    it makes the HW data visible on the bill record itself,
+                        //    so it survives session loss / browser close, and the
+                        //    Hot Weight page can mark these rows as "Loaded" (purple)
+                        //    so they don't reappear as fresh Ready rows on the next refresh.
+                        var rowsToPersist = masterVm.AutoRows
+                            .Where(r => loadedIds.Contains(r.ControlNo)
+                                        && r.ControlNo > 0
+                                        && (r.NewHotWeight.HasValue
+                                            || !string.IsNullOrWhiteSpace(r.NewGrade)
+                                            || r.NewHealthScore.HasValue
+                                            || !string.IsNullOrWhiteSpace(r.NewAnimalControlNumber)
+                                            || r.IsCondemned))
+                            .ToList();
+
+                        int billsUpdated = 0;
+                        if (rowsToPersist.Any())
+                        {
+                            try
+                            {
+                                var killData = rowsToPersist.Select(r => new KillAnimalData
+                                {
+                                    ControlNo           = r.ControlNo,
+                                    AnimalControlNumber = !string.IsNullOrWhiteSpace(r.NewAnimalControlNumber)
+                                                            ? r.NewAnimalControlNumber
+                                                            : r.AnimalControlNumber,
+                                    HotWeight           = r.NewHotWeight,
+                                    Grade               = r.NewGrade,
+                                    HealthScore         = r.NewHealthScore,
+                                    IsCondemned         = r.IsCondemned,
+                                    Comment             = string.IsNullOrWhiteSpace(r.TrimComment) ? null : r.TrimComment
+                                }).ToList();
+
+                                billsUpdated = await _animalService.SaveKillDataAsync(killData);
+                                _logger.LogInformation(
+                                    "[HW-LOAD] Persisted HW data to {Count} bills (HotWeight, Grade, HS, ACN) — KillStatus unchanged.",
+                                    billsUpdated);
+                            }
+                            catch (Exception saveEx)
+                            {
+                                _logger.LogError(saveEx, "[HW-LOAD] Failed to persist HW data to bills");
+                                TempData["ErrorMessage"] = "Could not save Hot Weight data to bills: " + saveEx.Message;
+                                return RedirectToAction(nameof(HotWeightImport));
+                            }
+                        }
+
+                        // 4) Mark loaded rows in HW staging as "Loaded" (purple badge)
+                        //    so they don't show as Ready next time.
                         int marked = 0;
                         foreach (var r in masterVm.AutoRows.Where(r => loadedIds.Contains(r.ControlNo) && r.Status == "OK"))
-                        { r.Status = "Loaded"; marked++; }
+                        {
+                            r.Status = "Loaded";
+                            marked++;
+                        }
+
+                        // Remove loaded flagged rows from FlaggedRows so they don't reappear after staging restore
+                        var loadedFlaggedKeys = masterVm.FlaggedRows
+                            .Where(r => r.ControlNo > 0 && loadedIds.Contains(r.ControlNo))
+                            .ToList();
+                        foreach (var r in loadedFlaggedKeys)
+                            masterVm.FlaggedRows.Remove(r);
+                        marked += loadedFlaggedKeys.Count;
 
                         var updatedMaster = System.Text.Json.JsonSerializer.Serialize(masterVm);
+                        await StagingBridge.WriteSharedAsync(
+                        _stagingService,
+                        StagingBridge.Types.HotWeight,
+                        StagingBridge.SharedHotWeightKey,
+                        updatedMaster,
+                        sourceFileName: null);
+
+                        // Session now holds the FULL master post-Load:
+                        //  - all original FlaggedRows + DupRows preserved
+                        //  - Loaded ControlNos have Status="Loaded"
+                        // MarkKilledFast hwLookup excludes Loaded → button hides,
+                        // pre-fill goes away, bills show their saved values directly.
+                        TempData["HWPreview"] = updatedMaster;
                         HttpContext.Session.SetString("HWPreview", updatedMaster);
-                        _logger.LogInformation("[HW-LOAD] {Count} rows marked Loaded in master session", marked);
+
+                        _logger.LogInformation("[HW-LOAD] merged={Merged}, markedLoaded={Marked}",
+                            fixedRowsParsed.Count, marked);
                     }
                 }
-                catch (Exception ex) { _logger.LogWarning(ex, "[HW-LOAD] Could not update master session"); }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[HW-LOAD] Could not update master session");
+                }
+            }
+            else
+            {
+                // No master available — fall back to the filtered subset for session
+                // so Mark Killed at least has SOMETHING to pre-fill from. This branch
+                // should be rare since we read master at the top of this action.
+                TempData["HWPreview"] = json;
+                HttpContext.Session.SetString("HWPreview", json);
             }
 
-            _logger.LogInformation("[HW-LOAD] Loading into MarkKilled. Json length={Len}", json.Length);
-            return RedirectToAction("MarkKilled");
+            _logger.LogInformation("[HW-LOAD] Saved HW data. Redirecting back to Hot Weight Report (Ready tab). Json length={Len}", json.Length);
+
+            // Operator-visible summary message. Tells them what happened and what's next.
+            int idsLoadedCount = 0;
+            try
+            {
+                idsLoadedCount = selectedControlNos?.Split(',', StringSplitOptions.RemoveEmptyEntries).Count() ?? 0;
+            }
+            catch { }
+            if (idsLoadedCount > 0)
+            {
+                TempData["SuccessMessage"] = $"Saved Hot Weight data for {idsLoadedCount} bills — visible below in 'Ready & killed today' with a 'Loaded ✓' badge. When ready to finalize, click 'Go to Mark as Killed'.";
+            }
+            return RedirectToAction(nameof(HotWeightImport), new { tab = 1 });
         }
 
         // HOT WEIGHT - CLEAR SESSION
@@ -2244,15 +3547,18 @@ var acnGrouped = acnResults
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> HotWeightClearSession()
         {
-            await StagingBridge.ClearAsync(
-                HttpContext.Session, _stagingService,
+            await StagingBridge.ClearSharedAsync(
+                _stagingService,
                 StagingBridge.Types.HotWeight,
-                StagingBridge.GetUserKey(HttpContext));
+                StagingBridge.SharedHotWeightKey);
 
+            // Clear all session/TempData keys related to Hot Weight pre-fill
+            // so a fresh refresh starts truly empty.
             HttpContext.Session.Remove("HWLoaded");
+            HttpContext.Session.Remove("HWPreview");
             TempData.Remove("HWPreview");
             TempData.Remove("HWLoaded");
-            TempData["SuccessMessage"] = "Hot Weight import session cleared.";
+            TempData["SuccessMessage"] = "Hot Weight session cleared. Click Refresh from Hot Scale to start fresh.";
             return RedirectToAction(nameof(HotWeightImport));
         }
 
@@ -2396,6 +3702,48 @@ var acnGrouped = acnResults
 
         private static bool IsAcnMissing(string? acn) => NormalizeAcn(acn) == null;
 
+        private static string NormalizeTagToken(string? tag)
+        {
+            if (string.IsNullOrWhiteSpace(tag)) return "";
+
+            var cleaned = new string(tag
+                .Trim()
+                .ToUpperInvariant()
+                .Where(char.IsLetterOrDigit)
+                .ToArray());
+
+            if (cleaned.Length == 0) return "";
+
+            if (cleaned.All(char.IsDigit))
+            {
+                var noLeadingZeros = cleaned.TrimStart('0');
+                return noLeadingZeros.Length == 0 ? "0" : noLeadingZeros;
+            }
+
+            return cleaned;
+        }
+
+        private static bool TagEquivalent(string? left, string? right)
+        {
+            var l = NormalizeTagToken(left);
+            var r = NormalizeTagToken(right);
+            return l.Length > 0 && r.Length > 0 &&
+                string.Equals(l, r, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool AnimalMatchesAnyFileTag(BarnData.Data.Entities.Animal a, string? backTag, string? tag1, string? tag2)
+        {
+            return TagEquivalent(a.TagNumber1, backTag) ||
+                TagEquivalent(a.TagNumber2, backTag) ||
+                TagEquivalent(a.Tag3, backTag) ||
+                TagEquivalent(a.TagNumber1, tag1) ||
+                TagEquivalent(a.TagNumber2, tag1) ||
+                TagEquivalent(a.Tag3, tag1) ||
+                TagEquivalent(a.TagNumber1, tag2) ||
+                TagEquivalent(a.TagNumber2, tag2) ||
+                TagEquivalent(a.Tag3, tag2);
+        }
+
     private static bool IsBullLikeAnimal(string? animalType)
     {
         var value = animalType ?? "";
@@ -2427,20 +3775,18 @@ var acnGrouped = acnResults
     if (string.IsNullOrEmpty(grade))
         return null;
 
+    // Condemnation grades (anything starting with X) bypass allow-list checks.
+    if (GradeRules.IsCondemnationCode(grade))
+        return null;
+
     // HW-import grade/type mismatches are already flagged during preview.
     // Do not block persistence here for imported rows.
     if (isHwImported)
         return null;
 
-    var bullGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "BB", "LB", "UB", "FB"
-    };
-
-    var cowGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "CN", "SH", "CT", "B1", "B2", "BR"
-    };
+    // Use shared rules so this matches the Hot Weight pipeline exactly.
+    var bullGrades = GradeRules.BullGrades;
+    var cowGrades  = GradeRules.CowGrades;
 
     if (IsBullLikeAnimal(row.AnimalType) && !bullGrades.Contains(grade))
         return $"Ctrl No {row.ControlNo}: Grade {grade} is not valid for {row.AnimalType}. Allowed: {string.Join(", ", bullGrades)}.";
@@ -2472,18 +3818,16 @@ var acnGrouped = acnResults
     if (string.IsNullOrEmpty(grade))
         return null;
 
+    // Condemnation grades (anything starting with X) bypass allow-list checks.
+    if (GradeRules.IsCondemnationCode(grade))
+        return null;
+
     if (hwImported)
         return null;
 
-    var bullGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "BB", "LB", "UB", "FB"
-    };
-
-    var cowGrades = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "CN", "SH", "CT", "B1", "B2", "BR"
-    };
+    // Use shared rules so this matches the Hot Weight pipeline exactly.
+    var bullGrades = GradeRules.BullGrades;
+    var cowGrades  = GradeRules.CowGrades;
 
     if (IsBullLikeAnimal(animalType) && !bullGrades.Contains(grade))
         return $"Ctrl No {id}: Grade {grade} is not valid for {animalType}. Allowed: {string.Join(", ", bullGrades)}.";
@@ -3326,7 +4670,526 @@ var acnGrouped = acnResults
             TempData["SuccessMessage"] = "Excel import session cleared.";
             return RedirectToAction(nameof(Excel));
         }
-    
+
+        // =============================================================================
+        // HOT SCALE AUTO-PULL HELPERS
+        // =============================================================================
+
+        // ---------------------------------------------------------------------
+        // ReadHotWeightRowsFromHotScaleDbAsync
+        //
+        // Runs the production Hot Weight report SQL against the Hot Scale DB
+        // (configured via the "HotScale" connection string in appsettings) for
+        // a single date.  Returns the rows as a list of HotScaleRow records,
+        // ready to be projected into a synthetic workbook.
+        //
+        // Same query the SSRS "HotScaleReport" runs in production. Both
+        // @reportdatestart and @reportdateend bind to the same date so the
+        // shape matches the user-picked-date-only behaviour of the SSRS report.
+        //
+        // Throws on connection or execution failure - the caller is expected
+        // to catch and present a friendly inline warning to the user.
+        // ---------------------------------------------------------------------
+        private async Task<List<HotScaleRow>> ReadHotWeightRowsFromHotScaleDbAsync(DateTime forDate)
+        {
+            var connStr = _configuration.GetConnectionString("HotScale");
+            if (string.IsNullOrWhiteSpace(connStr))
+                throw new InvalidOperationException("HotScale connection string is not configured.");
+
+            const string sql = @"
+SELECT
+    CAST(tbl_animal_master.LiveWeightDate AS time(0)) AS timekilled,
+    tbl_animal_master.AnimalNumber,
+    tbl_animal_master.SexCode,
+    tbl_animal_master.AnimalType,
+    tbl_animal_master.BackTag,
+    lot.KILL_LOT_NUMBER,
+    tbl_animal_master.Tag1,
+    tbl_animal_master.Tag2,
+    tbl_animal_master.ProgramCode,
+    tbl_animal_master.CountryCode,
+    tbl_animal_master.HotWeightSide1,
+    tbl_animal_master.HotWeightSide2,
+    CAST(tbl_animal_master.LiveWeightDate AS date) AS datekilled,
+    tbl_animal_master.HotWeightSide1 + tbl_animal_master.HotWeightSide2 AS hottotal,
+    NULLIF(tbl_animal_master.LiveWeight, 0.00) AS liveweight,
+    (tbl_animal_master.HotWeightSide1 + tbl_animal_master.HotWeightSide2) / tbl_animal_master.LiveWeight * 100 AS yieldpercent,
+    side1.QUALITY_GRADE_CODE AS side1grade,
+    side2.QUALITY_GRADE_CODE AS side2grade,
+    tbl_animal_master.HealthScore,
+    CASE WHEN side1.TRIM_GRADE_FRONT = 1 THEN ' ' WHEN side1.TRIM_GRADE_FRONT = 2 THEN 'LT' WHEN side1.TRIM_GRADE_FRONT = 3 THEN 'HT' END AS side1front,
+    CASE WHEN side1.TRIM_GRADE_HIND  = 1 THEN ' ' WHEN side1.TRIM_GRADE_HIND  = 2 THEN 'LT' WHEN side1.TRIM_GRADE_HIND  = 3 THEN 'HT' END AS side1hind,
+    CASE WHEN side2.TRIM_GRADE_FRONT = 1 THEN ' ' WHEN side2.TRIM_GRADE_FRONT = 2 THEN 'LT' WHEN side2.TRIM_GRADE_FRONT = 3 THEN 'HT' END AS side2front,
+    CASE WHEN side2.TRIM_GRADE_HIND  = 1 THEN ' ' WHEN side2.TRIM_GRADE_HIND  = 2 THEN 'LT' WHEN side2.TRIM_GRADE_HIND  = 3 THEN 'HT' END AS side2hind
+FROM tbl_animal_master
+LEFT OUTER JOIN tbl_hot_weights_history AS side1 ON tbl_animal_master.BarCodeSide1 = side1.ANIMAL_BARCODE
+LEFT OUTER JOIN tbl_hot_weights_history AS side2 ON tbl_animal_master.BarCodeSide2 = side2.ANIMAL_BARCODE
+INNER JOIN tbl_animal_kill_lots AS lot ON tbl_animal_master.AnimalNumber = lot.ANIMAL_NUMBER
+WHERE (CAST(tbl_animal_master.DateKilled AS date) BETWEEN @reportdatestart AND @reportdateend)
+  AND (
+        -- Production-killed: carcass weighed (both sides), graded, scored.
+        -- Picks up rows where Hot Scale has finished its measurement workflow.
+        (
+            tbl_animal_master.HotWeightSide1 > 0
+            AND tbl_animal_master.HotWeightSide2 > 0
+            AND ISNULL(side1.QUALITY_GRADE_CODE, '') <> ''
+            AND ISNULL(tbl_animal_master.HealthScore, 0) > 0
+        )
+        OR
+        -- Condemned: no carcass to weigh, condemnation marker on either side.
+        -- Either side1 or side2 grade starts with 'X' (XML, XO, XTOX, etc.).
+        (
+            ISNULL(tbl_animal_master.HotWeightSide1, 0) = 0
+            AND ISNULL(tbl_animal_master.HotWeightSide2, 0) = 0
+            AND (
+                side1.QUALITY_GRADE_CODE LIKE 'X%'
+                OR side2.QUALITY_GRADE_CODE LIKE 'X%'
+            )
+        )
+      )
+ORDER BY tbl_animal_master.AnimalNumber";
+
+            var rows = new List<HotScaleRow>();
+
+            await using var conn = new SqlConnection(connStr);
+            await conn.OpenAsync();
+            await using var cmd = new SqlCommand(sql, conn) { CommandTimeout = 60 };
+            cmd.Parameters.Add(new SqlParameter("@reportdatestart", SqlDbType.Date) { Value = forDate.Date });
+            cmd.Parameters.Add(new SqlParameter("@reportdateend",   SqlDbType.Date) { Value = forDate.Date });
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+
+            // Resolve column ordinals once
+            int oTimeKilled  = SafeOrdinal(reader, "timekilled");
+            int oAnimalNo    = SafeOrdinal(reader, "AnimalNumber");
+            int oSexCode     = SafeOrdinal(reader, "SexCode");
+            int oAnimalType  = SafeOrdinal(reader, "AnimalType");
+            int oBackTag     = SafeOrdinal(reader, "BackTag");
+            int oLotNumber   = SafeOrdinal(reader, "KILL_LOT_NUMBER");
+            int oTag1        = SafeOrdinal(reader, "Tag1");
+            int oTag2        = SafeOrdinal(reader, "Tag2");
+            int oProgramCode = SafeOrdinal(reader, "ProgramCode");
+            int oCountryCode = SafeOrdinal(reader, "CountryCode");
+            int oSide1       = SafeOrdinal(reader, "HotWeightSide1");
+            int oSide2       = SafeOrdinal(reader, "HotWeightSide2");
+            int oLiveWeight  = SafeOrdinal(reader, "liveweight");
+            int oSide1Grade  = SafeOrdinal(reader, "side1grade");
+            int oSide2Grade  = SafeOrdinal(reader, "side2grade");
+            int oHealthScore = SafeOrdinal(reader, "HealthScore");
+
+            while (await reader.ReadAsync())
+            {
+                rows.Add(new HotScaleRow
+                {
+                    TimeKilled    = oTimeKilled  >= 0 && !reader.IsDBNull(oTimeKilled)  ? reader.GetTimeSpan(oTimeKilled).ToString(@"hh\:mm\:ss") : "",
+                    AnimalNumber  = oAnimalNo    >= 0 && !reader.IsDBNull(oAnimalNo)    ? reader.GetValue(oAnimalNo)?.ToString() ?? "" : "",
+                    SexCode       = oSexCode     >= 0 && !reader.IsDBNull(oSexCode)     ? reader.GetString(oSexCode) : "",
+                    AnimalType    = oAnimalType  >= 0 && !reader.IsDBNull(oAnimalType)  ? reader.GetString(oAnimalType) : "",
+                    BackTag       = oBackTag     >= 0 && !reader.IsDBNull(oBackTag)     ? reader.GetValue(oBackTag)?.ToString() ?? "" : "",
+                    KillLotNumber = oLotNumber   >= 0 && !reader.IsDBNull(oLotNumber)   ? reader.GetValue(oLotNumber)?.ToString() ?? "" : "",
+                    Tag1          = oTag1        >= 0 && !reader.IsDBNull(oTag1)        ? reader.GetValue(oTag1)?.ToString() ?? "" : "",
+                    Tag2          = oTag2        >= 0 && !reader.IsDBNull(oTag2)        ? reader.GetValue(oTag2)?.ToString() ?? "" : "",
+                    ProgramCode   = oProgramCode >= 0 && !reader.IsDBNull(oProgramCode) ? reader.GetString(oProgramCode) : "",
+                    CountryCode   = oCountryCode >= 0 && !reader.IsDBNull(oCountryCode) ? reader.GetString(oCountryCode) : "",
+                    Side1         = oSide1       >= 0 && !reader.IsDBNull(oSide1)       ? Convert.ToDecimal(reader.GetValue(oSide1)) : (decimal?)null,
+                    Side2         = oSide2       >= 0 && !reader.IsDBNull(oSide2)       ? Convert.ToDecimal(reader.GetValue(oSide2)) : (decimal?)null,
+                    LiveWeight    = oLiveWeight  >= 0 && !reader.IsDBNull(oLiveWeight)  ? Convert.ToDecimal(reader.GetValue(oLiveWeight)) : (decimal?)null,
+                    Side1Grade    = oSide1Grade  >= 0 && !reader.IsDBNull(oSide1Grade)  ? reader.GetString(oSide1Grade)?.Trim() ?? "" : "",
+                    Side2Grade    = oSide2Grade  >= 0 && !reader.IsDBNull(oSide2Grade)  ? reader.GetString(oSide2Grade)?.Trim() ?? "" : "",
+                    HealthScore   = oHealthScore >= 0 && !reader.IsDBNull(oHealthScore) ? Convert.ToInt32(reader.GetValue(oHealthScore)) : (int?)null,
+                });
+            }
+
+            return rows;
+        }
+
+        // Helper: returns column ordinal, or -1 if not present (defensive — query
+        // shape changes shouldn't crash the import).
+        private static int SafeOrdinal(System.Data.Common.DbDataReader r, string colName)
+        {
+            try { return r.GetOrdinal(colName); }
+            catch { return -1; }
+        }
+
+        // ---------------------------------------------------------------------
+        // BuildHotScaleSyntheticFile
+        //
+        // Converts a list of HotScaleRow into an in-memory .xlsx file (wrapped
+        // in IFormFile) whose column headers exactly match the names the
+        // existing Hot Weight Excel parser already recognises.
+        //
+        // This is a deliberate adapter: by emitting the same workbook shape an
+        // SSRS export would produce, we reuse the entire 1300-line matching
+        // pipeline without forking it. If the parser's column aliases ever
+        // change, only the header row below needs to follow.
+        // ---------------------------------------------------------------------
+        private static IFormFile BuildHotScaleSyntheticFile(List<HotScaleRow> rows, DateTime forDate)
+        {
+            var ms = new MemoryStream();
+            using (var wb = new XLWorkbook())
+            {
+                var ws = wb.AddWorksheet("HotScale");
+
+                // Header row — names match the parser's Col(...) aliases (line ~1187).
+                int c = 1;
+                ws.Cell(1, c++).Value = "Number";       // → ACN
+                ws.Cell(1, c++).Value = "BackTag";
+                ws.Cell(1, c++).Value = "Tag1";
+                ws.Cell(1, c++).Value = "Tag2";
+                ws.Cell(1, c++).Value = "Side 1 Hot";
+                ws.Cell(1, c++).Value = "Side 2 Hot";
+                ws.Cell(1, c++).Value = "Grade";        // ← side1grade
+                ws.Cell(1, c++).Value = "Grade 2";      // ← side2grade
+                ws.Cell(1, c++).Value = "HealthScore";
+                ws.Cell(1, c++).Value = "LiveWeight";
+                ws.Cell(1, c++).Value = "Origin";       // ← CountryCode
+                ws.Cell(1, c++).Value = "Lot";          // ← KILL_LOT_NUMBER
+                ws.Cell(1, c++).Value = "Sex";          // ← SexCode
+                ws.Cell(1, c++).Value = "Type";         // ← AnimalType
+                ws.Cell(1, c++).Value = "Program";      // ← ProgramCode
+
+                int r = 2;
+                foreach (var row in rows)
+                {
+                    int cc = 1;
+                    ws.Cell(r, cc++).Value = row.AnimalNumber  ?? "";
+                    ws.Cell(r, cc++).Value = row.BackTag       ?? "";
+                    ws.Cell(r, cc++).Value = row.Tag1          ?? "";
+                    ws.Cell(r, cc++).Value = row.Tag2          ?? "";
+
+                    // Numeric cells: only set when a value is present so empty
+                    // cells (left as blank) are read by the parser as "no value"
+                    // — matches the (v > 0 ? v : null) check in the existing
+                    // GetDecimalCell helper.
+                    if (row.Side1.HasValue)       ws.Cell(r, cc).Value = row.Side1.Value;
+                    cc++;
+                    if (row.Side2.HasValue)       ws.Cell(r, cc).Value = row.Side2.Value;
+                    cc++;
+
+                    ws.Cell(r, cc++).Value = row.Side1Grade    ?? "";
+                    ws.Cell(r, cc++).Value = row.Side2Grade    ?? "";
+
+                    if (row.HealthScore.HasValue) ws.Cell(r, cc).Value = row.HealthScore.Value;
+                    cc++;
+                    if (row.LiveWeight.HasValue)  ws.Cell(r, cc).Value = row.LiveWeight.Value;
+                    cc++;
+
+                    ws.Cell(r, cc++).Value = row.CountryCode   ?? "";
+                    ws.Cell(r, cc++).Value = row.KillLotNumber ?? "";
+                    ws.Cell(r, cc++).Value = row.SexCode       ?? "";
+                    ws.Cell(r, cc++).Value = row.AnimalType    ?? "";
+                    ws.Cell(r, cc++).Value = row.ProgramCode   ?? "";
+                    r++;
+                }
+
+                wb.SaveAs(ms);
+            }
+            ms.Position = 0;
+
+            return new FormFile(ms, 0, ms.Length, "file",
+                $"HotScale-{forDate:yyyy-MM-dd}.xlsx")
+            {
+                Headers      = new Microsoft.AspNetCore.Http.HeaderDictionary(),
+                ContentType  = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            };
+        }
+
+        // ---------------------------------------------------------------------
+        // MergeHotWeightStaging
+        //
+        // Smart-merge: takes a fresh VM (from auto-pull or upload) and an
+        // existing VM (from shared staging), and produces a merged VM that
+        // preserves any rows the team has already manually fixed.
+        //
+        // Match strategy: by (positive) ControlNo first, then by a stable
+        // identifier built from the tag columns.  When an existing fixed row
+        // is found, the user's edits override the fresh pipeline output.
+        //
+        // Loaded rows are preserved across merges, BUT only if the matching bill
+        // in BarnData is still in KillStatus=Killed. If a bill that was previously
+        // loaded has been deleted or reset to Pending (e.g. operator cleared bills
+        // and re-imported), we drop the stale Loaded marker — otherwise the new
+        // batch ghost-flags those rows as "already killed" when they aren't.
+        // ---------------------------------------------------------------------
+        private HotWeightImportViewModel MergeHotWeightStaging(
+            HotWeightImportViewModel fresh,
+            HotWeightImportViewModel? existing,
+            HashSet<int>? currentlyKilledControlNos = null)
+        {
+            if (existing == null) return fresh;
+
+            // Index existing rows for lookup
+            var existingByCtrl = new Dictionary<int, HotWeightPreviewRow>();
+            var existingByTag  = new Dictionary<string, HotWeightPreviewRow>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var er in existing.AutoRows.Concat(existing.FlaggedRows))
+            {
+                if (er.ControlNo > 0 && !existingByCtrl.ContainsKey(er.ControlNo))
+                    existingByCtrl[er.ControlNo] = er;
+
+                var k = TagIdentityKey(er);
+                if (!string.IsNullOrEmpty(k) && !existingByTag.ContainsKey(k))
+                    existingByTag[k] = er;
+            }
+
+            int preserved = 0;
+            int staleLoadedDropped = 0;
+
+            void TryPreserve(HotWeightPreviewRow target)
+            {
+                HotWeightPreviewRow? existingRow = null;
+                if (target.ControlNo > 0 && existingByCtrl.TryGetValue(target.ControlNo, out var byCtrl))
+                    existingRow = byCtrl;
+                if (existingRow == null)
+                {
+                    var k = TagIdentityKey(target);
+                    if (!string.IsNullOrEmpty(k) && existingByTag.TryGetValue(k, out var byTag))
+                        existingRow = byTag;
+                }
+
+                if (existingRow == null) return;
+
+                // Loaded rows carry forward their Loaded status only if the
+                // matched bill is still actually killed in BarnData. Otherwise
+                // (bill deleted, bill reset to Pending, etc.) we drop the stale
+                // marker and let it flow through as a fresh row.
+                if (string.Equals(existingRow.Status, "Loaded", StringComparison.OrdinalIgnoreCase))
+                {
+                    bool billIsStillKilled = currentlyKilledControlNos != null
+                        && target.ControlNo > 0
+                        && currentlyKilledControlNos.Contains(target.ControlNo);
+
+                    // If we have no killed-set context (e.g. callers that haven't
+                    // populated it), be conservative and preserve. If we DO have
+                    // the set and the bill isn't in it, drop the stale marker.
+                    if (currentlyKilledControlNos == null || billIsStillKilled)
+                    {
+                        target.Status            = "Loaded";
+                        target.IsManuallyEdited  = existingRow.IsManuallyEdited;
+                        preserved++;
+                        return;
+                    }
+                    else
+                    {
+                        // Stale Loaded — drop it. Don't return — fall through to the
+                        // manual-edit-preservation path below in case there are still
+                        // operator fixes worth keeping.
+                        staleLoadedDropped++;
+                    }
+                }
+
+                // Otherwise, only preserve if the user manually edited the row.
+                if (!existingRow.IsManuallyEdited) return;
+
+                target.ControlNo               = existingRow.ControlNo;
+                if (!string.IsNullOrWhiteSpace(existingRow.AnimalControlNumber))
+                    target.AnimalControlNumber = existingRow.AnimalControlNumber;
+                target.NewHotWeight            = existingRow.NewHotWeight ?? target.NewHotWeight;
+                target.NewGrade                = existingRow.NewGrade  ?? target.NewGrade;
+                target.NewGrade2               = existingRow.NewGrade2 ?? target.NewGrade2;
+                target.NewHealthScore          = existingRow.NewHealthScore ?? target.NewHealthScore;
+                target.NewAnimalControlNumber  = existingRow.NewAnimalControlNumber ?? target.NewAnimalControlNumber;
+                target.Status                  = existingRow.Status;
+                target.FlagReason              = existingRow.FlagReason;
+                target.IsManuallyEdited        = true;
+                preserved++;
+            }
+
+            foreach (var row in fresh.AutoRows)    TryPreserve(row);
+            foreach (var row in fresh.FlaggedRows) TryPreserve(row);
+
+            // After preserving fixes, some rows that were originally Flagged in
+            // 'fresh' may now be marked Status="OK" thanks to a manual fix that
+            // moved them out of the flag pile. Reorganize to reflect that.
+            var promoted = fresh.FlaggedRows.Where(r => r.Status == "OK").ToList();
+            foreach (var p in promoted)
+            {
+                fresh.FlaggedRows.Remove(p);
+                if (!fresh.AutoRows.Any(a => a.RowKey == p.RowKey || (p.ControlNo > 0 && a.ControlNo == p.ControlNo)))
+                    fresh.AutoRows.Add(p);
+            }
+
+            // Final completeness re-check. A row reaches AutoRows/Ready only if it
+            // would actually pass save-time validation. Without this, manually-edited
+            // rows preserved across merges (or picker-only fixes that didn't supply
+            // Side/Grade/HS values) could land in Ready with empty data — operator
+            // clicks Load and the save endpoint reports "0 rows updated".
+            var demoteFromAuto = fresh.AutoRows.Where(r =>
+            {
+                if (string.Equals(r.Status, "Loaded", StringComparison.OrdinalIgnoreCase))
+                    return false; // already saved earlier — leave alone
+                if (r.IsCondemned) return false; // condemned bypasses HW/Grade/HS
+                if (string.IsNullOrWhiteSpace(r.AnimalControlNumber)) return true;
+                if (!r.NewHotWeight.HasValue || r.NewHotWeight.Value <= 0) return true;
+                if (string.IsNullOrWhiteSpace(r.NewGrade)) return true;
+                if (!r.NewHealthScore.HasValue
+                    || r.NewHealthScore.Value < 1
+                    || r.NewHealthScore.Value > 5) return true;
+                return false;
+            }).ToList();
+
+            foreach (var d in demoteFromAuto)
+            {
+                fresh.AutoRows.Remove(d);
+                d.Status = "Flag";
+                var reasons = new List<string>();
+                if (string.IsNullOrWhiteSpace(d.AnimalControlNumber)) reasons.Add("ACN missing");
+                if (!d.NewHotWeight.HasValue || d.NewHotWeight.Value <= 0) reasons.Add("HotWeight missing or zero");
+                if (string.IsNullOrWhiteSpace(d.NewGrade)) reasons.Add("Grade missing");
+                if (!d.NewHealthScore.HasValue || d.NewHealthScore.Value < 1 || d.NewHealthScore.Value > 5)
+                    reasons.Add("HealthScore missing or out of 1–5");
+                d.FlagReason = string.Join("; ", reasons);
+                if (!fresh.FlaggedRows.Any(f => f.ControlNo == d.ControlNo))
+                    fresh.FlaggedRows.Add(d);
+            }
+
+            _logger.LogInformation(
+                "[HW-MERGE] Preserved {Count} manually-edited rows; dropped {Stale} stale Loaded markers; demoted {Demoted} incomplete rows. Final buckets: AutoRows={Auto} (OK={Ok}, Loaded={Loaded}), FlaggedRows={Flagged}, DupRows={Dups}, Sum={Sum}.",
+                preserved, staleLoadedDropped, demoteFromAuto.Count,
+                fresh.AutoRows.Count,
+                fresh.AutoRows.Count(r => r.Status == "OK"),
+                fresh.AutoRows.Count(r => r.Status == "Loaded"),
+                fresh.FlaggedRows.Count,
+                fresh.DupRows.Count,
+                fresh.AutoRows.Count + fresh.FlaggedRows.Count + fresh.DupRows.Count);
+
+            return fresh;
+        }
+
+        private static string TagIdentityKey(HotWeightPreviewRow r)
+        {
+            // Stable cross-pull identifier when ControlNo isn't yet assigned.
+            // We use whatever tag identifiers are present, joined by '|'.
+            var parts = new[] { r.FileBackTag, r.FileTag1, r.FileTag2 }
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Select(t => t!.Trim().ToUpperInvariant());
+            return string.Join("|", parts);
+        }
+
+        // HOT WEIGHT — REFRESH FROM HOT SCALE (manual pull trigger).
+        // Reads existing staging for smart-merge, runs the SQL query against
+        // Hot Scale, builds a synthetic Excel, runs the matching pipeline,
+        // smart-merges with existing staging (preserves manual fixes), then
+        // redirects to GET to render. This is the only path that hits the
+        // Hot Scale DB — manual refresh keeps page loads fast.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> HotWeightRefreshFromHotScale()
+        {
+            // 1. Read existing shared staging so we can smart-merge into it
+            //    (preserves any manual fixes operators have made since last pull).
+            HotWeightImportViewModel? existingVm = null;
+            try
+            {
+                var existingJson = await StagingBridge.ReadSharedAsync(
+                    _stagingService,
+                    StagingBridge.Types.HotWeight,
+                    StagingBridge.SharedHotWeightKey);
+                if (!string.IsNullOrEmpty(existingJson))
+                    existingVm = System.Text.Json.JsonSerializer.Deserialize<HotWeightImportViewModel>(existingJson);
+            }
+            catch (Exception rex)
+            {
+                _logger.LogWarning(rex, "[HW-AUTO] Could not read existing shared staging; treating as empty.");
+            }
+
+            // 2. Resolve the date to pull. Empty/missing override → DateTime.Today.
+            DateTime pullDate = DateTime.Today;
+            var overrideStr = _configuration["AppSettings:HotScaleDateOverride"];
+            if (!string.IsNullOrWhiteSpace(overrideStr)
+                && DateTime.TryParse(overrideStr, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out var overrideDate))
+            {
+                pullDate = overrideDate.Date;
+                _logger.LogInformation("[HW-AUTO] Using HotScaleDateOverride from config: {Date:yyyy-MM-dd}", pullDate);
+            }
+
+            // 3. Run the pull
+            HotWeightImportViewModel? freshVm = null;
+            int rowsPulled = 0;
+            try
+            {
+                var rows = await ReadHotWeightRowsFromHotScaleDbAsync(pullDate);
+                rowsPulled = rows.Count;
+                _logger.LogInformation("[HW-AUTO] Pulled {Count} rows from Hot Scale for {Date:yyyy-MM-dd}",
+                    rowsPulled, pullDate);
+
+                if (rowsPulled > 0)
+                {
+                    var syntheticFile = BuildHotScaleSyntheticFile(rows, pullDate);
+                    freshVm = await ParseAndMatchHotWeightFileAsync(syntheticFile, treatAsAutoPull: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[HW-AUTO] Hot Scale refresh failed; existing staging unchanged.");
+                TempData["ErrorMessage"] = "Couldn't pull today's hot weights from Hot Scale. Existing data is unchanged.";
+                return RedirectToAction(nameof(HotWeightImport));
+            }
+
+            // 4. Smart-merge & persist
+            HotWeightImportViewModel finalVm;
+            if (freshVm != null)
+            {
+                // Pre-compute the set of bills currently in KillStatus=Killed.
+                // The merge uses this to validate "Loaded" markers from existing
+                // staging — if the bill is no longer killed (deleted / reset to
+                // Pending), the stale marker is dropped.
+                HashSet<int>? killedControlNos = null;
+                try
+                {
+                    var allKilled = await _animalService.GetAllAsync();
+                    killedControlNos = allKilled
+                        .Where(a => string.Equals(a.KillStatus, "Killed", StringComparison.OrdinalIgnoreCase))
+                        .Select(a => a.ControlNo)
+                        .ToHashSet();
+                    _logger.LogInformation("[HW-AUTO] {Count} bills currently in KillStatus=Killed (used to validate Loaded markers).", killedControlNos.Count);
+                }
+                catch (Exception kex)
+                {
+                    _logger.LogWarning(kex, "[HW-AUTO] Could not load currently-killed bills; merge will preserve all Loaded markers conservatively.");
+                }
+
+                finalVm = MergeHotWeightStaging(freshVm, existingVm, killedControlNos);
+                try
+                {
+                    var mergedJson = System.Text.Json.JsonSerializer.Serialize(finalVm);
+                    await StagingBridge.WriteSharedAsync(
+                        _stagingService,
+                        StagingBridge.Types.HotWeight,
+                        StagingBridge.SharedHotWeightKey,
+                        mergedJson,
+                        sourceFileName: $"HotScale {pullDate:yyyy-MM-dd} pulled {DateTime.Now:HH:mm}");
+                    var uniqueAfterDedup = finalVm.TotalInExcel;
+                    string dedupNote = (rowsPulled > uniqueAfterDedup)
+                        ? $" ({rowsPulled - uniqueAfterDedup} duplicate scale-machine rows merged to {uniqueAfterDedup} unique animals)"
+                        : "";
+                    TempData["SuccessMessage"] = $"Refreshed — pulled {rowsPulled} rows from Hot Scale for {pullDate:yyyy-MM-dd}{dedupNote}.";
+                }
+                catch (Exception wex)
+                {
+                    _logger.LogWarning(wex, "[HW-AUTO] Could not write merged VM to shared staging.");
+                    TempData["ErrorMessage"] = "Pull succeeded but couldn't save staging. Try again.";
+                }
+            }
+            else if (existingVm != null)
+            {
+                // 0 rows from Hot Scale — keep existing staging untouched.
+                TempData["InfoMessage"] = $"No animals weighed yet for {pullDate:yyyy-MM-dd}. Existing data is unchanged.";
+            }
+            else
+            {
+                // No existing staging, no fresh data — clear out so the page renders empty.
+                await StagingBridge.ClearSharedAsync(
+                    _stagingService,
+                    StagingBridge.Types.HotWeight,
+                    StagingBridge.SharedHotWeightKey);
+                TempData["InfoMessage"] = $"No animals weighed yet for {pullDate:yyyy-MM-dd}.";
+            }
+
+            return RedirectToAction(nameof(HotWeightImport));
+        }
+
     }
 }
 
@@ -3387,6 +5250,8 @@ public class MarkKilledRequest
 public class AnimalRowDto
 {
 public int ControlNo { get; set; }
+
+public int OriginalControlNo { get; set; } 
 public string AnimalControlNumber { get; set; } = "";
 public string KillDate { get; set; } = "";
 public decimal LiveWeight { get; set; }
@@ -3404,3 +5269,25 @@ public string AnimalType { get; set; } = "";
 public bool HwImported { get; set;}
 }
 
+// Row shape returned by the Hot Scale auto-pull SQL.
+// Columns mirror the SSRS HotScaleReport so values can be projected
+// directly into the synthetic workbook the existing parser expects.
+public class HotScaleRow
+{
+    public string  TimeKilled    { get; set; } = "";
+    public string  AnimalNumber  { get; set; } = "";
+    public string  SexCode       { get; set; } = "";
+    public string  AnimalType    { get; set; } = "";
+    public string  BackTag       { get; set; } = "";
+    public string  KillLotNumber { get; set; } = "";
+    public string  Tag1          { get; set; } = "";
+    public string  Tag2          { get; set; } = "";
+    public string  ProgramCode   { get; set; } = "";
+    public string  CountryCode   { get; set; } = "";
+    public decimal? Side1        { get; set; }
+    public decimal? Side2        { get; set; }
+    public decimal? LiveWeight   { get; set; }
+    public string  Side1Grade    { get; set; } = "";
+    public string  Side2Grade    { get; set; } = "";
+    public int?    HealthScore   { get; set; }
+}

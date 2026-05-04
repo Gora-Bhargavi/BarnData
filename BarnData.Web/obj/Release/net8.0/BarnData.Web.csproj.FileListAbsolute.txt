@@ -171,3 +171,4 @@ C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\NPOI.OpenXml4N
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\NPOI.OpenXmlFormats.dll
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\ICSharpCode.SharpZipLib.dll
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\SixLabors.ImageSharp.dll
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Release\net8.0\appsettings.Production.json

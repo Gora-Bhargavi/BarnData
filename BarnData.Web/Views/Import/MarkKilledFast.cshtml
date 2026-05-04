@@ -81,16 +81,67 @@
                 </div>
             </div>
             <div style="display:flex;gap:8px;padding-bottom:2px;flex-wrap:wrap;align-items:flex-end">
+                @* Primary action: one-click save everything across all pages *@
+                <button type="button" onclick="markAllCompleteAcrossPages()" id="btnMarkAllComplete" class="btn btn-primary" title="Save every complete-for-kill row across all pages in one action — recommended">Mark all complete (all pages) →</button>
+
+                @* Secondary action: save inline edits without marking killed *@
                 <button type="button" onclick="saveEdits()" class="btn btn-secondary">Save edits</button>
-                <button type="button" onclick="clearDraftAll()" class="btn btn-secondary btn-sm">Clear unsaved</button>
+
+                @* HW save shows up only when HW pre-fill exists on the visible page *@
                 <button type="button" onclick="saveAllHwData()" id="saveHwBtn" class="btn btn-secondary" style="display:none;background:#eff6ff;border-color:#93c5fd;color:#1e40af">Save HW data</button>
-                <button type="button" onclick="selectAll(true)"  class="btn btn-secondary btn-sm">Select all</button>
-                <button type="button" onclick="selectAll(false)" class="btn btn-secondary btn-sm">Deselect all</button>
-                <button type="button" onclick="selectCompleteRows()" class="btn btn-secondary btn-sm">Select complete rows</button>
-                <button type="button" onclick="toggleCompleteOnly()" id="btnCompleteOnly" class="btn btn-secondary btn-sm">Show complete only</button>
-                <button type="button" onclick="markCompleteKilled()" class="btn btn-primary">Mark complete as killed →</button>
-                <button type="button" onclick="markKilled()" class="btn btn-primary">Mark selected as killed →</button>
+
+                @* Everything else is in More dropdown — keeps the toolbar uncluttered *@
+                <div class="mkf-more" style="position:relative;display:inline-block">
+                    <button type="button" onclick="toggleMoreMenu()" id="btnMore" class="btn btn-secondary" aria-haspopup="true" aria-expanded="false">More ▾</button>
+                    <div id="moreMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--gray3);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,0.10);min-width:240px;z-index:50;padding:4px 0">
+                        <div style="padding:6px 10px;font-size:11px;color:var(--text3);font-weight:500;text-transform:uppercase;letter-spacing:0.4px">Per-page actions</div>
+                        <button type="button" onclick="closeMoreThen(selectAll, true)"            class="mkf-menu-item">Select all (this page)</button>
+                        <button type="button" onclick="closeMoreThen(selectAll, false)"           class="mkf-menu-item">Deselect all (this page)</button>
+                        <button type="button" onclick="closeMoreThen(selectCompleteRows)"         class="mkf-menu-item">Select complete (this page)</button>
+                        <button type="button" onclick="closeMoreThen(toggleCompleteOnly)"         class="mkf-menu-item" id="btnCompleteOnly">Show complete only</button>
+                        <button type="button" onclick="closeMoreThen(markCompleteKilled)"         class="mkf-menu-item">Mark complete (this page)</button>
+                        <button type="button" onclick="closeMoreThen(markKilled)"                 class="mkf-menu-item">Mark selected (this page)</button>
+                        <div style="border-top:1px solid var(--gray3);margin:4px 0"></div>
+                        <div style="padding:6px 10px;font-size:11px;color:var(--text3);font-weight:500;text-transform:uppercase;letter-spacing:0.4px">All pages</div>
+                        <button type="button" onclick="closeMoreThen(selectCompleteAllPages)" id="btnSelectCompleteAll" class="mkf-menu-item">Select complete (all pages)</button>
+                        <div style="border-top:1px solid var(--gray3);margin:4px 0"></div>
+                        <button type="button" onclick="closeMoreThen(clearDraftAll)"              class="mkf-menu-item" style="color:#b91c1c">Clear unsaved edits</button>
+                    </div>
+                </div>
             </div>
+            <style>
+                .mkf-menu-item {
+                    display:block;width:100%;text-align:left;background:transparent;border:0;
+                    padding:8px 12px;font-size:12.5px;color:var(--text1);cursor:pointer;
+                }
+                .mkf-menu-item:hover { background:var(--gray1); }
+            </style>
+            <script>
+                function toggleMoreMenu(){
+                    var m=document.getElementById('moreMenu');
+                    if (!m) return;
+                    var open = m.style.display==='block';
+                    m.style.display = open ? 'none' : 'block';
+                    document.getElementById('btnMore').setAttribute('aria-expanded', !open);
+                }
+                function closeMoreThen(fn){
+                    var args = Array.prototype.slice.call(arguments,1);
+                    var m=document.getElementById('moreMenu'); if (m) m.style.display='none';
+                    if (typeof fn === 'function') fn.apply(null, args);
+                }
+                // Click outside to close
+                document.addEventListener('click', function(e){
+                    var menu = document.getElementById('moreMenu');
+                    var btn  = document.getElementById('btnMore');
+                    if (!menu || !btn) return;
+                    if (menu.style.display==='block'
+                        && !menu.contains(e.target)
+                        && !btn.contains(e.target)) {
+                        menu.style.display='none';
+                        btn.setAttribute('aria-expanded','false');
+                    }
+                });
+            </script>
         </div>
     </div>
 
@@ -108,15 +159,33 @@
     else
     {
         <div class="table-card">
-            <div style="padding:10px 14px;border-bottom:1px solid var(--gray3);display:flex;justify-content:space-between;align-items:center;font-size:12.5px;background:var(--gray1)">
-                <span>
-                    Showing
-                    <strong>@(((curPage - 1) * pgSize) + 1)</strong>–<strong>@Math.Min(curPage * pgSize, totCount)</strong>
-                    of <strong>@totCount</strong> pending animals
-                    <span style="font-size:11px;color:var(--text3);margin-left:6px"><span class="hw-dot"></span> blue = HW data loaded</span>
-                </span>
-                <span id="selectedCount" style="font-size:11.5px;color:var(--blue);font-weight:500">0 selected</span>
-                <span id="completeCount" style="font-size:11.5px;color:#15803d;font-weight:500;margin-left:10px">0 complete</span>
+            <div style="padding:10px 14px;border-bottom:1px solid var(--gray3);background:var(--gray1)">
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px">
+                    <span>
+                        Showing
+                        <strong>@(((curPage - 1) * pgSize) + 1)</strong>–<strong>@Math.Min(curPage * pgSize, totCount)</strong>
+                        of <strong>@totCount</strong> pending animals
+                        <span style="font-size:11px;color:var(--text3);margin-left:6px"><span class="hw-dot"></span> blue = HW data loaded</span>
+                    </span>
+                    <span id="selectedCount" style="font-size:11.5px;color:var(--blue);font-weight:500">0 selected</span>
+                    <span id="completeCount" style="font-size:11.5px;color:#15803d;font-weight:500;margin-left:10px">0 complete</span>
+                </div>
+                @{
+                    int? hwLoadedCount       = ViewBag.HwLoadedCount as int?;
+                    int? hwFlaggedCount      = ViewBag.HwFlaggedCount as int?;
+                    int? hwAlreadyKilledCount = ViewBag.HwAlreadyKilledCount as int?;
+                    int? hwTotalInExcel      = ViewBag.HwTotalInExcel as int?;
+                }
+                @if (hwTotalInExcel.HasValue && hwTotalInExcel > 0)
+                {
+                    <div style="margin-top:6px;font-size:11.5px;color:var(--text3)">
+                        From Hot Weight session: <strong>@hwTotalInExcel</strong> rows pulled —
+                        <strong style="color:#1e40af">@hwLoadedCount</strong> pre-filling pending bills,
+                        <strong style="color:#b91c1c">@hwFlaggedCount</strong> flagged (need review on Hot Weight page),
+                        <strong style="color:#6d28d9">@hwAlreadyKilledCount</strong> already killed earlier today.
+                        Bills not in this list have no Hot Weight data this session.
+                    </div>
+                }
             </div>
 
             <div class="xl-scroll-box">
@@ -341,6 +410,30 @@
             <button type="button" onclick="markCompleteKilled()" class="btn btn-primary">Mark complete as killed</button>
             <span class="form-actions-note" id="footerCount">0 selected</span>
         </div>
+        <!-- Kill Error Panel — slides up from bottom after partial save -->
+        <div id="kill-errors-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9000;background:#fff;border-top:3px solid #dc2626;box-shadow:0 -4px 20px rgba(0,0,0,.2);max-height:45vh;overflow-y:auto">
+            <div style="padding:10px 16px;background:#fef2f2;display:flex;align-items:center;gap:12px;border-bottom:1px solid #fca5a5;position:sticky;top:0;z-index:1">
+                <span style="font-size:15px;font-weight:600;color:#b91c1c">⚠ Skipped rows — fix grade and retry</span>
+                <span id="kill-error-count" style="background:#dc2626;color:#fff;border-radius:12px;padding:1px 9px;font-size:12px;font-weight:600"></span>
+                <span style="color:#6b7280;font-size:12px;margin-left:4px">Change the Grade ✎ and click Retry to mark as killed</span>
+                <button type="button" onclick="closeErrorPanel()" style="margin-left:auto;background:none;border:none;font-size:20px;cursor:pointer;color:#6b7280;line-height:1">✕</button>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+                <thead>
+                    <tr style="background:#fef2f2;border-bottom:1px solid #fca5a5">
+                        <th style="padding:6px 12px;text-align:left;font-weight:600">Ctrl No</th>
+                        <th style="padding:6px 12px;text-align:left;font-weight:600">ACN</th>
+                        <th style="padding:6px 12px;text-align:left;font-weight:600">Animal Type</th>
+                        <th style="padding:6px 12px;text-align:right;font-weight:600">Hot Wt</th>
+                        <th style="padding:6px 12px;text-align:center;font-weight:600">HS</th>
+                        <th style="padding:6px 12px;font-weight:600">Grade ✎</th>
+                        <th style="padding:6px 12px;font-weight:600">Error reason</th>
+                        <th style="padding:6px 12px"></th>
+                    </tr>
+                </thead>
+                <tbody id="kill-errors-tbody"></tbody>
+            </table>
+        </div>
     }
 </form>
 
@@ -494,9 +587,130 @@ highlightRow(chk);
 updateCount();
 }
 
+// Selects complete-for-kill rows across ALL pages (not just the current one).
+// Calls the server which has full visibility into pre-fill data and the entire
+// pending list. Visible page rows get their checkboxes physically checked.
+// Off-page rows are tracked in a hidden registry so subsequent save actions
+// can include them.
+window.crossPageCompleteIds = window.crossPageCompleteIds || new Set();
+
+async function selectCompleteAllPages() {
+    const btn = document.getElementById('btnSelectCompleteAll');
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+
+    try {
+        // Forward current vendor + search filters so server returns the same
+        // candidate set the operator is currently viewing.
+        const url = new URL('/Import/MarkKilledFastCompleteCandidates', window.location.origin);
+        const vendorIds = new URLSearchParams(window.location.search).get('vendorIds');
+        const q         = new URLSearchParams(window.location.search).get('q');
+        if (vendorIds) url.searchParams.set('vendorIds', vendorIds);
+        if (q)         url.searchParams.set('q', q);
+
+        const res  = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+
+        if (!data.success) {
+            showMsg('Could not find complete rows: ' + (data.message || 'unknown error'), true);
+            return;
+        }
+
+        // Track all complete IDs in the registry.
+        window.crossPageCompleteIds = new Set(data.controlNos);
+
+        // For visible page: physically check the checkboxes.
+        let visibleCount = 0;
+        getAllAnimalRows().forEach(function(tr) {
+            const id = parseInt(tr.dataset.id, 10);
+            const chk = tr.querySelector('.animal-chk');
+            if (!chk) return;
+            if (window.crossPageCompleteIds.has(id)) {
+                chk.checked = true;
+                highlightRow(chk);
+                visibleCount++;
+            }
+        });
+
+        const offPage = data.completeCount - visibleCount;
+        const msg = offPage > 0
+            ? `Selected ${visibleCount} on this page + ${offPage} on other pages = ${data.completeCount} total complete rows.`
+            : `Selected ${visibleCount} complete rows.`;
+        showMsg(msg, false);
+        updateCount();
+    } catch (e) {
+        showMsg('Error: ' + e.message, true);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Select complete (all pages)'; }
+    }
+}
+
 function toggleCompleteOnly() {
 completeOnlyMode = !completeOnlyMode;
 applyRowFilters();
+}
+
+// Mark ALL complete-for-kill rows as killed across every page, in one action.
+// This is the recommended save flow when working with paginated data.
+//
+// Server enumerates the entire pending list matching current filters,
+// applies HW pre-fill from session, and saves complete rows in one transaction.
+// No DOM iteration. Off-page rows are saved without ever being rendered.
+async function markAllCompleteAcrossPages() {
+    const btn = document.getElementById('btnMarkAllComplete');
+    const killDate = document.getElementById('killDateInput')?.value || '';
+    if (!killDate) {
+        showMsg('Pick a kill date before marking killed.', true);
+        return;
+    }
+
+    // Get a candidate count first so the operator can confirm.
+    let candidateCount = 0;
+    try {
+        const url = new URL('/Import/MarkKilledFastCompleteCandidates', window.location.origin);
+        const vendorIds = new URLSearchParams(window.location.search).get('vendorIds');
+        const q         = new URLSearchParams(window.location.search).get('q');
+        if (vendorIds) url.searchParams.set('vendorIds', vendorIds);
+        if (q)         url.searchParams.set('q', q);
+        const res  = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+        if (data.success) candidateCount = data.completeCount || 0;
+    } catch (e) {
+        // Soft fail — proceed with a generic confirmation.
+    }
+
+    const confirmMsg = candidateCount > 0
+        ? `Mark ${candidateCount} complete-for-kill animals as killed on ${killDate}? This saves across ALL pages in one action and cannot be undone.`
+        : `Mark all complete-for-kill animals as killed on ${killDate}? This saves across ALL pages in one action and cannot be undone.`;
+    if (!confirm(confirmMsg)) return;
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    try {
+        const vendorIds = new URLSearchParams(window.location.search).get('vendorIds') || '';
+        const q         = new URLSearchParams(window.location.search).get('q') || '';
+        const res = await fetch('/Import/MarkAllCompleteAsKilled', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'RequestVerificationToken': AF_TOKEN
+            },
+            body: JSON.stringify({ killDate, vendorIds, q })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showMsg(data.message, false);
+            // Reload after a brief delay so the operator sees the success message.
+            setTimeout(() => {
+                if (data.redirect) window.location.href = data.redirect;
+                else window.location.reload();
+            }, 1500);
+        } else {
+            showMsg(data.message || 'Save failed.', true);
+            if (btn) { btn.disabled = false; btn.textContent = 'Mark all complete (all pages) →'; }
+        }
+    } catch (e) {
+        showMsg('Error: ' + e.message, true);
+        if (btn) { btn.disabled = false; btn.textContent = 'Mark all complete (all pages) →'; }
+    }
 }
 
 async function markCompleteKilled() {
@@ -521,12 +735,16 @@ try {
     });
     const data = await res.json();
     if (data.success && data.redirect) {
-        window.location.href = data.redirect;
+    window.location.href = data.redirect;
+    } else if ((data.success && data.partial) || (!data.success && (data.failed || []).length > 0)) {
+        showMsg(data.message || 'Some rows failed.', true);
+        showErrorPanel(data.failed || [], killDate);
+        btns.forEach(b => { b.disabled = false; b.textContent = 'Mark complete as killed'; });
     } else {
         showMsg(data.message || 'Mark complete failed.', true);
         btns.forEach(b => { b.disabled = false; b.textContent = 'Mark complete as killed'; });
     }
-} catch (e) {
+    } catch (e) {
     showMsg('Error: ' + e.message, true);
     btns.forEach(b => { b.disabled = false; b.textContent = 'Mark complete as killed'; });
 }
@@ -693,6 +911,94 @@ function showRowErrors(invalidRows) {
         hostTd.appendChild(msg);
     });
 }
+const PANEL_GRADES = ["","CT","B1","B2","CN","LB","UB","BB","BR","SL","FB","NP","NPNP","SH","UB"];
+
+function showErrorPanel(failedRows, killDate) {
+    if (!failedRows || !failedRows.length) return;
+
+    const tbody = document.getElementById('kill-errors-tbody');
+    tbody.innerHTML = '';
+
+    failedRows.forEach(f => {
+        const row = f.row;
+        const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid #fee2e2';
+        tr._rowData  = row;
+        tr._killDate = killDate;
+
+        const gradeOpts = PANEL_GRADES.map(g =>
+            `<option value="${g}" ${g === (row.grade || '') ? 'selected' : ''}>${g || '—'}</option>`
+        ).join('');
+
+        tr.innerHTML = `
+            <td style="padding:6px 12px;font-weight:600;font-family:monospace">${row.controlNo}</td>
+            <td style="padding:6px 12px;font-family:monospace">${row.animalControlNumber || '—'}</td>
+            <td style="padding:6px 12px">${row.animalType || '—'}</td>
+            <td style="padding:6px 12px;text-align:right;font-family:monospace">${row.hotWeight > 0 ? row.hotWeight.toFixed(1) : '—'}</td>
+            <td style="padding:6px 12px;text-align:center">${row.healthScore || '—'}</td>
+            <td style="padding:6px 12px">
+                <select class="err-grade" style="padding:3px 5px;font-size:12px;border:1.5px solid #fca5a5;border-radius:4px;background:#fff">${gradeOpts}</select>
+            </td>
+            <td style="padding:6px 12px;color:#b91c1c;font-size:11.5px;max-width:280px">${f.error}</td>
+            <td style="padding:6px 12px">
+                <button type="button" class="btn btn-primary btn-sm" onclick="retryErrorRow(this)">Retry</button>
+            </td>`;
+
+        tbody.appendChild(tr);
+    });
+
+    document.getElementById('kill-error-count').textContent =
+        failedRows.length + ' row' + (failedRows.length !== 1 ? 's' : '');
+    document.getElementById('kill-errors-panel').style.display = 'block';
+}
+
+function closeErrorPanel() {
+    document.getElementById('kill-errors-panel').style.display = 'none';
+}
+
+async function retryErrorRow(btn) {
+    const tr   = btn.closest('tr');
+    const row  = { ...tr._rowData, grade: tr.querySelector('.err-grade').value };
+    const killDate = tr._killDate;
+
+    btn.disabled    = true;
+    btn.textContent = '…';
+
+    try {
+        const res  = await fetch('/Import/MarkKilledApi', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': AF_TOKEN },
+            body:    JSON.stringify({ killDate, rows: [row] })
+        });
+        const data = await res.json();
+
+        if (data.success && !data.partial) {
+            // Marked — fade row out of panel
+            tr.style.transition = 'opacity 0.3s';
+            tr.style.opacity    = '0';
+            setTimeout(() => {
+                tr.remove();
+                const remaining = document.getElementById('kill-errors-tbody').querySelectorAll('tr').length;
+                document.getElementById('kill-error-count').textContent =
+                    remaining + ' row' + (remaining !== 1 ? 's' : '');
+                if (remaining === 0) {
+                    closeErrorPanel();
+                    showMsg('All error rows resolved and marked as killed.', false);
+                }
+            }, 300);
+        } else {
+            // Still failing — update the error cell
+            const errTd = tr.querySelectorAll('td')[6];
+            errTd.textContent = (data.failed && data.failed[0]?.error) || data.message || 'Still invalid.';
+            btn.disabled    = false;
+            btn.textContent = 'Retry';
+        }
+    } catch (e) {
+        btn.disabled    = false;
+        btn.textContent = 'Retry';
+        showMsg('Retry failed: ' + e.message, true);
+    }
+}
 
 async function saveEdits() {
     const rows = [...document.querySelectorAll('tr.animal-row')].filter(isEdited).map(readRow);
@@ -836,16 +1142,20 @@ async function markKilled() {
         });
         const data = await res.json();
         if (data.success && data.redirect) {
-            window.location.href = data.redirect;
-        } else {
-            showMsg(data.message, !data.success);
-            btns.forEach(b => { b.disabled = false; b.textContent = 'Mark selected as killed →'; });
+                window.location.href = data.redirect;
+            } else if ((data.success && data.partial) || (!data.success && (data.failed || []).length > 0)) {
+                showMsg(data.message || 'Some rows failed.', true);
+                showErrorPanel(data.failed || [], killDate);
+                btns.forEach(b => { b.disabled = false; b.textContent = 'Mark complete as killed'; });
+            } else {
+                showMsg(data.message || 'Mark complete failed.', true);
+                btns.forEach(b => { b.disabled = false; b.textContent = 'Mark complete as killed'; });
+            }
+            } catch (e) {
+                showMsg('Error: ' + e.message, true);
+                btns.forEach(b => { b.disabled = false; b.textContent = 'Mark selected as killed →'; });
+            }
         }
-    } catch (e) {
-        showMsg('Error: ' + e.message, true);
-        btns.forEach(b => { b.disabled = false; b.textContent = 'Mark selected as killed →'; });
-    }
-}
 
 function selectAll(val) {
     document.querySelectorAll('.animal-chk').forEach(c => { c.checked = val; highlightRow(c); });
@@ -899,17 +1209,29 @@ document.addEventListener('vp:apply', function (e) {
         + '&q=' + encodeURIComponent(q);
 });
 
-// Show Save HW data button if HW rows exist
+// Show Save HW data button. Use the server-side total count (across all pages)
+// rather than counting only DOM-visible rows, so the operator sees the true scope.
+// Hides the button entirely when there's nothing left to save.
 document.addEventListener('DOMContentLoaded', function() {
-    var hwRows = document.querySelectorAll('tr.animal-row[data-hw-imported="1"]');
-    if (hwRows.length > 0) {
-        var btn = document.getElementById('saveHwBtn');
-        if (btn) {
-            btn.style.display = 'inline-flex';
-            btn.textContent   = 'Save HW data (' + hwRows.length + ')';
-            btn.onclick = saveAllHwData;
-        }
+    @{
+        int hwTotalCount = (ViewBag.HwLoadedCount as int?) ?? 0;
     }
+    var hwTotalAllPages = @hwTotalCount;
+    var hwRowsThisPage  = document.querySelectorAll('tr.animal-row[data-hw-imported="1"]').length;
+    var btns = document.querySelectorAll('#saveHwBtn,#saveHwBtn2');
+
+    // Nothing to save → keep button hidden.
+    if (hwTotalAllPages === 0 && hwRowsThisPage === 0) {
+        btns.forEach(function(btn){ btn.style.display = 'none'; });
+        return;
+    }
+
+    var displayCount = hwTotalAllPages > 0 ? hwTotalAllPages : hwRowsThisPage;
+    btns.forEach(function(btn){
+        btn.style.display = 'inline-flex';
+        btn.textContent   = 'Save HW data — all ' + displayCount + ' rows';
+        btn.title         = 'Saves HotWeight, Grade, HS, ACN to every loaded bill across every page in one action. Bills stay Pending.';
+    });
 });
 
 /*async function saveAllHwData() {
@@ -937,47 +1259,43 @@ document.addEventListener('DOMContentLoaded', function() {
     finally { if (btn) { btn.disabled=false; btn.textContent='Save HW data'; } }
 }*/
 
-// Save all HW-imported rows regardless of change detection
+// Save Hot Weight data for ALL pages in one call (server-driven).
+// Calls SaveAllHwData endpoint which reads HW preview from session, writes
+// HotWeight/Grade/HS/ACN to every matching bill, and marks them Loaded.
+// Bills stay in KillStatus=Pending — finalize via "Mark all complete (all pages)".
 async function saveAllHwData() {
-    const rows = [...document.querySelectorAll('tr.animal-row[data-hw-imported="1"]')].map(readRow)
-        .filter(r => r.hotWeight > 0 || r.grade || r.healthScore > 0);
-    if (!rows.length) { showMsg('No HW import data found to save.', true); return; }
-
     const btns = document.querySelectorAll('#saveHwBtn,#saveHwBtn2');
-    btns.forEach(b => { b.disabled = true; b.textContent = 'Saving…'; });
+    const originalText = btns[0]?.textContent || 'Save HW data';
+
+    if (!confirm('Save Hot Weight data (HotWeight, Grade, HS, ACN) for all loaded rows across every page? Bills stay Pending — you can review and then finalize via "Mark all complete (all pages)".')) {
+        return;
+    }
+
+    btns.forEach(b => { b.disabled = true; b.textContent = 'Saving all pages…'; });
 
     try {
-        const res  = await fetch('/Import/SaveEditsApi', {
+        const res = await fetch('/Import/SaveAllHwData', {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': AF_TOKEN },
-            body:    JSON.stringify({ rows })
+            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': AF_TOKEN }
         });
         const data = await res.json();
         showMsg(data.message, !data.success);
         if (data.success) {
-            // Clear hw-imported flag on all rows
-            document.querySelectorAll('tr.animal-row[data-hw-imported="1"]').forEach(tr => {
-                tr.dataset.hwImported = '0';
-                tr.classList.remove('hw-imported-row', 'edited-row');
-            });
-            btns.forEach(b => b.style.display = 'none');
+            // Reload after a moment so the visible page reflects the saved state
+            // (rows that were pre-fill yellow now show as plain saved bills).
+            setTimeout(() => window.location.reload(), 1500);
+        } else {
+            btns.forEach(b => { b.disabled = false; b.textContent = originalText; });
         }
-    } catch(e) {
+    } catch (e) {
         showMsg('Save failed: ' + e.message, true);
-    } finally {
-        btns.forEach(b => { b.disabled = false; b.textContent = 'Save HW data'; });
+        btns.forEach(b => { b.disabled = false; b.textContent = originalText; });
     }
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    // Show "Save HW data" button if any HW-imported rows exist
-    var hwRows = document.querySelectorAll('tr.animal-row[data-hw-imported="1"]');
-    if (hwRows.length > 0) {
-        document.querySelectorAll('#saveHwBtn,#saveHwBtn2').forEach(b => {
-            b.style.display = 'inline-flex';
-            b.textContent = 'Save HW data (' + hwRows.length + ' rows)';
-        });
-    }
+    // (Save HW button visibility / label is set by the earlier DOMContentLoaded
+    //  handler which uses the all-pages total from ViewBag.)
     refreshCompleteCount();
     applyRowFilters();
     if (!window.BarnNav) return;

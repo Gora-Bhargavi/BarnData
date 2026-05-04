@@ -331,6 +331,31 @@
             <button type="button" onclick="markCompleteKilled()" class="btn btn-primary">Mark complete as killed</button>
             <span class="form-actions-note" id="footerCount">0 selected</span>
         </div>
+        <!-- Kill Error Panel — slides up from bottom after partial save.
+             Mirrors the panel in MarkKilledFast.cshtml so both pages have the same UX. -->
+        <div id="kill-errors-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9000;background:#fff;border-top:3px solid #dc2626;box-shadow:0 -4px 20px rgba(0,0,0,.2);max-height:45vh;overflow-y:auto">
+            <div style="padding:10px 16px;background:#fef2f2;display:flex;align-items:center;gap:12px;border-bottom:1px solid #fca5a5;position:sticky;top:0;z-index:1">
+                <span style="font-size:15px;font-weight:600;color:#b91c1c">⚠ Skipped rows — fix grade and retry</span>
+                <span id="kill-error-count" style="background:#dc2626;color:#fff;border-radius:12px;padding:1px 9px;font-size:12px;font-weight:600"></span>
+                <span style="color:#6b7280;font-size:12px;margin-left:4px">Change the Grade ✎ and click Retry to mark as killed</span>
+                <button type="button" onclick="closeErrorPanel()" style="margin-left:auto;background:none;border:none;font-size:20px;cursor:pointer;color:#6b7280;line-height:1">✕</button>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+                <thead>
+                    <tr style="background:#fef2f2;border-bottom:1px solid #fca5a5">
+                        <th style="padding:6px 12px;text-align:left;font-weight:600">Ctrl No</th>
+                        <th style="padding:6px 12px;text-align:left;font-weight:600">ACN</th>
+                        <th style="padding:6px 12px;text-align:left;font-weight:600">Animal Type</th>
+                        <th style="padding:6px 12px;text-align:right;font-weight:600">Hot Wt</th>
+                        <th style="padding:6px 12px;text-align:center;font-weight:600">HS</th>
+                        <th style="padding:6px 12px;font-weight:600">Grade ✎</th>
+                        <th style="padding:6px 12px;font-weight:600">Error reason</th>
+                        <th style="padding:6px 12px"></th>
+                    </tr>
+                </thead>
+                <tbody id="kill-errors-tbody"></tbody>
+            </table>
+        </div>
     }
 </form>
 
@@ -431,29 +456,31 @@ if (btn) btn.textContent = completeOnlyMode ? 'Show all rows' : 'Show complete o
 }
 
 function selectCompleteRows() {
-getAllAnimalRows().forEach(function(tr) {
-var chk = tr.querySelector('.animal-chk');
-if (!chk) return;
-chk.checked = isCompleteForKill(readRow(tr));
-highlightRow(chk);
-});
-updateCount();
+    getAllAnimalRows().forEach(function(tr) {
+    var chk = tr.querySelector('.animal-chk');
+    if (!chk) return;
+    chk.checked = isCompleteForKill(readRow(tr));
+    highlightRow(chk);
+    });
+    updateCount();
 }
 
 function toggleCompleteOnly() {
-completeOnlyMode = !completeOnlyMode;
-applyRowFilters();
+    completeOnlyMode = !completeOnlyMode;
+    var s = document.getElementById('mk-search');
+    if (s) s.value = '';
+    applyRowFilters();
 }
 
 async function markCompleteKilled() {
-const killDate = document.getElementById('killDateInput')?.value || '';
-const selected = [...document.querySelectorAll('.animal-chk:checked')]
-.map(chk => chk.closest('tr.animal-row')).filter(Boolean).map(readRow);
+    const killDate = document.getElementById('killDateInput')?.value || '';
+    const selected = [...document.querySelectorAll('.animal-chk:checked')]
+    .map(chk => chk.closest('tr.animal-row')).filter(Boolean).map(readRow);
 
-const completeSelected = selected.filter(isCompleteForKill);
-if (!completeSelected.length) {
-    showMsg('No complete rows selected. Need ACN, Hot Wt, Grade, HS.', true);
-    return;
+    const completeSelected = selected.filter(isCompleteForKill);
+    if (!completeSelected.length) {
+        showMsg('No complete rows selected. Need ACN, Hot Wt, Grade, HS.', true);
+        return;
 }
 
 const btns = document.querySelectorAll('button[onclick="markCompleteKilled()"]');
@@ -468,6 +495,11 @@ try {
     const data = await res.json();
     if (data.success && data.redirect) {
         window.location.href = data.redirect;
+    } else if ((data.success && data.partial) || (!data.success && (data.failed || []).length > 0)) {
+        // Partial success — show the skipped rows in the bottom panel for inline retry.
+        showMsg(data.message || 'Some rows were skipped.', true);
+        showErrorPanel(data.failed || [], killDate);
+        btns.forEach(b => { b.disabled = false; b.textContent = 'Mark complete as killed'; });
     } else {
         showMsg(data.message || 'Mark complete failed.', true);
         btns.forEach(b => { b.disabled = false; b.textContent = 'Mark complete as killed'; });
@@ -606,6 +638,11 @@ async function markKilled() {
         const data = await res.json();
         if (data.success && data.redirect) {
             window.location.href = data.redirect;
+        } else if ((data.success && data.partial) || (!data.success && (data.failed || []).length > 0)) {
+            // Partial success — show the skipped rows in the bottom panel for inline retry.
+            showMsg(data.message || 'Some rows were skipped.', true);
+            showErrorPanel(data.failed || [], killDate);
+            btns.forEach(b => { b.disabled = false; b.textContent = 'Mark selected as killed →'; });
         } else {
             showMsg(data.message, !data.success);
             btns.forEach(b => { b.disabled = false; b.textContent = 'Mark selected as killed →'; });
@@ -791,5 +828,140 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 });
+
+// =============================================================================
+// Skipped-rows error panel.
+// Mirrors the panel implementation in MarkKilledFast.cshtml so both pages share
+// the same partial-success UX. After MarkKilledApi returns rows that failed
+// validation (e.g. invalid grade for animal type, HS out of range), they are
+// rendered into the bottom panel with an editable Grade dropdown and a Retry
+// button per row. Retrying re-submits a single row to MarkKilledApi.
+// =============================================================================
+const PANEL_GRADES = ["","CT","B1","B2","CN","LB","UB","BB","BR","SL","FB","NP","NPNP","SH"];
+
+function showErrorPanel(failedRows, killDate) {
+    if (!failedRows || !failedRows.length) return;
+
+    const tbody = document.getElementById('kill-errors-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    failedRows.forEach(f => {
+        const row = f.row;
+        const tr  = document.createElement('tr');
+        tr.style.borderBottom = '1px solid #fee2e2';
+        tr._rowData  = row;
+        tr._killDate = killDate;
+
+        const gradeOpts = PANEL_GRADES.map(g =>
+            `<option value="${g}" ${g === (row.grade || '') ? 'selected' : ''}>${g || '—'}</option>`
+        ).join('');
+
+        tr.innerHTML = `
+            <td style="padding:6px 12px;font-weight:600;font-family:monospace">${row.controlNo}</td>
+            <td style="padding:6px 12px;font-family:monospace">${row.animalControlNumber || '—'}</td>
+            <td style="padding:6px 12px">${row.animalType || '—'}</td>
+            <td style="padding:6px 12px;text-align:right;font-family:monospace">${row.hotWeight > 0 ? row.hotWeight.toFixed(1) : '—'}</td>
+            <td style="padding:6px 12px;text-align:center">${row.healthScore || '—'}</td>
+            <td style="padding:6px 12px">
+                <select class="err-grade" style="padding:3px 5px;font-size:12px;border:1.5px solid #fca5a5;border-radius:4px;background:#fff">${gradeOpts}</select>
+            </td>
+            <td style="padding:6px 12px;color:#b91c1c;font-size:11.5px;max-width:280px">${f.error}</td>
+            <td style="padding:6px 12px">
+                <button type="button" class="btn btn-primary btn-sm" onclick="retryErrorRow(this)">Retry</button>
+            </td>`;
+
+        // Fix A — keep the main table row's grade in sync with the panel's
+        // dropdown. Without this, a user who edits Grade in the panel but then
+        // clicks the main "Mark selected" button would resubmit the original
+        // (still-invalid) grade instead of their fix.
+        const panelSelect = tr.querySelector('.err-grade');
+        panelSelect.addEventListener('change', () => {
+            const tableSelect = document.querySelector(`select[name="grade_${row.controlNo}"]`);
+            if (tableSelect) {
+                tableSelect.value = panelSelect.value;
+                // Mark the main-table row as edited (yellow highlight) so the
+                // user sees the change took effect there too.
+                const tableRow = tableSelect.closest('tr.animal-row');
+                if (tableRow) tableRow.classList.add('edited-row');
+            }
+            // Update the in-memory row data the Retry button will submit.
+            if (tr._rowData) tr._rowData.grade = panelSelect.value;
+        });
+
+        tbody.appendChild(tr);
+    });
+
+    document.getElementById('kill-error-count').textContent =
+        failedRows.length + ' row' + (failedRows.length !== 1 ? 's' : '');
+    document.getElementById('kill-errors-panel').style.display = 'block';
+}
+
+function closeErrorPanel() {
+    const panel = document.getElementById('kill-errors-panel');
+    if (panel) panel.style.display = 'none';
+}
+
+async function retryErrorRow(btn) {
+    const tr   = btn.closest('tr');
+    if (!tr || !tr._rowData) return;
+    const row  = { ...tr._rowData, grade: tr.querySelector('.err-grade').value };
+    const killDate = tr._killDate;
+
+    btn.disabled    = true;
+    btn.textContent = '…';
+
+    try {
+        const res  = await fetch('/Import/MarkKilledApi', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': AF_TOKEN },
+            body:    JSON.stringify({ killDate, rows: [row] })
+        });
+        const data = await res.json();
+
+        if (data.success && !data.partial) {
+            // Marked successfully. Two side effects on the main table row to
+            // avoid the "94 rows reappear" bug after fixing one:
+            //   1. Uncheck it — so the next "Mark selected" click doesn't
+            //      resubmit a row the API has already killed.
+            //   2. Visually mark it as loaded (blue highlight) so the user
+            //      sees confirmation in both panel and main table.
+            const tableRow = document.querySelector(`tr.animal-row[data-id="${row.controlNo}"]`);
+            if (tableRow) {
+                const chk = tableRow.querySelector('.animal-chk');
+                if (chk && chk.checked) {
+                    chk.checked = false;
+                    if (typeof highlightRow === 'function') highlightRow(chk);
+                }
+                if (typeof updateCount === 'function') updateCount();
+                if (typeof refreshCompleteCount === 'function') refreshCompleteCount();
+            }
+
+            // Fade row out of panel and update counter.
+            tr.style.transition = 'opacity 0.3s';
+            tr.style.opacity    = '0';
+            setTimeout(() => {
+                tr.remove();
+                const remaining = document.getElementById('kill-errors-tbody').querySelectorAll('tr').length;
+                document.getElementById('kill-error-count').textContent =
+                    remaining + ' row' + (remaining !== 1 ? 's' : '');
+                if (remaining === 0) {
+                    closeErrorPanel();
+                    showMsg('All error rows resolved and marked as killed.', false);
+                }
+            }, 300);
+        } else {
+            // Still failing — update the error cell with the new reason.
+            const errTd = tr.querySelectorAll('td')[6];
+            if (errTd) errTd.textContent = (data.failed && data.failed[0]?.error) || data.message || 'Still invalid.';
+            btn.disabled    = false;
+            btn.textContent = 'Retry';
+        }
+    } catch (e) {
+        btn.disabled    = false;
+        btn.textContent = 'Retry';
+        showMsg('Retry failed: ' + e.message, true);
+    }
+}
 </script>
 }

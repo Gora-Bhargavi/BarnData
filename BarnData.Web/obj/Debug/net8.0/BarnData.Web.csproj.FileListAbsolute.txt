@@ -316,3 +316,4 @@ C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\_verify\runtimes\win\lib\net6
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\_verify\runtimes\win\lib\net6.0\System.Windows.Extensions.dll
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\_verify\BarnData.Data.pdb
 C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\_verify\BarnData.Core.pdb
+C:\Users\bgora\Downloads\BarnData\BarnData.Web\bin\Debug\net8.0\appsettings.Production.json

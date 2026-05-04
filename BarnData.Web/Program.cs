@@ -15,9 +15,9 @@ builder.Services.AddDbContext<BarnDataContext>(options =>
                 maxRetryDelay: TimeSpan.FromSeconds(5),
                 errorNumbersToAdd: null
             );
-            // Compatibility level 130 = SQL Server 2016
+            // Compatibility level 120 = SQL Server 2014
             // Prevents EF Core 8 from using OPENJSON / $ JSON path syntax
-            //sqlOptions.UseCompatibilityLevel(130);
+            sqlOptions.UseCompatibilityLevel(120);
         }
     )
     //.LogTo(Console.WriteLine, LogLevel.Information)        

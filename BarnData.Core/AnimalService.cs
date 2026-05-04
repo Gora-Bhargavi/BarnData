@@ -2,6 +2,7 @@ using BarnData.Data;
 using BarnData.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using System.Text.RegularExpressions;
 using System;
 using System.Data;
 
@@ -193,18 +194,97 @@ namespace BarnData.Core.Services
     // GetByTagPatternAsync — wildcard match: '?' replaced with any digit, regex applied in-memory
     public async Task<IEnumerable<Animal>> GetByTagPatternAsync(string pattern)
     {
-        if (string.IsNullOrWhiteSpace(pattern)) return Enumerable.Empty<Animal>();
-        // Build SQL LIKE pattern: ? → _ (single char wildcard in SQL)
-        var sqlLike = pattern.Replace('?', '_');
-        var animals = await _db.Animals
-            .FromSqlRaw(@"SELECT a.* FROM tbl_barn_animal_entry a
-                WHERE a.TagNumber1 LIKE {0}
-                   OR a.TagNumber2 LIKE {0}
-                   OR a.Tag3       LIKE {0}",
-                sqlLike)
-            .ToListAsync();
-        await AttachVendors(animals);
-        return animals;
+        if (string.IsNullOrWhiteSpace(pattern))
+            return Enumerable.Empty<Animal>();
+
+        var rawPattern = pattern.Trim();
+
+        // Use the longest literal segment as a SQL prefilter so we do not scan everything.
+        var fixedToken = rawPattern
+            .Split('?', StringSplitOptions.RemoveEmptyEntries)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .OrderByDescending(s => s.Length)
+            .FirstOrDefault();
+
+        List<Animal> animals;
+        if (!string.IsNullOrWhiteSpace(fixedToken))
+        {
+            var likePat = "%" + fixedToken + "%";
+            animals = await _db.Animals
+                .FromSqlRaw(
+                    @"SELECT a.* FROM tbl_barn_animal_entry a
+                    WHERE a.TagNumber1 LIKE {0}
+                        OR a.TagNumber2 LIKE {0}
+                        OR a.Tag3       LIKE {0}",
+                    likePat)
+                .ToListAsync();
+        }
+        else
+        {
+            // Fallback for patterns like "???" where there is no literal token.
+            var sqlLike = rawPattern.Replace('?', '_');
+            animals = await _db.Animals
+                .FromSqlRaw(
+                    @"SELECT a.* FROM tbl_barn_animal_entry a
+                    WHERE a.TagNumber1 LIKE {0}
+                        OR a.TagNumber2 LIKE {0}
+                        OR a.Tag3       LIKE {0}",
+                    sqlLike)
+                .ToListAsync();
+        }
+
+        var variantPatterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            rawPattern
+        };
+
+        // Also try zero-substitution variants and their zero-trimmed / padded forms.
+        var zeroSub = rawPattern.Replace('?', '0');
+        variantPatterns.Add(zeroSub);
+
+        var zeroCore = zeroSub.TrimStart('0');
+        if (!string.IsNullOrEmpty(zeroCore))
+        {
+            for (int width = zeroCore.Length; width <= rawPattern.Length; width++)
+                variantPatterns.Add(zeroCore.PadLeft(width, '0'));
+        }
+
+        var regexes = variantPatterns
+            .Select(p => new Regex(
+                "^" + Regex.Escape(p).Replace("\\?", "[0-9]") + "$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            .ToList();
+
+        static IEnumerable<string> ExpandCandidateForms(string value)
+        {
+            var trimmed = (value ?? "").Trim();
+            if (string.IsNullOrEmpty(trimmed))
+                yield break;
+
+            yield return trimmed;
+
+            var noLeadingZeros = trimmed.TrimStart('0');
+            if (!string.IsNullOrEmpty(noLeadingZeros) &&
+                !string.Equals(noLeadingZeros, trimmed, StringComparison.Ordinal))
+            {
+                yield return noLeadingZeros;
+            }
+        }
+
+        bool MatchesTag(string? tag) =>
+            ExpandCandidateForms(tag).Any(candidate => regexes.Any(rx => rx.IsMatch(candidate)));
+
+        var matched = animals
+            .Where(a =>
+                MatchesTag(a.TagNumber1) ||
+                MatchesTag(a.TagNumber2) ||
+                MatchesTag(a.Tag3))
+            .GroupBy(a => a.ControlNo)
+            .Select(g => g.First())
+            .ToList();
+
+        await AttachVendors(matched);
+        return matched;
     }
 
     // GetAllPendingAsync — pending animals for weight proximity matching (capped for performance)

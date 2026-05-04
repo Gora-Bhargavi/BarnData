@@ -11,6 +11,7 @@
           "BarnData.Core": "1.0.0",
           "BarnData.Data": "1.0.0",
           "ClosedXML": "0.102.1",
+          "Microsoft.Data.SqlClient": "5.1.6",
           "Microsoft.EntityFrameworkCore.Design": "8.0.11",
           "NPOI": "2.7.1",
           "Rotativa.AspNetCore": "1.3.2"

@@ -40,11 +40,6 @@
            class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" && ViewContext.RouteData.Values["action"]?.ToString() == "MarkKilledFast" ? "active" : "")">
             <span class="nav-dot"></span> Mark as killed
         </a>
-        <a asp-controller="Import" asp-action="MarkKilled"
-           class="nav-item @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" && ViewContext.RouteData.Values["action"]?.ToString() == "MarkKilled" ? "active" : "")"
-           style="font-size:11.5px;opacity:.7;margin-top:-4px;padding-left:26px" title="Legacy full-page view">
-            <span class="nav-dot" style="opacity:.5"></span> Mark as killed (legacy)
-        </a>
 
         <div class="nav-section">Manual entry</div>
         <a asp-controller="Animal" asp-action="Index" asp-route-status="pending"

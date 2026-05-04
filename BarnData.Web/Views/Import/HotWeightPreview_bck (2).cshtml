@@ -1,0 +1,1151 @@
+@*@using DocumentFormat.OpenXml.Office2010.PowerPoint*@
+@model BarnData.Web.Models.HotWeightImportViewModel?
+@{
+    ViewData["Title"]    = "Import Hot Weight Report";
+    ViewData["Subtitle"] = "Upload, preview, and manage Hot Scale data";
+
+    bool hasData         = Model != null && Model.TotalInExcel > 0;
+    var okRows           = Model?.AutoRows.Where(r => r.Status == "OK").ToList() ?? new();
+    var loadedRows       = Model?.AutoRows.Where(r => r.Status == "Loaded").ToList() ?? new();
+    var readyDisplayRows = okRows;
+    var flagRows         = Model?.FlaggedRows.ToList() ?? new();
+    var dupRows          = Model?.DupRows.ToList() ?? new();
+    var validGrades      = new[] { "CT","B1","B2","CN","LB","UB","BB","BR","FB","NP","NPNP","SH" };
+}
+
+@* Phase 2c — banner shown when preview was restored from staging *@
+@if (ViewBag.RestoredFromStaging != null && (bool)ViewBag.RestoredFromStaging == true)
+{
+    <div class="alert" style="margin-bottom:14px;background:#EFF6FF;border:1px solid #93c5fd;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:12.5px">
+        <span style="font-size:16px">↻</span>
+        <div style="flex:1">
+            <strong>Restored from saved batch.</strong>
+            <span style="color:var(--text3)"> Your Hot Weight preview was reloaded from the server — no need to re-upload.</span>
+        </div>
+        <form method="post" asp-action="HotWeightClearSession" style="margin:0">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn btn-secondary btn-sm" onclick="return confirm('Clear the staged Hot Weight batch? You will need to re-upload to continue.');">Clear staged batch</button>
+        </form>
+    </div>
+}
+
+@* Page header  *@
+<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <div>
+        <h1 class="page-title" style="margin:0">Import Hot Weight Report</h1>
+        @if (hasData)
+        {
+            <p style="font-size:12.5px;color:var(--text3);margin-top:3px">
+                File: <strong>@Model!.FileName</strong> — @Model!.TotalInExcel rows read, @Model!.Matched matched.
+                <span style="color:var(--amber);font-weight:500"> Session active — nothing saved to DB yet unless you used "Save to DB".</span>
+            </p>
+        }
+        else
+        {
+            <p style="font-size:12.5px;color:var(--text3);margin-top:3px">Upload a Hot Scale Parsed Data Excel file to populate the tabs below.</p>
+        }
+    </div>
+    @if (hasData)
+    {
+        <a asp-action="MarkKilled" class="btn btn-secondary btn-sm">Go to Mark as Killed</a>
+    }
+</div>
+
+@if (Model?.Errors?.Any() == true)
+{
+    <div class="alert alert-error" style="margin-bottom:14px">
+        @foreach (var e in Model.Errors)
+        {
+            <div>@e</div>
+        }
+    </div>
+}
+
+
+
+@*  Single-row merged card-tabs (stats + tabs combined)  *@
+<div class="hw-tabbar hw-cardtabs">
+    <button class="hw-ctab active" id="tab0" onclick="switchTab(0)" type="button" title="All rows in uploaded Excel">
+        <div class="hw-ctab-n" id="sc0-n">@(hasData ? Model!.TotalInExcel.ToString() : "—")</div>
+        <div class="hw-ctab-l">Rows in Excel</div>
+    </button>
+    <button class="hw-ctab" id="tab1" onclick="switchTab(1)" type="button" title="Ready to load into Mark as Killed">
+        <div class="hw-ctab-n hw-n-green" id="sc1-n">@(hasData ? readyDisplayRows.Count.ToString() : "—")</div>
+        <div class="hw-ctab-l">Ready / Loaded</div>
+    </button>
+    <button class="hw-ctab" id="tab2" onclick="switchTab(2)" type="button" title="Rows needing review">
+        <div class="hw-ctab-n hw-n-red" id="sc2-n">@(hasData ? flagRows.Count.ToString() : "—")</div>
+        <div class="hw-ctab-l">Flagged for review</div>
+    </button>
+    <button class="hw-ctab" id="tab3" onclick="switchTab(3)" type="button" title="Duplicate rows">
+        <div class="hw-ctab-n hw-n-purple" id="sc3-n">@(hasData ? dupRows.Count.ToString() : "—")</div>
+        <div class="hw-ctab-l">Duplicates</div>
+    </button>
+</div>
+@* legacy hidden counters kept so any JS that still references cnt2 / cnt3 keeps working *@
+<span id="cnt2" style="display:none">@(hasData ? flagRows.Count.ToString() : "—")</span>
+<span id="cnt3" style="display:none">@(hasData ? dupRows.Count.ToString() : "—")</span>
+
+@* 
+   TAB 0 — All rows / Upload zone
+    *@
+<div id="panel0" class="hw-panel">
+    @* Upload card always visible at top *@
+    <div style="background:var(--gray1);border-radius:8px;padding:14px 18px;margin-bottom:@(hasData ? "14px" : "0")">
+        <div style="font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">
+            @(hasData ? "Upload a new file (replaces current session)" : "Upload Hot Scale file to get started")
+        </div>
+        <form method="post" enctype="multipart/form-data" asp-action="HotWeightImport" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+            @Html.AntiForgeryToken()
+            <div style="flex:1;min-width:220px">
+                <input type="file" name="file" accept=".xlsx" class="form-control" required style="font-size:12.5px" />
+                <div style="font-size:11.5px;color:var(--text3);margin-top:4px">
+                    Expected columns: <code>Number</code>, <code>Side 1 Hot</code>, <code>Side 2 Hot</code>, <code>Grade</code>, <code>HealthScore</code>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Upload &amp; Parse</button>
+            @if (hasData)
+            {
+                <form method="post" asp-action="HotWeightClearSession" style="display:inline">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-sm" style="background:#fef2f2;border-color:#fca5a5;color:#b91c1c"
+                            onclick="return confirm('Clear the session? All parsed data will be lost and you will need to re-upload.')">
+                        Clear session
+                    </button>
+                </form>
+            }
+        </form>
+    </div>
+
+    @* Summary table shown when data exists *@
+    @if (hasData)
+    {
+        <table style="width:100%;max-width:680px;font-size:13px;border-collapse:collapse">
+            <thead><tr style="background:var(--gray1)">
+                <th style="padding:7px 10px;text-align:left;font-weight:500;color:var(--text3);border-bottom:1px solid var(--gray3)">Category</th>
+                <th style="padding:7px 10px;text-align:right;font-weight:500;color:var(--text3);border-bottom:1px solid var(--gray3)">Count</th>
+                <th style="padding:7px 10px;text-align:left;font-weight:500;color:var(--text3);border-bottom:1px solid var(--gray3)">Action</th>
+            </tr></thead>
+            <tbody>
+                <tr style="border-bottom:0.5px solid var(--gray3)">
+                    <td style="padding:8px 10px;color:#15803d;font-weight:500">Ready to load</td>
+                    <td style="padding:8px 10px;text-align:right;font-weight:700">@okRows.Count</td>
+                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Will pre-fill HotWeight, Grade, HS in Mark as Killed</td>
+                </tr>
+                <tr style="border-bottom:0.5px solid var(--gray3)">
+                    <td style="padding:8px 10px;color:#6d28d9;font-weight:500">Already loaded</td>
+                    <td style="padding:8px 10px;text-align:right;font-weight:700">@loadedRows.Count</td>
+                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Already sent to Mark as Killed — shown on Ready tab with purple badge</td>
+                </tr>
+                <tr>
+                    <td style="padding:8px 10px;color:#b91c1c;font-weight:500">Flagged</td>
+                    <td style="padding:8px 10px;text-align:right;font-weight:700">@flagRows.Count</td>
+                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Fix inline on Flagged tab → save to DB directly</td>
+                </tr>
+                <tr>
+                    <td style="padding:8px 10px;color:#7c3aed;font-weight:500">Duplicates (skipped)</td>
+                    <td style="padding:8px 10px;text-align:right;font-weight:700">@dupRows.Count</td>
+                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Fix inline on Flagged tab → save to DB directly</td>
+                </tr>
+            </tbody>
+        </table>
+        @if (okRows.Any())
+        {
+            <div style="margin-top:14px">
+                <form method="post" asp-action="HotWeightLoadToMarkKilled" style="display:inline">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="selectedControlNos" value="">
+                    <input type="hidden" name="fixedFlaggedJson" value="">
+                    <button type="submit" class="btn btn-primary">Load @okRows.Count ready records into Mark as Killed →</button>
+                </form>
+            </div>
+        }
+    }
+</div>
+
+@* 
+   TAB 1 — Ready to load
+   *@
+<div id="panel1" class="hw-panel" style="display:none">
+    @if (!hasData)
+    {
+        <div class="empty-state"><div class="empty-title">No data yet</div><div class="empty-sub">Upload a Hot Scale Excel file using the All rows tab.</div></div>
+    }
+    else if (!readyDisplayRows.Any())
+    {
+        <div class="empty-state"><div class="empty-title">No ready records</div><div class="empty-sub">All matched records are either flagged or not yet in the system.</div></div>
+    }
+    else
+    {
+        <div class="hw-toolbar">
+            <span style="font-size:12.5px;color:var(--text2)"><strong id="p1-sel">@okRows.Count</strong> of @okRows.Count selected</span>
+            <button type="button" onclick="selAll('p1',true)" class="btn btn-secondary btn-sm">Select all</button>
+            <button type="button" onclick="selAll('p1',false)" class="btn btn-secondary btn-sm">Deselect all</button>
+            <div style="margin-left:auto">
+                <button type="button" onclick="loadSelected('p1')" class="btn btn-primary">Load selected into Mark as Killed →</button>
+            </div>
+        </div>
+        <div class="xl-scroll-box"><div class="xl-scroll-inner auto-fill-scroll">
+        <table class="data-table" data-colfilter-table style="min-width:1900px;font-size:12px">
+    <thead><tr>
+        <input type="checkbox" id="p1-all" onchange="selAll('p1',this.checked)">
+        <th data-colfilter="text">ACN</th>
+        <th data-colfilter="text">LOT</th>
+        <th data-colfilter="text">Type</th>
+        <th data-colfilter="text">BackTag</th>
+        <th data-colfilter="text">Tag1</th>
+        <th data-colfilter="text">Tag2</th>
+        <th data-colfilter="text">Program</th>
+        <th data-colfilter="text">Origin</th>
+        <th data-colfilter="number" class="text-right">LiveWeight</th>
+        <th data-colfilter="number" class="text-right">Side1 (lbs)</th>
+        <th data-colfilter="number" class="text-right">Side2 (lbs)</th>
+        <th data-colfilter="number" class="text-right" style="background:#162236;color:#9ae6b4">HotTotal</th>
+        <th data-colfilter="text" style="background:#162236;color:#9ae6b4">Grade</th>
+        <th data-colfilter="text" style="background:#162236;color:#9ae6b4">Grade2</th>
+        <th data-colfilter="number" style="background:#162236;color:#9ae6b4">HealthScore</th>
+        <th data-colfilter="text">Status</th>
+    </tr></thead>
+    <tbody>
+    @foreach (var r in readyDisplayRows)
+    {
+        var isLoaded = r.Status == "Loaded";
+        <tr data-ctrlno="@r.ControlNo" style="@(isLoaded ? "opacity:0.6" : "")">
+            <td style="text-align:center">
+                <input type="checkbox" class="p1-chk" data-ctrlno="@r.ControlNo"
+                       onchange="updSel('p1')"
+                                @(isLoaded ? "disabled" : "")>
+            </td>
+            <td class="mono">@r.AnimalControlNumber</td>
+            <td>@(r.FileLot ?? "—")</td>
+            <td>@(r.FileType ?? "—")</td>
+            <td>@(r.FileBackTag ?? "—")</td>
+            <td>@(r.FileTag1 ?? "—")</td>
+            <td>@(r.FileTag2 ?? "—")</td>
+            <td>@(r.FileProgram ?? "—")</td>
+            <td>@(r.FileOrigin ?? "—")</td>
+            <td class="text-right mono">@(r.FileLiveWeight.HasValue ? r.FileLiveWeight.Value.ToString("N1") : "—")</td>
+            <td class="text-right mono">@r.Side1?.ToString("N1")</td>
+            <td class="text-right mono">@r.Side2?.ToString("N1")</td>
+            <td class="text-right mono" style="color:@(isLoaded ? "#6d28d9" : "#15803d");font-weight:600">@r.NewHotWeight?.ToString("N1")</td>
+            <td><span class="badge" style="background:@(isLoaded ? "#f5f3ff" : "#dcfce7");color:@(isLoaded ? "#6d28d9" : "#15803d")">@r.NewGrade</span></td>
+            <td>@(r.NewGrade2 ?? "—")</td>
+            <td>@r.NewHealthScore</td>
+            <td><span class="badge" style="background:@(isLoaded ? "#f5f3ff" : "#dcfce7");color:@(isLoaded ? "#6d28d9" : "#15803d");font-size:11px">@(isLoaded ? "Loaded ✓" : "Ready")</span></td>
+        </tr>
+    }
+    </tbody>
+    </table>
+        </div></div>
+    }
+</div>
+
+@* 
+   TAB 2 - Flagged for review (editable)
+    *@
+<div id="panel2" class="hw-panel" style="display:none">
+    @if (!hasData)
+    {
+        <div class="empty-state"><div class="empty-title">No data yet</div><div class="empty-sub">Upload a file using the All rows tab.</div></div>
+    }
+    else if (!flagRows.Any())
+    {
+        <div class="empty-state"><div class="empty-title">No flagged records</div><div class="empty-sub">All matched records passed validation.</div></div>
+    }
+    else
+    {
+        @* Inline save confirmation banner — hidden until save completes *@
+        <div id="save-confirm" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:10px 16px;margin-bottom:10px;font-size:12.5px;color:#15803d">
+            <strong>Saved to database.</strong> <span id="save-confirm-msg"></span>
+            <span style="color:#64748b"> These values are now visible in Animal List and included in Export Excel.</span>
+        </div>
+
+        <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:10px;font-size:12.5px;color:#b91c1c">
+            <strong>@flagRows.Count records need attention.</strong>
+            Fill in Grade and HS where missing. When Side1, Side2, Grade and HS are all valid the row turns
+            <span style="background:#eff6ff;padding:1px 6px;border-radius:3px;color:#1e40af;font-size:11.5px;font-weight:600">blue</span>
+            and Load enables. Trim variance rows can be accepted as-is — just click Load.
+            "ACN not found" rows are read-only — Delete only.
+        </div>
+        <div class="hw-toolbar">
+            <span style="font-size:12.5px;color:var(--text2)">
+                <strong id="p2-fixed-count">0</strong> fixed &nbsp;·&nbsp; <strong id="p2-sel">0</strong> selected
+            </span>
+            <input type="text" id="p2-filter" placeholder="Filter ACN or reason…"
+                   oninput="filterFlagged()"
+                   style="padding:4px 9px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;width:190px">
+            <button type="button" onclick="selAllFixed()" class="btn btn-secondary btn-sm">Select all fixed</button>
+            <button type="button" onclick="selAll('p2',false)" class="btn btn-secondary btn-sm">Deselect all</button>
+            <button type="button" onclick="deleteSelectedFlagged()" class="btn btn-sm" style="background:#fef2f2;border-color:#fca5a5;color:#b91c1c">Delete selected</button>
+            <div style="margin-left:auto;display:flex;gap:6px">
+                <button type="button" onclick="loadSelectedFlagged()" id="p2-load-btn" class="btn btn-secondary btn-sm" disabled>Load into Mark as Killed</button>
+                <button type="button" onclick="saveFixedToDB()" id="p2-save-btn" class="btn btn-primary btn-sm" disabled>Save to DB →</button>
+            </div>
+        </div>
+       <div class="xl-scroll-box"><div class="xl-scroll-inner auto-fill-scroll">
+        <table class="data-table" id="p2-table" style="min-width:2300px;font-size:12px">
+            <thead><tr>
+    <th style="width:32px;position:sticky;left:0;z-index:8;background:#1e2f47">
+        <input type="checkbox" id="p2-all" onchange="selAllVisible(this.checked)">
+        </th>
+        <th style="width:120px;position:sticky;left:32px;z-index:8;background:#1e2f47">ACN</th>
+        <th style="width:70px;position:sticky;left:152px;z-index:8;background:#1e2f47">LOT</th>
+        <th style="width:120px;position:sticky;left:222px;z-index:8;background:#1e2f47">BackTag</th>
+        <th style="width:90px;position:sticky;left:342px;z-index:8;background:#1e2f47;border-right:2px solid #162236">Tag1</th>
+
+        <th>Type</th>
+        <th>Sex</th>
+        <th>Tag2</th>
+        <th>Program</th>
+        <th>Origin</th>
+        <th class="text-right">LiveWeight</th>
+        <th class="text-right" style="background:#162236;color:#9ae6b4">Side1 ✎</th>
+        <th class="text-right" style="background:#162236;color:#9ae6b4">Side2 ✎</th>
+        <th class="text-right" style="background:#162236;color:#9ae6b4">Hot Total</th>
+        <th style="background:#162236;color:#9ae6b4">Grade ✎</th>
+        <th style="background:#162236;color:#9ae6b4">Grade2 ✎</th>
+        <th style="background:#162236;color:#9ae6b4">HS ✎</th>
+        <th style="background:#3d1515;color:#fca5a5">Flag reason</th>
+        <th>Status</th>
+        <th style="width:140px;position:sticky;right:0;background:#1e2f47;z-index:8;border-left:2px solid #162236">Actions</th>
+    </tr></thead>
+            <tbody id="p2-body">
+            @for (var i = 0; i < flagRows.Count; i++)
+        {
+            var r = flagRows[i];
+            var canEdit = !r.FlagReason.Contains("ACN not found") && !r.FlagReason.Contains("not in this Excel");
+            var rowKey = string.IsNullOrWhiteSpace(r.RowKey) ? $"r{i}_{r.ControlNo}" : r.RowKey;
+            <tr class="p2-row"
+            data-ctrlno="@r.ControlNo"
+            data-origctrlno="@r.ControlNo"
+            data-rowid="@rowKey" 
+            data-acn="@r.AnimalControlNumber"
+            data-fileacn="@r.NewAnimalControlNumber"
+            data-type="@r.FileType"
+            data-sex="@r.FileSex"
+                data-reason="@r.FlagReason.ToLower()" data-fixed="0" data-saved="0" data-loaded="0">
+                <td style="text-align:center;position:sticky;left:0;z-index:6;background:var(--bg-card,#fff)">
+                        <input type="checkbox" class="p2-chk" data-ctrlno="@r.ControlNo" onchange="updateP2Counts()" disabled>
+                    </td>
+
+                    <td class="mono p2-acn-cell"
+                        id="acn-@rowKey"
+                        title="@r.AnimalControlNumber"
+                        style="position:sticky;left:32px;z-index:6;background:var(--bg-card,#fff);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px">
+                        @r.AnimalControlNumber
+                    </td>
+
+                    <td title="@(r.FileLot ?? "—")"
+                        style="position:sticky;left:152px;z-index:6;background:var(--bg-card,#fff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70px">
+                        @(r.FileLot ?? "—")
+                    </td>
+
+                    <td title="@(r.FileBackTag ?? "—")"
+                        style="position:sticky;left:222px;z-index:6;background:var(--bg-card,#fff);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px">
+                        @(r.FileBackTag ?? "—")
+                    </td>
+
+                    <td title="@(r.FileTag1 ?? "—")"
+                        style="position:sticky;left:342px;z-index:6;background:var(--bg-card,#fff);border-right:2px solid var(--gray3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px">
+                        @(r.FileTag1 ?? "—")
+                    </td>
+
+                    <td>@(r.FileType ?? "—")</td>
+                    <td>@(r.FileSex ?? "—")</td>
+                    <td>@(r.FileTag2 ?? "—")</td>
+                    <td>@(r.FileProgram ?? "—")</td>
+                    <td>@(r.FileOrigin ?? "—")</td>
+                    <td class="text-right mono">@(r.FileLiveWeight.HasValue ? r.FileLiveWeight.Value.ToString("N1") : "—")</td>
+                @if (canEdit)
+                {
+                    <td style="text-align:right">
+                        <input type="number" class="f-side1 hw-edit-input" step="0.1" min="0"
+                            value="@(r.Side1?.ToString("0.0") ?? "")" placeholder="lbs"
+                            oninput="onFieldChange(this.closest('tr'))"
+                            style="width:78px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px" />
+                    </td>
+                    <td style="text-align:right">
+                        <input type="number" class="f-side2 hw-edit-input" step="0.1" min="0"
+                            value="@(r.Side2?.ToString("0.0") ?? "")" placeholder="lbs"
+                            oninput="onFieldChange(this.closest('tr'))"
+                            style="width:78px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px" />
+                    </td>
+                    <td class="text-right mono f-hot-total">@(((r.Side1 ?? 0m) + (r.Side2 ?? 0m)).ToString("N1"))</td>
+                    <td>
+                        <select class="f-grade hw-edit-input" onchange="onFieldChange(this.closest('tr'))"
+                                style="width:68px;padding:3px 4px;font-size:12px;border:1px solid var(--gray3);border-radius:4px">
+                            <option value="">—</option>
+                            @foreach (var g in validGrades)
+                            {
+                                <option value="@g" selected="@(g == r.NewGrade ? "selected" : null)">@g</option>
+                            }
+                        </select>
+                    </td>
+                    <td>@(r.NewGrade2 ?? "—")</td>
+                    <td>
+                        <input type="number" class="f-hs hw-edit-input" min="1" max="5" placeholder="1-5"
+                            value="@(r.NewHealthScore?.ToString() ?? "")"
+                            oninput="onFieldChange(this.closest('tr'))"
+                            style="width:50px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px" />
+                    </td>
+                }
+                else
+                {
+                    <td class="text-right mono" style="color:var(--text3)">@(r.Side1?.ToString("N1") ?? "—")</td>
+                    <td class="text-right mono" style="color:var(--text3)">@(r.Side2?.ToString("N1") ?? "—")</td>
+                    <td class="text-right mono f-hot-total">@(((r.Side1 ?? 0m) + (r.Side2 ?? 0m)).ToString("N1"))</td>
+                    <td style="color:var(--text3)">@(r.NewGrade ?? "—")</td>
+                    <td style="color:var(--text3)">@(r.NewGrade2 ?? "—")</td>
+                    <td style="color:var(--text3)">@(r.NewHealthScore?.ToString() ?? "—")</td>
+                }
+                    <td style="font-size:11px;max-width:220px" title="@r.FlagReason">
+                        @if (r.Candidates != null && r.Candidates.Any())
+                        {
+                            var _cJson = System.Text.Encodings.Web.HtmlEncoder.Default.Encode(
+                                System.Text.Json.JsonSerializer.Serialize(r.Candidates));
+                            <span class="cand-flag-link"
+                                  id="flnk-@rowKey"
+                                  onclick="openCandModal('@rowKey')"
+                                  data-cands="@Html.Raw(_cJson)">
+                                @r.FlagReason — @r.Candidates.Count candidates ▸ pick
+                            </span>
+                        }
+                        else
+                        {
+                            <span style="color:#b91c1c">@r.FlagReason</span>
+                        }
+                    </td>
+                    <td><span class="f-status badge" style="background:#fee2e2;color:#b91c1c;font-size:11px;white-space:nowrap">Flagged</span></td>
+                    <td class="actions-cell" style="white-space:nowrap;position:sticky;right:0;z-index:2;background:var(--bg, #fff);border-left:2px solid var(--gray3);padding:5px 8px">
+                        @if (canEdit)
+                        {
+                            <button type="button" class="row-load-btn btn btn-sm"
+                                    style="background:#f0fdf4;color:#15803d;border-color:#86efac;font-size:11px;padding:2px 8px;margin-right:3px"
+                                    disabled
+                                    onclick="loadSingleRow(this)">Load</button>
+                        }
+                        <button type="button" class="btn btn-sm"
+                                style="background:#fef2f2;color:#b91c1c;border-color:#fca5a5;font-size:11px;padding:2px 8px"
+                                onclick="deleteRow(this)">Delete</button>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        </div></div>
+    }
+</div>
+
+@* Hidden load form *@
+<form id="hw-load-form" method="post" asp-action="HotWeightLoadToMarkKilled" style="display:none">
+    @Html.AntiForgeryToken()
+    <input type="hidden" id="hw-load-ids" name="selectedControlNos" value="">
+    <input type="hidden" id="hw-fixed-json" name="fixedFlaggedJson" value="">
+</form>
+
+@* 
+   TAB 3 — Duplicates
+    *@
+<div id="panel3" class="hw-panel" style="display:none">
+    @if (!hasData)
+    {
+        <div class="empty-state"><div class="empty-title">No data yet</div></div>
+    }
+    else if (!dupRows.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-title">No duplicates</div>
+            <div class="empty-sub">No rows in this file exactly match existing DB records.</div>
+        </div>
+    }
+    else
+    {
+        <div style="background:#fdf4ff;border:1px solid #d8b4fe;border-radius:6px;padding:9px 14px;margin-bottom:12px;font-size:12px;color:#6d28d9">
+            <strong>@dupRows.Count duplicate@(dupRows.Count != 1 ? "s" : "") detected.</strong>
+            These rows exactly match data already in the database (same HotWeight, Grade, HealthScore and ACN).
+            They were skipped automatically — no action needed.
+        </div>
+        <div style="overflow-x:auto">
+        <table data-colfilter-table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+                <tr>
+                    <th data-colfilter="text" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">ACN</th>
+                    <th data-colfilter="number" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:right;font-size:11px">Side1</th>
+                    <th data-colfilter="number" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:right;font-size:11px">Side2</th>
+                    <th data-colfilter="number" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:right;font-size:11px">HotWeight</th>
+                    <th data-colfilter="text" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">Grade</th>
+                    <th data-colfilter="number" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:center;font-size:11px">HS</th>
+                    <th data-colfilter="text" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">Match</th>
+                    <th data-colfilter="text" style="background:#1e2f47;color:#fff;padding:7px 10px;text-align:left;font-size:11px">DB values</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in dupRows)
+                {
+                    <tr style="border-bottom:.5px solid #f1f5f9;opacity:0.7">
+                        <td style="padding:7px 10px;font-family:monospace;font-weight:600;color:#6d28d9">@r.AnimalControlNumber</td>
+                        <td style="padding:7px 10px;text-align:right">@(r.Side1.HasValue ? r.Side1.Value.ToString("N1") : "—")</td>
+                        <td style="padding:7px 10px;text-align:right">@(r.Side2.HasValue ? r.Side2.Value.ToString("N1") : "—")</td>
+                        <td style="padding:7px 10px;text-align:right;font-weight:600">@(r.NewHotWeight.HasValue ? r.NewHotWeight.Value.ToString("N1") + " lbs" : "—")</td>
+                        <td style="padding:7px 10px">@(r.NewGrade ?? "—")</td>
+                        <td style="padding:7px 10px;text-align:center">@(r.NewHealthScore.HasValue ? r.NewHealthScore.ToString() : "—")</td>
+                        <td style="padding:7px 10px;font-size:11px;color:#64748b">@r.MatchMethod</td>
+                        <td style="padding:7px 10px;font-size:11px;color:#7c3aed">@r.FlagReason</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+    }
+</div>
+
+@* ── Candidate picker modal — page level, no overflow clipping ── *@
+<div id="cand-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;overflow-y:auto;padding:40px 20px">
+    <div style="background:var(--bg-card,#fff);border-radius:10px;max-width:1300px;margin:0 auto;padding:16px 20px;box-shadow:0 8px 40px rgba(0,0,0,.25)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div id="cand-modal-title" style="font-size:13px;font-weight:700;color:#991b1b"></div>
+            <button type="button" onclick="closeCandModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#64748b;line-height:1">✕</button>
+        </div>
+        <div style="overflow-x:auto;max-height:55vh;overflow-y:auto">
+            <table id="cand-modal-table" style="width:100%;border-collapse:collapse;font-size:11.5px;white-space:nowrap">
+                <thead id="cand-modal-head"></thead>
+                <tbody id="cand-modal-body"></tbody>
+            </table>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+            <button class="btn btn-primary btn-sm" id="cand-modal-confirm" disabled onclick="confirmModalPick()">Confirm &amp; set ready →</button>
+            <button class="btn btn-secondary btn-sm" onclick="closeCandModal()">Cancel</button>
+            <span id="cand-modal-hint" style="font-size:11.5px;color:#64748b;margin-left:6px">Click a row to select, then click Confirm</span>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script src="~/js/column-filter.js" asp-append-version="true"></script>
+<style>
+/* Compact single-row tab bar: tabs + counts combined (no separate stat-card grid) */
+/* Single-row merged card-tabs: big count + label, whole card is the tab button */
+.hw-tabbar{display:flex;border-bottom:2px solid var(--gray3);margin-bottom:10px;background:transparent;flex-wrap:wrap;gap:8px;padding:0}
+.hw-cardtabs{padding:0}
+.hw-ctab{flex:1 1 0;min-width:150px;padding:10px 14px;border:2px solid transparent;border-radius:8px 8px 0 0;background:var(--gray1);cursor:pointer;text-align:center;transition:border-color .15s,background .15s;font-family:inherit;margin-bottom:-2px}
+.hw-ctab:hover{background:rgba(37,99,235,.06);border-color:rgba(37,99,235,.25)}
+.hw-ctab.active{background:var(--bg-card,#fff);border-color:#2563eb;border-bottom-color:#2563eb}
+.hw-ctab-n{font-size:22px;font-weight:600;font-family:monospace;color:var(--text);line-height:1.1}
+.hw-ctab-l{font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-top:3px;font-weight:500}
+.hw-n-green{color:#15803d}
+.hw-n-red{color:#b91c1c}
+.hw-n-purple{color:#7c3aed}
+.hw-panel{padding:10px 0}
+.hw-toolbar{display:flex;align-items:center;gap:7px;padding:6px 0 8px;flex-wrap:wrap}
+.p2-row.p2-fixed-row td:not(:first-child):not(.actions-cell){background:#eff6ff}
+/* Candidate picker */
+.cand-flag-link{color:#b91c1c;font-size:11.5px;cursor:pointer;text-decoration:underline dotted}
+.cand-flag-link:hover{color:#7f1d1d}
+.p2-row.p2-fixed-row .p2-acn-cell{background:#eff6ff}
+.p2-row[data-saved="1"] .p2-acn-cell{background:#f0fdf4 !important}
+.actions-cell{background:var(--bg-card,#ffffff) !important}
+.p2-row.p2-fixed-row .f-status{background:#eff6ff !important;color:#1e40af !important}
+.p2-row[data-saved="1"] td{background:#f0fdf4 !important;opacity:.75}
+.p2-row[data-saved="1"] .f-status{background:#dcfce7 !important;color:#15803d !important}
+.hw-edit-input:focus{border-color:#2563eb;outline:none;background:#fffff8}
+.xl-scroll-inner thead .sticky-col{background:#1e2f47 !important;color:#fff !important;z-index:5 !important}
+.auto-fill-scroll{
+    max-height: calc(100vh - 280px);
+    min-height: calc(100vh - 280px);
+}
+@@media (max-width: 1024px){
+    .auto-fill-scroll{
+        max-height: calc(100vh - 230px);
+        min-height: calc(100vh - 230px);
+        }
+}
+</style>
+<script>
+const BULL_GRADE_SET = new Set(['BB','LB','UB','FB']);
+const COW_GRADE_SET  = new Set(['CN','SH','CT','B1','B2','BR']);
+
+function normalizeSexCode(sex){
+const s = (sex || '').toUpperCase().trim();
+if (s === 'B') return 'B';
+if (s === 'F') return 'F';
+return null;
+}
+
+function normalizeTypeGroup(type){
+const t = (type || '').toUpperCase().trim();
+if (t === 'BULL') return 'BULL';
+if (t === 'DCOW' || t === 'BCOW') return 'COW';
+return null;
+}
+
+function resolveGradeRulesForRow(tr){
+const sexCode = normalizeSexCode(tr.dataset.sex || '');
+const typeGroup = normalizeTypeGroup(tr.dataset.type || '');
+const mismatch = !!(sexCode && typeGroup && ((sexCode === 'B' && typeGroup !== 'BULL') || (sexCode === 'F' && typeGroup !== 'COW')));
+
+if (sexCode === 'B') return { allowed: BULL_GRADE_SET, mismatch: mismatch, sexCode: 'B', typeCode: typeGroup || '-' };
+if (sexCode === 'F') return { allowed: COW_GRADE_SET, mismatch: mismatch, sexCode: 'F', typeCode: typeGroup || '-' };
+if (typeGroup === 'BULL') return { allowed: BULL_GRADE_SET, mismatch: mismatch, sexCode: '-', typeCode: 'BULL' };
+if (typeGroup === 'COW') return { allowed: COW_GRADE_SET, mismatch: mismatch, sexCode: '-', typeCode: 'COW' };
+
+return { allowed: null, mismatch: mismatch, sexCode: sexCode || '-', typeCode: typeGroup || '-' };
+}
+var AF_HW = '';   // set in DOMContentLoaded after DOM is ready
+
+//  Tab switching
+function switchTab(n) {
+    for (var i = 0; i < 4; i++) {
+        var p = document.getElementById('panel' + i);
+        var t = document.getElementById('tab'   + i);
+        if (p) p.style.display = i === n ? '' : 'none';
+        if (t) t.classList.toggle('active', i === n);
+    }
+}
+
+//  Select all helpers 
+function selAll(prefix, val) {
+    document.querySelectorAll('.' + prefix + '-chk:not(:disabled)').forEach(function(c){c.checked = val;});
+    var all = document.getElementById(prefix + '-all');
+    if (all) all.checked = val;
+    updSel(prefix);
+}
+function selAllFixed() {
+    document.querySelectorAll('.p2-chk:not(:disabled)').forEach(function(c){c.checked=true;});
+    updateP2Counts();
+}
+function selAllVisible(val) {
+    document.querySelectorAll('.p2-chk:not(:disabled)').forEach(function(c){
+        if (c.closest('tr').style.display !== 'none') c.checked = val;
+    });
+    updateP2Counts();
+}
+
+//  Update selection counts 
+function updSel(prefix) {
+    var n = document.querySelectorAll('.' + prefix + '-chk:checked').length;
+    var el = document.getElementById(prefix + '-sel');
+    if (el) el.textContent = n;
+    if (prefix === 'p1') {
+        var tot = document.querySelectorAll('.p1-chk').length;
+        var all = document.getElementById('p1-all');
+        if (all) { all.indeterminate = n>0 && n<tot; all.checked = n===tot; }
+    }
+    if (prefix === 'p2') {
+        var btn = document.getElementById('p2-load');
+        var hint = document.getElementById('p2-hint');
+        if (btn)  btn.disabled = n === 0;
+        if (hint) hint.textContent = n === 0 ? '0 selected — none will be overwritten' : n + ' will be overwritten';
+    }
+}
+function updateP2Counts() {
+    var sel   = document.querySelectorAll('.p2-chk:checked').length;
+    var fixed = document.querySelectorAll('.p2-row[data-fixed="1"]').length;
+    // Count active rows (not yet saved or loaded) for tab badge
+    var active = document.querySelectorAll('.p2-row:not([data-saved="1"]):not([data-loaded="1"])').length;
+    var selEl = document.getElementById('p2-sel');
+    var fixEl = document.getElementById('p2-fixed-count');
+    if (selEl) selEl.textContent = sel;
+    if (fixEl) fixEl.textContent = fixed;
+    // Update tab badge and stat card
+    var tabBadge = document.getElementById('cnt2');
+    if (tabBadge) tabBadge.textContent = active;
+    var statN = document.getElementById('sc2-n');
+    if (statN) statN.textContent = active;
+    var loadBtn = document.getElementById('p2-load-btn');
+    var saveBtn = document.getElementById('p2-save-btn');
+    if (loadBtn) loadBtn.disabled = sel === 0;
+    if (saveBtn) saveBtn.disabled = sel === 0;
+}
+
+//  Flagged row inline validation 
+function onFieldChange(tr) {
+    if (!tr) return;
+    var s1    = parseFloat(tr.querySelector('.f-side1')?.value) || 0;
+    var s2    = parseFloat(tr.querySelector('.f-side2')?.value) || 0;
+    var hotCell = tr.querySelector('.f-hot-total');
+    if (hotCell) hotCell.textContent = (s1 + s2).toFixed(1);
+    var grade = (tr.querySelector('.f-grade')?.value || '').toUpperCase();
+    var hs    = parseInt(tr.querySelector('.f-hs')?.value) || 0;
+    var rule  = resolveGradeRulesForRow(tr);
+    var stEl  = tr.querySelector('.f-status');
+    var chk   = tr.querySelector('.p2-chk');
+
+    // Validate — collect issues for review; do not hard-block Save to DB.
+    var errors = [];
+    var warnings = [];
+    if (s1 <= 0) errors.push('Side1 required');
+    if (s2 <= 0) errors.push('Side2 required');
+    if (!grade) {
+        errors.push('Grade required');
+    } else if (rule.allowed && !rule.allowed.has(grade)) {
+        errors.push('Invalid grade for Sex/Type rule');
+    }
+    if (hs < 1 || hs > 5) errors.push('HS must be 1–5');
+    if (rule.mismatch) {
+        warnings.push('Sex and Type mismatch: Sex=' + rule.sexCode + ', Type=' + rule.typeCode);
+    }
+
+    var ok = errors.length === 0;
+    var reviewOnly = warnings.length > 0;
+    tr.classList.toggle('p2-fixed-row', ok);
+    tr.dataset.fixed = ok ? '1' : '0';
+
+    if (stEl) {
+        if (!ok) {
+            stEl.textContent = errors[0] || 'Flagged';
+            stEl.style.cssText = 'background:#fee2e2;color:#b91c1c;font-size:11px;white-space:nowrap;border-radius:4px;padding:1px 6px;font-weight:600';
+        } else if (reviewOnly) {
+            stEl.textContent = warnings[0];
+            stEl.style.cssText = 'background:#fffbeb;color:#92400e;font-size:11px;white-space:nowrap;border-radius:4px;padding:1px 6px;font-weight:600';
+        } else {
+            var hw = (s1 + s2).toFixed(1);
+            stEl.textContent = 'Ready — ' + hw + ' lbs';
+            stEl.style.cssText = 'background:#eff6ff;color:#1e40af;font-size:11px;white-space:nowrap;border-radius:4px;padding:1px 6px;font-weight:600';
+        }
+    }
+    if (chk) chk.disabled = false;
+    // Enable/disable the per-row Load button
+    var rowLoadBtn = tr.querySelector('.row-load-btn');
+    if (rowLoadBtn) rowLoadBtn.disabled = !ok;
+    updateP2Counts();
+}
+
+// Filter flagged rows 
+function filterFlagged() {
+    var q = (document.getElementById('p2-filter')?.value || '').toLowerCase();
+    document.querySelectorAll('.p2-row').forEach(function(row) {
+        var acn    = (row.dataset.acn    || '').toLowerCase();
+        var reason = (row.dataset.reason || '').toLowerCase();
+        row.style.display = !q || acn.includes(q) || reason.includes(q) ? '' : 'none';
+    });
+    updateP2Counts();
+}
+
+// Delete a single row 
+function deleteRow(btn) {
+    var tr = btn.closest('tr');
+    if (!tr) return;
+    // Two-click confirm — no browser dialog (can be silently blocked)
+    if (btn.dataset.confirming === '1') {
+        tr.remove();
+        updateP2Counts();
+        return;
+    }
+    btn.dataset.confirming = '1';
+    var orig = btn.textContent;
+    var origStyle = btn.getAttribute('style') || '';
+    btn.textContent = 'Confirm?';
+    btn.style.cssText = 'background:#b91c1c;color:#fff;border:1px solid #991b1b;font-size:11px;padding:2px 8px;border-radius:4px;cursor:pointer;font-weight:600';
+    setTimeout(function() {
+        if (btn.dataset.confirming === '1') {
+            btn.dataset.confirming = '0';
+            btn.textContent = orig;
+            btn.setAttribute('style', origStyle);
+        }
+    }, 3000);
+}
+
+// Load a single fixed row into Mark as Killed
+async function loadSingleRow(btn) {
+    var tr = btn.closest('tr');
+    if (!tr || tr.dataset.fixed !== '1') { alert('Fix all fields first.'); return; }
+
+    var s1     = parseFloat(tr.querySelector('.f-side1')?.value) || 0;
+    var s2     = parseFloat(tr.querySelector('.f-side2')?.value) || 0;
+    var grade  = tr.querySelector('.f-grade')?.value || '';
+    var hs     = parseInt(tr.querySelector('.f-hs')?.value) || 0;
+    var ctrlno = parseInt(tr.dataset.ctrlno || '0');
+
+    if (!ctrlno || ctrlno <= 0) {
+        alert('This row is not linked to a valid DB record yet. Pick a candidate first.');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    try {
+        var res = await fetch('/Import/SaveEditsApi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': AF_HW },
+            body: JSON.stringify({
+                rows: [{
+                    controlNo: ctrlno,
+                    originalControlNo: parseInt(tr.dataset.origctrlno || '0'),
+                    hotWeight: parseFloat((s1 + s2).toFixed(1)),
+                    grade: grade,
+                    healthScore: hs,
+                    liveWeight: 0,
+                    isCondemned: false,
+                    animalControlNumber: (tr.dataset.fileacn || tr.dataset.acn || '').trim(),
+                    killDate: '',
+                    state: '',
+                    vetName: '',
+                    officeUse2: '',
+                    comment: '',
+                    purchaseType: ''
+                }]
+            })
+        });
+
+        var data = await res.json();
+        var saved = Number(data.saved || data.count || 0);
+
+        if (data.success && saved > 0) {
+            tr.dataset.loaded = '1';
+            tr.dataset.fixed  = '0';
+            tr.style.opacity  = '0.55';
+            tr.classList.remove('p2-fixed-row');
+
+            var stEl = tr.querySelector('.f-status');
+            if (stEl) {
+                stEl.textContent = 'Loaded ✓';
+                stEl.style.cssText = 'background:#dcfce7;color:#166534;font-size:11px;border-radius:4px;padding:1px 6px;font-weight:600';
+            }
+
+            var chk = tr.querySelector('.p2-chk');
+            if (chk) { chk.checked = false; chk.disabled = true; }
+
+            tr.querySelectorAll('.hw-edit-input, .f-side1, .f-side2, .f-grade, .f-hs').forEach(function(i) {
+                i.disabled = true;
+            });
+
+            btn.textContent = 'Going to Mark as Killed…';
+            btn.style.cssText = 'background:#f0fdf4;color:#166534;border:1px solid #86efac;font-size:11px;padding:2px 8px;border-radius:4px;cursor:default;font-weight:600';
+            btn.disabled = true;
+
+            updateP2Counts();
+
+            document.getElementById('hw-load-ids').value   = String(ctrlno);
+            document.getElementById('hw-fixed-json').value = JSON.stringify([{
+                rowKey: tr.dataset.rowid || '',
+                controlNo: ctrlno,
+                animalControlNumber: (tr.dataset.fileacn || tr.dataset.acn || '').trim(),
+                side1: s1,
+                side2: s2,
+                grade: grade,
+                healthScore: hs
+            }]);
+            setTimeout(function() {
+                document.getElementById('hw-load-form').submit();
+            }, 100);
+            
+        } else {
+            alert('Save failed: ' + (data.message || 'No records were updated.'));
+            btn.disabled = false;
+            btn.textContent = 'Load';
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = 'Load';
+    }
+}
+
+//  Delete selected flagged rows 
+function deleteSelectedFlagged() {
+    var chks = document.querySelectorAll('.p2-chk:checked');
+    if (!chks.length) { alert('Select at least one row to delete.'); return; }
+    if (!confirm('Remove ' + chks.length + ' row(s) from this session preview? This does not affect the database.')) return;
+    chks.forEach(function(c) { c.closest('tr').remove(); });
+    updateP2Counts();
+}
+
+// Load selected flagged rows into Mark as Killed 
+function loadSelectedFlagged() {
+    var fixed = [...document.querySelectorAll('.p2-row[data-fixed="1"] .p2-chk:checked')];
+    if (!fixed.length) { alert('Select fixed rows first.'); return; }
+
+    var ids = fixed
+        .map(function(c){ return c.closest('tr')?.dataset.ctrlno || ''; })
+        .filter(function(v){ return !!v; })
+        .join(',');
+
+    var data = fixed.map(function(c) {
+        var tr = c.closest('tr');
+        var s1 = parseFloat(tr.querySelector('.f-side1')?.value) || 0;
+        var s2 = parseFloat(tr.querySelector('.f-side2')?.value) || 0;
+        return {
+            rowKey: tr.dataset.rowid || '',
+            controlNo: parseInt(tr.dataset.ctrlno || '0'),
+            animalControlNumber: (tr.dataset.fileacn || tr.dataset.acn || '').trim(),
+            side1: s1,
+            side2: s2,
+            grade: tr.querySelector('.f-grade')?.value || '',
+            healthScore: parseInt(tr.querySelector('.f-hs')?.value) || 0
+        };
+    });
+
+    document.getElementById('hw-load-ids').value   = ids;
+    document.getElementById('hw-fixed-json').value = JSON.stringify(data);
+    document.getElementById('hw-load-form').submit();
+}
+
+//  Load tab 1 selected rows 
+function loadSelected(prefix) {
+    var ids = [...document.querySelectorAll('.'+prefix+'-chk:checked')]
+    .map(function(c){return c.dataset.ctrlno;}).filter(Boolean).join(',');
+    if (!ids) { alert('Select at least one row to load.'); return; }
+    document.getElementById('hw-load-ids').value = ids;
+    document.getElementById('hw-fixed-json').value = '';
+    document.getElementById('hw-load-form').submit();
+}
+
+// Save fixed flagged rows directly to DB 
+async function saveFixedToDB() {
+    var fixed = [...document.querySelectorAll('.p2-row[data-fixed="1"] .p2-chk:checked')];
+    if (!fixed.length) { alert('Select at least one row to save.'); return; }
+
+    var rows = fixed.map(function(chk) {
+        var tr = chk.closest('tr');
+        var s1 = parseFloat(tr.querySelector('.f-side1')?.value) || 0;
+        var s2 = parseFloat(tr.querySelector('.f-side2')?.value) || 0;
+        return {
+            rowKey: tr.dataset.rowid || '',
+            controlNo: parseInt(tr.dataset.ctrlno || '0'),
+            hotWeight: parseFloat((s1 + s2).toFixed(1)),
+            grade: tr.querySelector('.f-grade')?.value || '',
+            healthScore: parseInt(tr.querySelector('.f-hs')?.value) || 0,
+            liveWeight: 0,
+            isCondemned: false,
+            animalControlNumber: (tr.dataset.fileacn || tr.dataset.acn || '').trim(),
+            killDate: '',
+            state: '',
+            vetName: '',
+            officeUse2: '',
+            comment: '',
+            purchaseType: ''
+        };
+    });
+
+    var invalidRows = rows.filter(function(r) { return !r.controlNo || r.controlNo <= 0; });
+    if (invalidRows.length) {
+        alert('One or more selected rows are not linked to a valid DB record yet. Pick a candidate first.');
+        return;
+    }
+
+    var saveBtn = document.getElementById('p2-save-btn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+    try {
+        var res = await fetch('/Import/SaveEditsApi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': AF_HW },
+            body: JSON.stringify({ rows: rows })
+        });
+        var data = await res.json();
+        var saved = Number(data.saved || data.count || 0);
+
+        if (data.success && saved > 0) {
+            var summary = rows.map(function(r) {
+                var row = fixed
+                    .map(function(c){ return c.closest('tr'); })
+                    .find(function(tr){ return parseInt(tr.dataset.ctrlno || '0') === r.controlNo; });
+                var acn = row?.dataset.acn || '';
+                return 'ACN ' + acn + ' — HotWeight ' + r.hotWeight + ' lbs, Grade ' + r.grade + ', HS ' + r.healthScore;
+            }).join(' · ');
+
+            document.getElementById('save-confirm-msg').textContent =
+                saved + ' record' + (saved !== 1 ? 's' : '') + ' updated: ' + summary + '.';
+            document.getElementById('save-confirm').style.display = 'block';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            fixed.forEach(function(chk) {
+                var tr = chk.closest('tr');
+                tr.dataset.saved = '1';
+                tr.dataset.fixed = '0';
+                tr.classList.remove('p2-fixed-row');
+
+                var stEl = tr.querySelector('.f-status');
+                if (stEl) {
+                    stEl.textContent = 'Saved to DB';
+                    stEl.style.cssText = 'background:#dcfce7;color:#166534;font-size:11px;border-radius:4px;padding:1px 6px;font-weight:600';
+                }
+
+                chk.disabled = true;
+                chk.checked = false;
+                tr.querySelectorAll('.hw-edit-input').forEach(function(inp) { inp.disabled = true; });
+            });
+
+            updateP2Counts();
+        } else {
+            alert('Save failed: ' + (data.message || 'No records were updated.'));
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    } finally {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save to DB →'; }
+    }
+}
+
+//  On page load: compute initial variance for all flagged rows 
+document.addEventListener('DOMContentLoaded', function() {
+    // FIX 3: CSRF token must be read after DOM is fully rendered
+    AF_HW = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+    document.querySelectorAll('.p2-row').forEach(function(tr){
+        var s1inp = tr.querySelector('.f-side1');
+        if (s1inp) onFieldChange(tr);
+    });
+    updSel('p1');
+    updSel('p2');
+    updateP2Counts();
+});
+//  Candidate picker  page-level modal 
+var _modalRowId = null;
+var _modalPicked = null;
+
+function openCandModal(rowId) {
+    var link = document.getElementById('flnk-' + rowId);
+    if (!link) return;
+    // Already confirmed — don't reopen
+    var tr = document.querySelector('.p2-row[data-rowid="' + rowId + '"]');
+    if (tr && tr.dataset.confirmed === '1') return;
+
+    var raw = link.getAttribute('data-cands') || '[]';
+    var cands;
+    try { cands = JSON.parse(raw); } catch(e) { cands = []; }
+    if (!cands.length) return;
+
+    _modalRowId  = rowId;
+    _modalPicked = null;
+
+    // Build header
+    var cols = ['','\u0394 Wt','CtrlNo','ACN','Tag1','Tag2','Tag3','Vendor','LiveWt','LiveRate',
+                'Type','Type2','PurchType','PurchDate','Grade','Grade2','HS','Program',
+                'Origin','State','Buyer','Vet','KillStatus','Comment','Created'];
+    var thead = document.getElementById('cand-modal-head');
+    var th = '<tr style="background:#1e2f47;position:sticky;top:0">';
+    cols.forEach(function(c,i){
+        var col = i===7||i===11||i===12||i===23 ? 'max-width:110px' : '';
+        th += '<th style="padding:5px 8px;color:' + (i===1?'#9ae6b4':'#fff') + ';text-align:left;white-space:nowrap;font-size:11px;font-weight:500;'+col+'">' + c + '</th>';
+    });
+    th += '</tr>';
+    thead.innerHTML = th;
+
+    // Build rows
+    var tbody = document.getElementById('cand-modal-body');
+    tbody.innerHTML = '';
+    cands.forEach(function(c, idx) {
+        var diff = c.WeightDiff || 0;
+        var dStyle = diff <= 50  ? 'background:#dcfce7;color:#15803d' :
+                     diff <= 150 ? 'background:#fef3c7;color:#92400e' :
+                                   'background:#fee2e2;color:#b91c1c';
+        var rowBg = idx % 2 === 0 ? '' : 'background:#f8fafc';
+        var tr2 = document.createElement('tr');
+        tr2.id = 'cmi-' + rowId + '-' + c.ControlNo;
+        tr2.setAttribute('style', rowBg + ';cursor:pointer;border-bottom:.5px solid #e2e8f0');
+        tr2.onclick = function(){ selectModalRow(c.ControlNo, c.AnimalControlNumber); };
+
+        var cells = [
+            '<input type="radio" name="cmi-radio" style="cursor:pointer">',
+            diff > 0 ? '<span style="border-radius:3px;padding:1px 5px;font-size:10.5px;font-weight:700;' + dStyle + '">&Delta; ' + diff.toFixed(0) + ' lbs</span>' : '&mdash;',
+            '<strong style="font-family:monospace">' + c.ControlNo + '</strong>',
+            '<span style="font-family:monospace;color:#1d4ed8">' + (c.AnimalControlNumber||'&mdash;') + '</span>',
+            '<strong>' + (c.Tag1||'&mdash;') + '</strong>',
+            c.Tag2||'&mdash;', c.Tag3||'&mdash;',
+            '<span title="'+(c.VendorName||'')+'" style="display:block;max-width:110px;overflow:hidden;text-overflow:ellipsis">' + (c.VendorName||'&mdash;') + '</span>',
+            c.LiveWeight > 0 ? '<strong>' + c.LiveWeight.toLocaleString() + '</strong>' : '&mdash;',
+            c.LiveRate > 0 ? '$' + c.LiveRate.toFixed(4) : '&mdash;',
+            c.AnimalType||'&mdash;', c.AnimalType2||'&mdash;',
+            '<span title="'+(c.PurchaseType||'')+'" style="display:block;max-width:110px;overflow:hidden;text-overflow:ellipsis">' + (c.PurchaseType||'&mdash;') + '</span>',
+            c.PurchaseDate||'&mdash;',
+            '<strong>' + (c.Grade||'&mdash;') + '</strong>',
+            c.Grade2||'&mdash;',
+            c.HealthScore != null ? c.HealthScore : '&mdash;',
+            c.ProgramCode||'&mdash;', c.Origin||'&mdash;', c.State||'&mdash;',
+            '<span title="'+(c.BuyerName||'')+'" style="display:block;max-width:80px;overflow:hidden;text-overflow:ellipsis">' + (c.BuyerName||'&mdash;') + '</span>',
+            c.VetName||'&mdash;', c.KillStatus||'&mdash;',
+            '<span title="'+(c.Comment||'')+'" style="display:block;max-width:110px;overflow:hidden;text-overflow:ellipsis">' + (c.Comment||'&mdash;') + '</span>',
+            '<span style="color:#64748b">' + (c.CreatedAt||'&mdash;') + '</span>'
+        ];
+        tr2.innerHTML = cells.map(function(v){ return '<td style="padding:5px 8px;vertical-align:middle">'+v+'</td>'; }).join('');
+        tbody.appendChild(tr2);
+    });
+
+    document.getElementById('cand-modal-title').textContent = cands.length + ' animals match — click a row to select, then confirm';
+    document.getElementById('cand-modal-confirm').disabled = true;
+    document.getElementById('cand-modal-hint').textContent = 'Click a row to select, then click Confirm';
+    document.getElementById('cand-modal-hint').style.color = '#64748b';
+    document.getElementById('cand-modal-overlay').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function selectModalRow(candCtrlNo, candAcn) {
+    _modalPicked = { ctrlNo: candCtrlNo, acn: candAcn };
+    document.querySelectorAll('[id^="cmi-' + _modalRowId + '-"]').forEach(function(r){ r.style.background=''; r.style.outline=''; });
+    var row = document.getElementById('cmi-' + _modalRowId + '-' + candCtrlNo);
+    if (row) {
+        row.style.background = '#eff6ff';
+        row.style.outline = '2px solid #2563eb';
+        row.querySelector('input[type=radio]').checked = true;
+    }
+    document.getElementById('cand-modal-confirm').disabled = false;
+    document.getElementById('cand-modal-hint').textContent = 'ACN ' + candAcn + ' selected — click Confirm';
+    document.getElementById('cand-modal-hint').style.color = '#15803d';
+}
+
+function closeCandModal() {
+    document.getElementById('cand-modal-overlay').style.display = 'none';
+    document.body.style.overflow = '';
+    _modalRowId = null;
+    _modalPicked = null;
+}
+
+function confirmModalPick() {
+    if (!_modalPicked || !_modalRowId) return;
+    var rowId = _modalRowId;
+    var sel   = _modalPicked;
+    var tr = document.querySelector('.p2-row[data-rowid="' + rowId + '"]');
+    if (!tr) { closeCandModal(); return; }
+
+    // ACN precedence (most authoritative least):
+    //   1. File ACN (the Excel row's ACN column, if any) - this is what the user is trying to write
+    //   2. The picked candidate's existing ACN in the DB (picking an already-assigned animal)
+    //   3. Whatever was already on the row's data-acn attribute (the initial server-rendered value)
+    // We keep data-fileacn as a stable "Excel intent" and only update data-acn when we actually
+    // have a better value - NEVER overwrite it with an empty string.
+    var pickedAcn   = (sel.acn || '').trim();
+    var existingFileAcn = (tr.dataset.fileacn || '').trim();
+    var existingRowAcn  = (tr.dataset.acn     || '').trim();
+    // The ACN we want persisted to DB for this ControlNo:
+    var acnToPersist = existingFileAcn || pickedAcn || existingRowAcn;
+
+    tr.dataset.ctrlno    = String(sel.ctrlNo);
+    // Only update data-acn if we have something real; don't wipe it with ""
+    if (acnToPersist) tr.dataset.acn = acnToPersist;
+    // If fileacn was empty but we picked a candidate with an ACN, remember it as the file intent
+    // so saveFixedToDB (which reads fileacn first) sends it to the server.
+    if (!existingFileAcn && pickedAcn) tr.dataset.fileacn = pickedAcn;
+    tr.dataset.confirmed = '1';
+
+    var chk = tr.querySelector('.p2-chk');
+    if (chk) chk.dataset.ctrlno = String(sel.ctrlNo);
+
+    var acnCell = document.getElementById('acn-' + rowId);
+    if (acnCell) acnCell.textContent = acnToPersist || 'Unassigned';
+
+    var link = document.getElementById('flnk-' + rowId);
+    if (link) {
+        link.textContent = acnToPersist
+            ? 'Matched to ControlNo ' + sel.ctrlNo + ' — will write ACN ' + acnToPersist + ' ✓'
+            : 'Assigned to ControlNo ' + sel.ctrlNo + ' (no ACN) ✓';
+        link.style.color = '#15803d';
+        link.style.textDecoration = 'none';
+        link.style.cursor = 'default';
+        link.removeAttribute('onclick');
+    }
+
+    closeCandModal();
+    if (typeof onFieldChange === 'function') onFieldChange(tr);
+    else if (typeof updateP2Counts === 'function') updateP2Counts();
+}
+
+// Close modal on overlay click — runs once, inline after modal div is in DOM
+(function() {
+    var overlay = document.getElementById('cand-modal-overlay');
+    if (overlay) overlay.addEventListener('click', function(e){ if(e.target===overlay) closeCandModal(); });
+})();
+// Close on ESC
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeCandModal(); });
+</script>
+}

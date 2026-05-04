@@ -13,21 +13,75 @@
     var validGrades      = new[] { "CT","B1","B2","CN","LB","UB","BB","BR","FB","NP","NPNP","SH" };
 }
 
-@* Phase 2c — banner shown when preview was restored from staging *@
-@if (ViewBag.RestoredFromStaging != null && (bool)ViewBag.RestoredFromStaging == true)
+@*
+    Banner system (manual-refresh design):
+    - Success/Error flash messages render globally in _Layout.cshtml
+      (above the page content) so we don't render them again here.
+    - InfoMessage is local to this page since Layout doesn't currently
+      render it.
+    - Persistent status banner showing how stale the staged data is, with the Refresh button.
+*@
+@if (TempData["InfoMessage"] != null)
 {
-    <div class="alert" style="margin-bottom:14px;background:#EFF6FF;border:1px solid #93c5fd;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:12.5px">
-        <span style="font-size:16px">↻</span>
-        <div style="flex:1">
-            <strong>Restored from saved batch.</strong>
-            <span style="color:var(--text3)"> Your Hot Weight preview was reloaded from the server — no need to re-upload.</span>
-        </div>
-        <form method="post" asp-action="HotWeightClearSession" style="margin:0">
-            @Html.AntiForgeryToken()
-            <button type="submit" class="btn btn-secondary btn-sm" onclick="return confirm('Clear the staged Hot Weight batch? You will need to re-upload to continue.');">Clear staged batch</button>
-        </form>
+    <div class="alert" style="margin-bottom:14px;background:#F3F4F6;border:1px solid #D1D5DB;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:12.5px">
+        <span style="font-size:16px">○</span>
+        <div style="flex:1"><strong>@TempData["InfoMessage"]</strong></div>
     </div>
 }
+
+@*
+    Persistent "last refreshed" status. Always visible so operators see at a
+    glance how stale the staged data is. Click Refresh from Hot Scale to pull
+    today's latest. Pulls take 30–60 seconds — the only time the page is slow.
+*@
+@{
+    DateTime? lastRefreshUtc = ViewBag.LastRefreshedUtc as DateTime?;
+    double? ageMinutes = ViewBag.LastRefreshedAgeMinutes as double?;
+    string staleness;
+    string staleColor;
+    string staleBg;
+    if (!lastRefreshUtc.HasValue)
+    {
+        staleness  = "Never refreshed";
+        staleColor = "#92400E"; staleBg = "#FFFBEB";
+    }
+    else if (ageMinutes < 5)
+    {
+        staleness  = $"Just refreshed ({lastRefreshUtc.Value.ToLocalTime():HH:mm})";
+        staleColor = "#065F46"; staleBg = "#ECFDF5";
+    }
+    else if (ageMinutes < 60)
+    {
+        staleness  = $"Last refreshed {(int)ageMinutes!.Value} min ago ({lastRefreshUtc.Value.ToLocalTime():HH:mm})";
+        staleColor = "#075985"; staleBg = "#EFF6FF";
+    }
+    else if (ageMinutes < 24 * 60)
+    {
+        staleness  = $"Last refreshed {(int)(ageMinutes!.Value / 60)} hr ago ({lastRefreshUtc.Value.ToLocalTime():HH:mm})";
+        staleColor = "#92400E"; staleBg = "#FFFBEB";
+    }
+    else
+    {
+        staleness  = $"Last refreshed {lastRefreshUtc.Value.ToLocalTime():yyyy-MM-dd HH:mm} (stale)";
+        staleColor = "#991B1B"; staleBg = "#FEF2F2";
+    }
+}
+<div class="alert" style="margin-bottom:14px;background:@staleBg;border:1px solid @staleColor;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:@staleColor">
+    <span style="font-size:16px">↻</span>
+    <div style="flex:1">
+        <strong>@staleness</strong>
+        <span style="color:var(--text3)"> Click Refresh to pull the latest from Hot Scale (takes 30–60 sec).</span>
+    </div>
+    <form method="post" asp-action="HotWeightRefreshFromHotScale" style="margin:0">
+        @Html.AntiForgeryToken()
+        <button type="submit" class="btn btn-primary btn-sm">Refresh from Hot Scale</button>
+    </form>
+    <form method="post" asp-action="HotWeightClearSession" style="margin:0 0 0 6px"
+          onsubmit="return confirm('Clear all Hot Weight session data? This wipes the current staging and the Mark Killed pre-fill.');">
+        @Html.AntiForgeryToken()
+        <button type="submit" class="btn btn-secondary btn-sm" title="Wipe all staged Hot Weight data and start fresh">Clear session</button>
+    </form>
+</div>
 
 @* Page header  *@
 <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
@@ -36,7 +90,7 @@
         @if (hasData)
         {
             <p style="font-size:12.5px;color:var(--text3);margin-top:3px">
-                File: <strong>@Model!.FileName</strong> — @Model!.TotalInExcel rows read, @Model!.Matched matched.
+                File: <strong>@Model!.FileName</strong> — @Model!.TotalInExcel unique animals (after merging duplicate scale-machine rows), @Model!.Matched matched to bills.
                 <span style="color:var(--amber);font-weight:500"> Session active — nothing saved to DB yet unless you used "Save to DB".</span>
             </p>
         }
@@ -69,9 +123,9 @@
         <div class="hw-ctab-n" id="sc0-n">@(hasData ? Model!.TotalInExcel.ToString() : "—")</div>
         <div class="hw-ctab-l">Rows in Excel</div>
     </button>
-    <button class="hw-ctab" id="tab1" onclick="switchTab(1)" type="button" title="Ready to load into Mark as Killed">
+    <button class="hw-ctab" id="tab1" onclick="switchTab(1)" type="button" title="Ready to load + already killed today">
         <div class="hw-ctab-n hw-n-green" id="sc1-n">@(hasData ? readyDisplayRows.Count.ToString() : "—")</div>
-        <div class="hw-ctab-l">Ready / Loaded</div>
+        <div class="hw-ctab-l">Ready &amp; killed today</div>
     </button>
     <button class="hw-ctab" id="tab2" onclick="switchTab(2)" type="button" title="Rows needing review">
         <div class="hw-ctab-n hw-n-red" id="sc2-n">@(hasData ? flagRows.Count.ToString() : "—")</div>
@@ -120,32 +174,40 @@
     @* Summary table shown when data exists *@
     @if (hasData)
     {
+        @* One-line summary so the math is obvious *@
+        <p style="font-size:12.5px;color:var(--text3);margin:8px 0 6px">
+            Of <strong>@Model!.TotalInExcel</strong> rows pulled from Hot Scale:
+            <strong style="color:#15803d">@okRows.Count</strong> ready,
+            <strong style="color:#6d28d9">@loadedRows.Count</strong> already killed,
+            <strong style="color:#b91c1c">@flagRows.Count</strong> need fixing,
+            <strong style="color:#7c3aed">@dupRows.Count</strong> duplicates.
+        </p>
         <table style="width:100%;max-width:680px;font-size:13px;border-collapse:collapse">
             <thead><tr style="background:var(--gray1)">
                 <th style="padding:7px 10px;text-align:left;font-weight:500;color:var(--text3);border-bottom:1px solid var(--gray3)">Category</th>
                 <th style="padding:7px 10px;text-align:right;font-weight:500;color:var(--text3);border-bottom:1px solid var(--gray3)">Count</th>
-                <th style="padding:7px 10px;text-align:left;font-weight:500;color:var(--text3);border-bottom:1px solid var(--gray3)">Action</th>
+                <th style="padding:7px 10px;text-align:left;font-weight:500;color:var(--text3);border-bottom:1px solid var(--gray3)">What it means</th>
             </tr></thead>
             <tbody>
                 <tr style="border-bottom:0.5px solid var(--gray3)">
                     <td style="padding:8px 10px;color:#15803d;font-weight:500">Ready to load</td>
                     <td style="padding:8px 10px;text-align:right;font-weight:700">@okRows.Count</td>
-                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Will pre-fill HotWeight, Grade, HS in Mark as Killed</td>
+                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Pre-fills HotWeight, Grade, HS in Mark as Killed when loaded</td>
                 </tr>
                 <tr style="border-bottom:0.5px solid var(--gray3)">
-                    <td style="padding:8px 10px;color:#6d28d9;font-weight:500">Already loaded</td>
+                    <td style="padding:8px 10px;color:#6d28d9;font-weight:500">Already killed today</td>
                     <td style="padding:8px 10px;text-align:right;font-weight:700">@loadedRows.Count</td>
-                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Already sent to Mark as Killed — shown on Ready tab with purple badge</td>
+                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Loaded into Mark Killed and saved earlier today — no further action needed</td>
                 </tr>
-                <tr>
-                    <td style="padding:8px 10px;color:#b91c1c;font-weight:500">Flagged</td>
+                <tr style="border-bottom:0.5px solid var(--gray3)">
+                    <td style="padding:8px 10px;color:#b91c1c;font-weight:500">Need review (flagged)</td>
                     <td style="padding:8px 10px;text-align:right;font-weight:700">@flagRows.Count</td>
-                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Fix inline on Flagged tab → save to DB directly</td>
+                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Missing or invalid data — fix on Flagged tab to send to Mark as Killed</td>
                 </tr>
                 <tr>
-                    <td style="padding:8px 10px;color:#7c3aed;font-weight:500">Duplicates (skipped)</td>
+                    <td style="padding:8px 10px;color:#7c3aed;font-weight:500">Duplicates (already in DB)</td>
                     <td style="padding:8px 10px;text-align:right;font-weight:700">@dupRows.Count</td>
-                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Fix inline on Flagged tab → save to DB directly</td>
+                    <td style="padding:8px 10px;font-size:12px;color:var(--text3)">Hot Scale row matches a bill that already has the same data — skipped</td>
                 </tr>
             </tbody>
         </table>
@@ -188,7 +250,7 @@
         <div class="xl-scroll-box"><div class="xl-scroll-inner auto-fill-scroll">
         <table class="data-table" data-colfilter-table style="min-width:1900px;font-size:12px">
     <thead><tr>
-        <th style="width:32px"><input type="checkbox" id="p1-all" onchange="selAll('p1',this.checked)" checked></th>
+        <th style="width:32px;text-align:center"><input type="checkbox" id="p1-all" onchange="selAll('p1',this.checked)"></th>
         <th data-colfilter="text">ACN</th>
         <th data-colfilter="text">LOT</th>
         <th data-colfilter="text">Type</th>
@@ -213,10 +275,31 @@
         <tr data-ctrlno="@r.ControlNo" style="@(isLoaded ? "opacity:0.6" : "")">
             <td style="text-align:center">
                 <input type="checkbox" class="p1-chk" data-ctrlno="@r.ControlNo"
-                       onchange="updSel('p1')" @(isLoaded ? "" : "checked")
-                       @(isLoaded ? "disabled" : "")>
+                       onchange="updSel('p1')"
+                                @(isLoaded ? "disabled" : "")>
             </td>
-            <td class="mono">@r.AnimalControlNumber</td>
+            <td class="mono">
+                @{
+                    // Prefer the bill's existing ACN; if empty (e.g. matched by
+                    // tag, not ACN), show the proposed ACN from Hot Scale.
+                    var displayAcn = !string.IsNullOrWhiteSpace(r.AnimalControlNumber)
+                        ? r.AnimalControlNumber
+                        : r.NewAnimalControlNumber;
+                }
+                @if (string.IsNullOrWhiteSpace(displayAcn))
+                {
+                    <span style="color:#9ca3af">—</span>
+                }
+                else if (string.IsNullOrWhiteSpace(r.AnimalControlNumber)
+                         && !string.IsNullOrWhiteSpace(r.NewAnimalControlNumber))
+                {
+                    <span title="Proposed from Hot Scale" style="color:#0d9488">@displayAcn</span>
+                }
+                else
+                {
+                    @displayAcn
+                }
+            </td>
             <td>@(r.FileLot ?? "—")</td>
             <td>@(r.FileType ?? "—")</td>
             <td>@(r.FileBackTag ?? "—")</td>
@@ -231,7 +314,16 @@
             <td><span class="badge" style="background:@(isLoaded ? "#f5f3ff" : "#dcfce7");color:@(isLoaded ? "#6d28d9" : "#15803d")">@r.NewGrade</span></td>
             <td>@(r.NewGrade2 ?? "—")</td>
             <td>@r.NewHealthScore</td>
-            <td><span class="badge" style="background:@(isLoaded ? "#f5f3ff" : "#dcfce7");color:@(isLoaded ? "#6d28d9" : "#15803d");font-size:11px">@(isLoaded ? "Loaded ✓" : "Ready")</span></td>
+            <td>
+                @if (r.IsCondemned)
+                {
+                    <span class="badge" style="background:#fef2f2;color:#991b1b;font-size:11px;font-weight:600" title="Condemned animal — no carcass weight">🚫 Condemned</span>
+                }
+                else
+                {
+                    <span class="badge" style="background:@(isLoaded ? "#f5f3ff" : "#dcfce7");color:@(isLoaded ? "#6d28d9" : "#15803d");font-size:11px">@(isLoaded ? "Loaded ✓" : "Ready")</span>
+                }
+            </td>
         </tr>
     }
     </tbody>
@@ -317,11 +409,13 @@
             var rowKey = string.IsNullOrWhiteSpace(r.RowKey) ? $"r{i}_{r.ControlNo}" : r.RowKey;
             <tr class="p2-row"
             data-ctrlno="@r.ControlNo"
+            data-origctrlno="@r.ControlNo"
             data-rowid="@rowKey" 
             data-acn="@r.AnimalControlNumber"
             data-fileacn="@r.NewAnimalControlNumber"
             data-type="@r.FileType"
             data-sex="@r.FileSex"
+            data-condemned="@(r.IsCondemned ? "1" : "0")"
                 data-reason="@r.FlagReason.ToLower()" data-fixed="0" data-saved="0" data-loaded="0">
                 <td style="text-align:center;position:sticky;left:0;z-index:6;background:var(--bg-card,#fff)">
                         <input type="checkbox" class="p2-chk" data-ctrlno="@r.ControlNo" onchange="updateP2Counts()" disabled>
@@ -669,30 +763,44 @@ function onFieldChange(tr) {
     var stEl  = tr.querySelector('.f-status');
     var chk   = tr.querySelector('.p2-chk');
 
+    // Detect condemned. Server-side: Grade or Grade2 starts with X — IsCondemned
+    // is rendered onto the row as data-condemned="1". Client-side fallback: if
+    // operator changes the Grade dropdown to an X-code, treat as condemned too.
+    // Condemned animals don't have carcass weight, conventional grade, or HS,
+    // so the standard Side1/Side2/Grade/HS validators would falsely flag them.
+    var isCondemned = (tr.dataset.condemned === '1')
+                      || (grade && grade.charAt(0) === 'X');
+
     // Validate — collect issues for review; do not hard-block Save to DB.
     var errors = [];
     var warnings = [];
-    if (s1 <= 0) errors.push('Side1 required');
-    if (s2 <= 0) errors.push('Side2 required');
-    if (!grade) {
-        errors.push('Grade required');
-    } else if (rule.allowed && !rule.allowed.has(grade)) {
-        errors.push('Invalid grade for Sex/Type rule');
+    if (!isCondemned) {
+        if (s1 <= 0) errors.push('Side1 required');
+        if (s2 <= 0) errors.push('Side2 required');
+        if (!grade) {
+            errors.push('Grade required');
+        } else if (rule.allowed && !rule.allowed.has(grade)) {
+            errors.push('Invalid grade for Sex/Type rule');
+        }
+        if (hs < 1 || hs > 5) errors.push('HS must be 1–5');
     }
-    if (hs < 1 || hs > 5) errors.push('HS must be 1–5');
     if (rule.mismatch) {
         warnings.push('Sex and Type mismatch: Sex=' + rule.sexCode + ', Type=' + rule.typeCode);
     }
 
     var ok = errors.length === 0;
     var reviewOnly = warnings.length > 0;
-    tr.classList.toggle('p2-fixed-row', ok && !reviewOnly);
-    tr.dataset.fixed = ok && !reviewOnly ? '1' : '0';
+    tr.classList.toggle('p2-fixed-row', ok);
+    tr.dataset.fixed = ok ? '1' : '0';
 
     if (stEl) {
         if (!ok) {
             stEl.textContent = errors[0] || 'Flagged';
             stEl.style.cssText = 'background:#fee2e2;color:#b91c1c;font-size:11px;white-space:nowrap;border-radius:4px;padding:1px 6px;font-weight:600';
+        } else if (isCondemned) {
+            // Condemned rows go to Ready as-is — no carcass weight needed.
+            stEl.textContent = '🚫 Condemned — ready';
+            stEl.style.cssText = 'background:#fef2f2;color:#991b1b;font-size:11px;white-space:nowrap;border-radius:4px;padding:1px 6px;font-weight:600';
         } else if (reviewOnly) {
             stEl.textContent = warnings[0];
             stEl.style.cssText = 'background:#fffbeb;color:#92400e;font-size:11px;white-space:nowrap;border-radius:4px;padding:1px 6px;font-weight:600';
@@ -705,7 +813,7 @@ function onFieldChange(tr) {
     if (chk) chk.disabled = false;
     // Enable/disable the per-row Load button
     var rowLoadBtn = tr.querySelector('.row-load-btn');
-    if (rowLoadBtn) rowLoadBtn.disabled = !ok || reviewOnly;
+    if (rowLoadBtn) rowLoadBtn.disabled = !ok;
     updateP2Counts();
 }
 
@@ -770,6 +878,7 @@ async function loadSingleRow(btn) {
             body: JSON.stringify({
                 rows: [{
                     controlNo: ctrlno,
+                    originalControlNo: parseInt(tr.dataset.origctrlno || '0'),
                     hotWeight: parseFloat((s1 + s2).toFixed(1)),
                     grade: grade,
                     healthScore: hs,
@@ -787,8 +896,9 @@ async function loadSingleRow(btn) {
         });
 
         var data = await res.json();
+        var saved = Number(data.saved || data.count || 0);
 
-        if (data.success && (data.count || 0) > 0) {
+        if (data.success && saved > 0) {
             tr.dataset.loaded = '1';
             tr.dataset.fixed  = '0';
             tr.style.opacity  = '0.55';
@@ -807,11 +917,26 @@ async function loadSingleRow(btn) {
                 i.disabled = true;
             });
 
-            btn.textContent = 'Loaded ✓';
+            btn.textContent = 'Going to Mark as Killed…';
             btn.style.cssText = 'background:#f0fdf4;color:#166534;border:1px solid #86efac;font-size:11px;padding:2px 8px;border-radius:4px;cursor:default;font-weight:600';
             btn.disabled = true;
 
             updateP2Counts();
+
+            document.getElementById('hw-load-ids').value   = String(ctrlno);
+            document.getElementById('hw-fixed-json').value = JSON.stringify([{
+                rowKey: tr.dataset.rowid || '',
+                controlNo: ctrlno,
+                animalControlNumber: (tr.dataset.fileacn || tr.dataset.acn || '').trim(),
+                side1: s1,
+                side2: s2,
+                grade: grade,
+                healthScore: hs
+            }]);
+            setTimeout(function() {
+                document.getElementById('hw-load-form').submit();
+            }, 100);
+            
         } else {
             alert('Save failed: ' + (data.message || 'No records were updated.'));
             btn.disabled = false;
@@ -866,15 +991,16 @@ function loadSelectedFlagged() {
 //  Load tab 1 selected rows 
 function loadSelected(prefix) {
     var ids = [...document.querySelectorAll('.'+prefix+'-chk:checked')]
-        .map(function(c){return c.dataset.ctrlno;}).filter(Boolean).join(',');
-    document.getElementById('hw-load-ids').value   = ids;
+    .map(function(c){return c.dataset.ctrlno;}).filter(Boolean).join(',');
+    if (!ids) { alert('Select at least one row to load.'); return; }
+    document.getElementById('hw-load-ids').value = ids;
     document.getElementById('hw-fixed-json').value = '';
     document.getElementById('hw-load-form').submit();
 }
 
 // Save fixed flagged rows directly to DB 
 async function saveFixedToDB() {
-    var fixed = [...document.querySelectorAll('.p2-row .p2-chk:checked')];
+    var fixed = [...document.querySelectorAll('.p2-row[data-fixed="1"] .p2-chk:checked')];
     if (!fixed.length) { alert('Select at least one row to save.'); return; }
 
     var rows = fixed.map(function(chk) {
@@ -915,8 +1041,9 @@ async function saveFixedToDB() {
             body: JSON.stringify({ rows: rows })
         });
         var data = await res.json();
+        var saved = Number(data.saved || data.count || 0);
 
-        if (data.success && (data.count || 0) > 0) {
+        if (data.success && saved > 0) {
             var summary = rows.map(function(r) {
                 var row = fixed
                     .map(function(c){ return c.closest('tr'); })
@@ -926,7 +1053,7 @@ async function saveFixedToDB() {
             }).join(' · ');
 
             document.getElementById('save-confirm-msg').textContent =
-                data.count + ' record' + (data.count !== 1 ? 's' : '') + ' updated: ' + summary + '.';
+                saved + ' record' + (saved !== 1 ? 's' : '') + ' updated: ' + summary + '.';
             document.getElementById('save-confirm').style.display = 'block';
             window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -969,6 +1096,15 @@ document.addEventListener('DOMContentLoaded', function() {
     updSel('p1');
     updSel('p2');
     updateP2Counts();
+@{
+    var openTab = ViewBag.OpenTab as int?;
+}
+@if (openTab.HasValue)
+{
+    <text>
+    if (typeof switchTab === 'function') switchTab(@openTab.Value);
+    </text>
+}
 });
 //  Candidate picker  page-level modal 
 var _modalRowId = null;

@@ -1,6 +1,7 @@
 C:\Users\bgora\Downloads\BarnData\publish\BarnData.Web.exe
 C:\Users\bgora\Downloads\BarnData\publish\publish\web.config
 C:\Users\bgora\Downloads\BarnData\publish\appsettings.json
+C:\Users\bgora\Downloads\BarnData\publish\appsettings.Production.json
 C:\Users\bgora\Downloads\BarnData\publish\publish\appsettings.json
 C:\Users\bgora\Downloads\BarnData\publish\publish\BarnData.Web.deps.json
 C:\Users\bgora\Downloads\BarnData\publish\publish\BarnData.Web.runtimeconfig.json
