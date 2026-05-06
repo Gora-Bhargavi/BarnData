@@ -119,10 +119,7 @@ namespace BarnData.Data.Entities
 
         //  Calculated properties (not stored in DB)
         [NotMapped]
-        public decimal SaleCost =>
-            PurchaseType == "Consignment"
-                ? (HotWeight ?? 0) * (ConsignmentRate ?? 0)
-                : LiveWeight * LiveRate;
+        public decimal SaleCost => LiveWeight * LiveRate;
 
         [NotMapped]
         public decimal YieldPct =>

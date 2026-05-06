@@ -430,6 +430,7 @@ namespace BarnData.Web.Controllers
             var totFill = XLColor.FromHtml("#e2e8f0");
             ws.Cell(row, 1).Value = "TOTAL";
             ws.Cell(row, 8).Value = animals.Sum(a => a.LiveWeight);
+            ws.Cell(row, 9).Value  = animals.Where(a => !a.IsCondemned).Sum(a => a.SaleCost);
             ws.Cell(row, 11).Value = animals.Sum(a => a.HotWeight ?? 0);
             for (int c = 1; c <= headers.Length; c++)
             {

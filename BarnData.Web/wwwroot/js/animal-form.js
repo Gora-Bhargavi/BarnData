@@ -96,6 +96,26 @@
     const hotWeightInput      = document.getElementById('hotWeightInput');
     const liveRateInput       = document.getElementById('liveRateInput');
     const consignmentRateInput = document.getElementById('consignmentRateInput');
+    const stateInput          = document.getElementById('State');
+    const buyerInput          = document.getElementById('BuyerName');
+
+    function appendDatalistOption(listId, value) {
+        var trimmed = String(value || '').trim();
+        if (!trimmed) return;
+
+        var list = document.getElementById(listId);
+        if (!list) return;
+
+        var exists = Array.from(list.options).some(function (opt) {
+            return String(opt.value || '').trim().toLowerCase() === trimmed.toLowerCase();
+        });
+
+        if (!exists) {
+            var option = document.createElement('option');
+            option.value = trimmed;
+            list.appendChild(option);
+        }
+    }
 
     function applyPurchaseType(type) {
         const isCons = type === 'Consignment Bill';
@@ -127,6 +147,12 @@
                 }
             });
         }
+
+    if (stateInput) {
+        stateInput.addEventListener('input', function () {
+            this.value = String(this.value || '').toUpperCase();
+        });
+    }
 
     function readNumber(input) {
     if (!input) return 0;
@@ -254,6 +280,8 @@ function updateCostPreview() {
             }
 
             upsertSessionRecord(data.record);
+            appendDatalistOption('stateSuggestions', stateInput ? stateInput.value : '');
+            appendDatalistOption('buyerSuggestions', buyerInput ? buyerInput.value : '');
             clearForNextEntry();
 
         } catch {
@@ -325,8 +353,8 @@ function updateCostPreview() {
     }
 
     function clearForNextEntry() {
-        ['tag1Input', 'TagNumber2', 'Tag3', 'AnimalControlNumber',
-         'liveWeightInput', 'hotWeightInput', 'FetalBlood',
+          ['tag1Input', 'TagNumber2', 'Tag3', 'AnimalControlNumber',
+         'liveWeightInput', 'liveRateInput', 'hotWeightInput', 'FetalBlood',
          'Grade', 'State', 'BuyerName', 'VetName', 'Comment', 'OfficeUse2']
         .forEach(function (id) {
             var el = document.getElementById(id);

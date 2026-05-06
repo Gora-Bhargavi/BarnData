@@ -72,12 +72,15 @@
                         <input type="text"
                             id="mk-table-search"
                             value="@searchTerm"
-                            placeholder="Search tag or control no…"
+                            placeholder="Search tag or ACN…"
+                            oninput="applyMkSearch()"
                             onkeydown="if (event.key === 'Enter') { event.preventDefault(); applyMkSearch(); }"
                             style="border:none;outline:none;font-size:12.5px;width:100%;background:transparent">
+                            @*<button type="button" class="btn btn-secondary btn-sm" onclick="applyMkSearch()">Search</button>*@
+                            <button type="button" class="btn btn-ghost btn-sm" onclick="clearMkSearch()">Clear</button>
                     </div>
 
-                    <button type="button" class="btn btn-secondary btn-sm" onclick="applyMkSearch()">Search</button>
+                    @*<button type="button" class="btn btn-secondary btn-sm" onclick="applyMkSearch()">Search</button>*@
                 </div>
             </div>
             <div style="display:flex;gap:8px;padding-bottom:2px;flex-wrap:wrap;align-items:flex-end">
@@ -224,6 +227,7 @@
                             <th style="min-width:140px;background:#162236;color:#9ae6b4">Office Use 2 ✎</th>
                             <th style="min-width:190px;background:#162236;color:#9ae6b4">Comments ✎</th>
                             <th style="min-width:105px;background:#162236;color:#9ae6b4">Live Wt ✎</th>
+                            <th style="min-width:105px;background:#162236;color:#9ae6b4">Live Rate ✎</th>
                             <th style="min-width:95px;background:#162236;color:#9ae6b4">Kill Date ✎</th>
                             <th style="min-width:95px;background:#162236;color:#9ae6b4">Hot Wt ✎</th>
                             <th style="min-width:90px;background:#162236;color:#9ae6b4">Grade ✎</th>
@@ -241,6 +245,7 @@
                                 data-purchase-type="@a.PurchaseType"
                                 data-animal-type="@a.AnimalType"
                                 data-orig-live="@a.LiveWeight.ToString("0.0")"
+                                data-orig-live-rate="@a.LiveRate.ToString("0.0000")"
                                 data-orig-acn="@(a.AnimalControlNumber ?? "")"
                                 data-orig-hw="@(a.HotWeight?.ToString("0.0") ?? "")"
                                 data-orig-grade="@(a.Grade ?? "")"
@@ -314,22 +319,35 @@
                                            oninput="markEdited(@a.ControlNo)"
                                            style="width:190px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
                                 </td>
-                                <td style="background:#f0fdf4">
+                                 <td style="background:#f0fdf4">
                                     <input type="number" name="liveWeight_@a.ControlNo"
-                                           value="@a.LiveWeight.ToString("0.0")" step="0.1" min="0"
-                                           oninput="markEdited(@a.ControlNo); markLiveManual(@a.ControlNo)"
-                                           style="width:105px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                        value="@a.LiveWeight.ToString("0.0")" step="0.1" min="0"
+                                        oninput="markEdited(@a.ControlNo); markLiveManual(@a.ControlNo)"
+                                        style="width:105px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                </td>
+                                <td style="background:#f0fdf4">
+                                    @if ((a.PurchaseType ?? "").Contains("Consignment", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <input type="number" name="liveRate_@a.ControlNo"
+                                               value="@a.LiveRate.ToString("0.0000")" step="0.0001" min="0"
+                                               oninput="markEdited(@a.ControlNo)"
+                                               style="width:105px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                    }
+                                    else
+                                    {
+                                        <span style="color:var(--text3);font-size:12px;padding:3px 5px">$@a.LiveRate.ToString("N4")</span>
+                                    }
                                 </td>
                                 <td style="background:#f0fdf4">
                                     <input type="date" name="killDate_@a.ControlNo" value=""
-                                           onchange="markEdited(@a.ControlNo)"
-                                           style="width:114px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
+                                        onchange="markEdited(@a.ControlNo)"
+                                        style="width:114px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:#fff" />
                                 </td>
                                 <td style="background:#f0fdf4">
                                     <input type="number" name="hotWeight_@a.ControlNo"
                                            value="@(a.HotWeight?.ToString("0.0") ?? "")"
                                            step="0.1" min="0" placeholder="lbs"
-                                           oninput="markEdited(@a.ControlNo); syncLiveFromHotForConsignment(@a.ControlNo)"
+                                           oninput="markEdited(@a.ControlNo); syncLiveFromHotForConsignment(@a.ControlNo, true)"
                                            style="width:82px;padding:3px 5px;font-size:12px;border:1px solid var(--gray3);border-radius:4px;background:@(a.HwImported ? "#dbeafe" : "#fff")" />
                                 </td>
                                 <td style="background:#f0fdf4">
@@ -497,6 +515,12 @@ return {
         animalControlNumber: (tr.querySelector('input[name="animalCtrlNo_' + id + '"]')?.value || '').trim(),
         killDate: tr.querySelector('input[name="killDate_' + id + '"]')?.value || '',
         liveWeight: parseFloat(tr.querySelector('input[name="liveWeight_' + id + '"]')?.value) || 0,
+        liveRate: parseFloat(
+            tr.querySelector('input[name="liveRate_' + id + '"]')?.value
+            ?? tr.dataset.origLiveRate
+            ?? '0'
+        ) || 0,
+        hotWeight: parseFloat(tr.querySelector('input[name="hotWeight_' + id + '"]')?.value) || 0,
         hotWeight: parseFloat(tr.querySelector('input[name="hotWeight_' + id + '"]')?.value) || 0,
         grade: tr.querySelector('select[name="grade_' + id + '"]')?.value || '',
         healthScore: parseInt(tr.querySelector('input[name="healthScore_' + id + '"]')?.value) || 0,
@@ -509,6 +533,7 @@ return {
 }
 
 let completeOnlyMode = false;
+let searchOnlyMode = false;
 
 function isCompleteForKill(row) {
 const acnOk = !!(row.animalControlNumber || '').trim();
@@ -531,26 +556,28 @@ if (!row) return;
 row.dataset.liveManual = '1';
 }
 
-function syncLiveFromHotForConsignment(id) {
-var row = document.getElementById('row-' + id);
-if (!row) return;
-if (!isConsignmentRowById(id)) return;
+function syncLiveFromHotForConsignment(id, forceFromHotChange) {
+    var row = document.getElementById('row-' + id);
+    if (!row) return;
+    if (!isConsignmentRowById(id)) return;
+    var hotEl  = row.querySelector('input[name="hotWeight_' + id + '"]');
+    var liveEl = row.querySelector('input[name="liveWeight_' + id + '"]');
+    if (!hotEl || !liveEl) return;
 
-var hotEl  = row.querySelector('input[name="hotWeight_' + id + '"]');
-var liveEl = row.querySelector('input[name="liveWeight_' + id + '"]');
-if (!hotEl || !liveEl) return;
+    var hot = parseFloat(hotEl.value || '0') || 0;
+    if (hot <= 0) return;
 
-var hot = parseFloat(hotEl.value || '0') || 0;
-if (hot <= 0) return;
+    var live = parseFloat(liveEl.value || '0') || 0;
+    var isManual = row.dataset.liveManual === '1';
 
-var live = parseFloat(liveEl.value || '0') || 0;
-var isManual = row.dataset.liveManual === '1';
+    // If user is actively changing Hot Weight, keep Live Weight in sync for consignment rows.
+    // On initial page load, only backfill when Live is empty.
+    var shouldSync = forceFromHotChange === true || (!isManual && live <= 0);
+    if (!shouldSync) return;
 
-if (!isManual || live <= 0) {
     liveEl.value = hot.toFixed(1);
     row.classList.add('consignment-auto-live');
     markEdited(id);
-}
 }
 
 function getAllAnimalRows() {
@@ -568,13 +595,30 @@ if (el) el.textContent = n + ' complete';
 }
 
 function applyRowFilters() {
-    getAllAnimalRows().forEach(function(r) {
+    var q = (document.getElementById('mk-table-search')?.value || '').toLowerCase().trim();
+        getAllAnimalRows().forEach(function(r) {
         var byComplete = !completeOnlyMode || isCompleteForKill(readRow(r));
-        r.style.display = byComplete ? '' : 'none';
+        var haystack = (r.dataset.s || '').toLowerCase();
+        var bySearch = !q || haystack.indexOf(q) >= 0;
+
+        var show = byComplete && bySearch;
+        r.style.display = show ? '' : 'none';
+
+        // Prevent hidden selected rows from being submitted by accident.
+        if (!show) {
+            var chk = r.querySelector('.animal-chk');
+            if (chk && chk.checked) {
+                chk.checked = false;
+                highlightRow(chk);
+            }
+        }
     });
 
     var btn = document.getElementById('btnCompleteOnly');
     if (btn) btn.textContent = completeOnlyMode ? 'Show all rows' : 'Show complete only';
+
+    updateVisibleCounts();
+    syncHeaderSelectAll();
 }
 
 function selectCompleteRows() {
@@ -603,7 +647,7 @@ async function selectCompleteAllPages() {
         // candidate set the operator is currently viewing.
         const url = new URL('/Import/MarkKilledFastCompleteCandidates', window.location.origin);
         const vendorIds = new URLSearchParams(window.location.search).get('vendorIds');
-        const q         = new URLSearchParams(window.location.search).get('q');
+        const q = (document.getElementById('mk-table-search')?.value || '').trim();
         if (vendorIds) url.searchParams.set('vendorIds', vendorIds);
         if (q)         url.searchParams.set('q', q);
 
@@ -649,12 +693,7 @@ completeOnlyMode = !completeOnlyMode;
 applyRowFilters();
 }
 
-// Mark ALL complete-for-kill rows as killed across every page, in one action.
-// This is the recommended save flow when working with paginated data.
-//
-// Server enumerates the entire pending list matching current filters,
-// applies HW pre-fill from session, and saves complete rows in one transaction.
-// No DOM iteration. Off-page rows are saved without ever being rendered.
+
 async function markAllCompleteAcrossPages() {
     const btn = document.getElementById('btnMarkAllComplete');
     const killDate = document.getElementById('killDateInput')?.value || '';
@@ -668,7 +707,7 @@ async function markAllCompleteAcrossPages() {
     try {
         const url = new URL('/Import/MarkKilledFastCompleteCandidates', window.location.origin);
         const vendorIds = new URLSearchParams(window.location.search).get('vendorIds');
-        const q         = new URLSearchParams(window.location.search).get('q');
+        const q         = (document.getElementById('mk-table-search')?.value || '').trim();
         if (vendorIds) url.searchParams.set('vendorIds', vendorIds);
         if (q)         url.searchParams.set('q', q);
         const res  = await fetch(url, { headers: { 'Accept': 'application/json' } });
@@ -686,7 +725,7 @@ async function markAllCompleteAcrossPages() {
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     try {
         const vendorIds = new URLSearchParams(window.location.search).get('vendorIds') || '';
-        const q         = new URLSearchParams(window.location.search).get('q') || '';
+        const q = (document.getElementById('mk-table-search')?.value || '').trim();
         const res = await fetch('/Import/MarkAllCompleteAsKilled', {
             method: 'POST',
             headers: {
@@ -789,6 +828,7 @@ function restoreVisibleEdits() {
 
         set('animalCtrlNo', d.animalControlNumber);
         set('liveWeight', d.liveWeight);
+        set('liveRate', d.liveRate);
         set('hotWeight', d.hotWeight);
         set('grade', d.grade);
         set('healthScore', d.healthScore);
@@ -842,7 +882,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Auto-fill Live Wt from Hot Wt on load for consignment rows where Live Wt is 0
     document.querySelectorAll('tr.animal-row').forEach(function(tr) {
         var id = tr.dataset.id;
-        if (id) syncLiveFromHotForConsignment(id);
+        if (id) syncLiveFromHotForConsignment(id, false);
     });
 });
 
@@ -851,7 +891,9 @@ function isEdited(tr) {
     const r = readRow(tr);
     if (d.hwImported === '1' && (r.hotWeight > 0 || r.grade || r.healthScore > 0)) return true;
     const origLive = parseFloat(d.origLive) || 0;
+    const origLiveRate = parseFloat(d.origLiveRate) || 0;
     if (r.liveWeight > 0 && r.liveWeight !== origLive) return true;
+    if (Math.abs(r.liveRate - origLiveRate) > 0.00005) return true;
     if (r.hotWeight > 0 && String(r.hotWeight.toFixed(1)) !== d.origHw) return true;
     if (r.grade && r.grade !== d.origGrade) return true;
     if (r.healthScore > 0 && String(r.healthScore) !== d.origHs) return true;
@@ -1038,6 +1080,7 @@ async function saveEdits() {
             tr.dataset.origGrade = r.grade;
             tr.dataset.origHs = r.healthScore || '';
             tr.dataset.origLive = r.liveWeight;
+            tr.dataset.origLiveRate = r.liveRate.toFixed(4);
             tr.dataset.origAcn = r.animalControlNumber;
             tr.dataset.origState = r.state;
             tr.dataset.origVet = r.vetName;
@@ -1158,17 +1201,17 @@ async function markKilled() {
         }
 
 function selectAll(val) {
-    document.querySelectorAll('.animal-chk').forEach(c => { c.checked = val; highlightRow(c); });
-    var chk = document.getElementById('selectAllChk');
-    if (chk) chk.checked = val;
-    updateCount();
+    getAllAnimalRows().forEach(function(row){
+        if(row.style.display === 'none') return; 
+        var c = row.querySelector('.animal-chk');
+        if(!c) return;
+        c.checked = val;
+        highlightRow(c);
+    });
+    updateVisibleCounts();
+    syncHeaderSelectAll();
 }
-function highlightRow(chk) {
-    var row = chk.closest('tr');
-    if (!row) return;
-    if (chk.checked) row.classList.add('selected-row');
-    else row.classList.remove('selected-row');
-}
+
 function updateCount() {
     var n = document.querySelectorAll('.animal-chk:checked').length;
     var txt = n + ' animal' + (n !== 1 ? 's' : '') + ' selected';
@@ -1177,6 +1220,39 @@ function updateCount() {
     if (el1) el1.textContent = txt;
     if (el2) el2.textContent = txt;
 }
+
+function updateVisibleCounts() {
+    var rows = getAllAnimalRows().filter(function(r) {
+        return r.style.display !== 'none';
+    });
+    var selected = rows.filter(function(r) {
+        var chk = r.querySelector('.animal-chk');
+        return !!chk && chk.checked;
+    }).length;
+    var txt = selected + ' animal' + (selected !==1 ? 's' : '') + ' selected';
+    var el1 = document.getElementById('selectedCount');
+    var el2 = document.getElementById('footerCount');
+    if (el1) el1.textContent = txt;
+    if (el2) el2.textContent = txt;
+}
+
+function syncHeaderSelectAll() {
+    var visibleChecks = getAllAnimalRows()
+        .filter(function(r) { return r.style.display !== 'none'; })
+        .map(function(r) { return r.querySelector('.animal-chk'); })
+        .filter(Boolean);
+    var allVisibleChecked = visibleChecks.length > 0 && visibleChecks.every(function(c) { return c.checked; });
+    var chk = document.getElementById('selectAllChk');
+    if (chk) chk.checked = allVisibleChecked;
+}
+
+function highlightRow(chk) {
+    var row = chk.closest('tr');
+    if (!row) return;
+    if (chk.checked) row.classList.add('selected-row');
+    else row.classList.remove('selected-row');
+}
+
 function markEdited(id) {
     persistVisibleEdits();
     var row = document.getElementById('row-' + id);
@@ -1186,32 +1262,29 @@ function markEdited(id) {
 }
 
 function applyMkSearch() {
-    var q = document.getElementById('mk-table-search')?.value || '';
-    var ids = document.getElementById('mk-hidden')?.value || '';
-    persistVisibleEdits();
-    window.location = '/Import/MarkKilledFast?page=1&pageSize=@pgSize&vendorIds='
-        + encodeURIComponent(ids)
-        + '&q=' + encodeURIComponent(q);
+    searchOnlyMode = true;
+    applyRowFilters();
+
 }
 
-// Vendor picker 
-// The new picker fires 'vp:apply' on Apply. We navigate to a GET of
-// /Import/MarkKilledFast with the chosen vendor ids - do NOT submit
-// the surrounding mkForm (that POSTs to MarkKilled and would actually
-// kill animals).
+function clearMkSearch() {
+    var el = document.getElementById('mk-table-search');
+    if (el) el.value = '';
+    searchOnlyMode = false;
+    applyRowFilters();
+    }
+
 document.addEventListener('vp:apply', function (e) {
     if (!e.detail || e.detail.id !== 'mk') return;
     var ids = e.detail.vendorIds || '';
-    var q = document.getElementById('mk-table-search')?.value || '';
+    var q = (document.getElementById('mk-table-search')?.value || '').trim();
     persistVisibleEdits();
     window.location = '/Import/MarkKilledFast?page=1&pageSize=@pgSize&vendorIds='
-        + encodeURIComponent(ids)
-        + '&q=' + encodeURIComponent(q);
+    + encodeURIComponent(ids)
+    + '&q=' + encodeURIComponent(q);
 });
 
-// Show Save HW data button. Use the server-side total count (across all pages)
-// rather than counting only DOM-visible rows, so the operator sees the true scope.
-// Hides the button entirely when there's nothing left to save.
+
 document.addEventListener('DOMContentLoaded', function() {
     @{
         int hwTotalCount = (ViewBag.HwLoadedCount as int?) ?? 0;

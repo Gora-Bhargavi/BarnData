@@ -478,6 +478,7 @@ private static void ApplySavedValuesToPreviewRow(HotWeightPreviewRow row, Animal
                                             : (r.PurchaseType.Contains("consignment", StringComparison.OrdinalIgnoreCase) && r.HotWeight > 0
                                             ? r.HotWeight
                                             : (decimal?)null),
+                    LiveRate = r.LiveRate,
                     HotWeight           = r.HotWeight > 0 ? r.HotWeight : (decimal?)null,
                     Grade               = string.IsNullOrWhiteSpace(r.Grade) ? null : r.Grade,
                     HealthScore         = r.HealthScore > 0 ? r.HealthScore : (int?)null,
@@ -2479,8 +2480,11 @@ var acnGrouped = acnResults
 
                             if (lotHits.Count == 1)
                             {
+                                
                                 animal = lotHits[0];
                                 matchMethod = $"LotPrefix({suffix4})";
+                                _logger.LogInformation("[HW-TRACE] Lot prefix matched: backTag={Bt}, suffix={Sx}, bill={Cn}",
+                                    backTag, suffix4, animal.ControlNo);
                             }
                             else if (lotHits.Count > 1)
                             {
@@ -2810,7 +2814,7 @@ var acnGrouped = acnResults
                                     FlagReason = flagReason,
                                     Candidates = _candidateBuffer
                                 });
-                                matchedControlNos.Add(bestAnimal.ControlNo);
+                                //matchedControlNos.Add(bestAnimal.ControlNo);
                                 continue;
                             }
                             else if (bestDiff <= 200)
@@ -2844,7 +2848,12 @@ var acnGrouped = acnResults
                         goto AddFlag;
                     }
 
+                    _logger.LogInformation("[HW-TRACE] About to goto DoneMatch: ControlNo={Cn}, backTag={Bt}, matchMethod={Mm}",
+    animal?.ControlNo ?? -1, backTag, matchMethod);
+
                     goto DoneMatch;
+                    _logger.LogInformation("[HW-TRACE] At DoneMatch: ControlNo={Cn}, backTag={Bt}, matchMethod={Mm}, animalNull={Null}",
+    animal?.ControlNo ?? -1, backTag, matchMethod, animal == null);
                     AddFlag:
                     // Condemnation detection runs here too, not just for matched rows.
                     // Without this, a flagged condemned animal (Grade or Grade2 starts
@@ -2876,7 +2885,9 @@ var acnGrouped = acnResults
                     });
                     _candidateBuffer = null;
                     continue;
-                    DoneMatch:
+                    DoneMatch: 
+                     _logger.LogInformation("[HW-TRACE] At DoneMatch: ControlNo={Cn}, backTag={Bt}, matchMethod={Mm}, animalNull={Null}",
+                animal?.ControlNo ?? -1, backTag, matchMethod, animal == null);
                     // Dedup - silently skip if we already matched this animal
                     // (hot scale machine sometimes writes 2 rows per animal - both have same BackTag)
                     if (matchedControlNos.Contains(animal.ControlNo))
@@ -2945,6 +2956,8 @@ var acnGrouped = acnResults
                         : acn;
 
                     vm.Matched++;
+                    _logger.LogInformation("[HW-TRACE] Matched++ fired: ControlNo={Cn}, vm.Matched now={M}, matchMethod={Mm}",
+                        animal.ControlNo, vm.Matched, matchMethod);
 
                     var row = new HotWeightPreviewRow
                     {
@@ -3160,11 +3173,15 @@ var acnGrouped = acnResults
                             if (!string.IsNullOrEmpty(row.TrimComment))
                                 row.FlagReason += $"; {row.TrimComment}";
                             vm.FlaggedRows.Add(row);
+                            _logger.LogInformation("[HW-TRACE] Sent to FlaggedRows (savability): ControlNo={Cn}, ACN={Acn}, flags={Flags}",
+                                row.ControlNo, row.AnimalControlNumber, string.Join("|", savabilityFlags));
                         }
                         else
                         {
                             row.Status = "OK";
                             vm.AutoRows.Add(row);
+                            _logger.LogInformation("[HW-TRACE] Added to AutoRows: ControlNo={Cn}, ACN={Acn}, NewHotWeight={Hw}",
+                            row.ControlNo, row.AnimalControlNumber, row.NewHotWeight);
                         }
                     }
                 }
@@ -3804,6 +3821,8 @@ var acnGrouped = acnResults
 {
     var isConsignment = (row.PurchaseType ?? "").Contains("consignment", StringComparison.OrdinalIgnoreCase);
     var isHwImported = row.HwImported;
+    if (row.LiveRate < 0)
+        return $"Ctrl No {row.ControlNo}: Live Rate cannot be negative.";
 
     // Imported HW rows can save without Live Wt for consignment.
     // Live Wt will be backfilled from Hot Wt in the save mapping.
@@ -5282,6 +5301,7 @@ public int OriginalControlNo { get; set; }
 public string AnimalControlNumber { get; set; } = "";
 public string KillDate { get; set; } = "";
 public decimal LiveWeight { get; set; }
+public decimal LiveRate { get; set; }
 public decimal HotWeight { get; set; }
 public string Grade { get; set; } = "";
 public int HealthScore { get; set; }

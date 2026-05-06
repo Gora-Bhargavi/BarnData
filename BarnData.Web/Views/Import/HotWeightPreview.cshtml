@@ -380,25 +380,25 @@
     <th style="width:32px;position:sticky;left:0;z-index:8;background:#1e2f47">
         <input type="checkbox" id="p2-all" onchange="selAllVisible(this.checked)">
         </th>
-        <th style="width:120px;position:sticky;left:32px;z-index:8;background:#1e2f47">ACN</th>
-        <th style="width:70px;position:sticky;left:152px;z-index:8;background:#1e2f47">LOT</th>
-        <th style="width:120px;position:sticky;left:222px;z-index:8;background:#1e2f47">BackTag</th>
-        <th style="width:90px;position:sticky;left:342px;z-index:8;background:#1e2f47;border-right:2px solid #162236">Tag1</th>
+        <th style="width:120px;position:sticky;left:32px;z-index:8;background:#1e2f47" data-colfilter="text">ACN</th>
+        <th style="width:70px;position:sticky;left:152px;z-index:8;background:#1e2f47" data-colfilter="text">LOT</th>
+        <th style="width:120px;position:sticky;left:222px;z-index:8;background:#1e2f47" data-colfilter="text">BackTag</th>
+        <th style="width:90px;position:sticky;left:342px;z-index:8;background:#1e2f47;border-right:2px solid #162236" data-colfilter="text">Tag1</th>
 
-        <th>Type</th>
-        <th>Sex</th>
-        <th>Tag2</th>
-        <th>Program</th>
-        <th>Origin</th>
-        <th class="text-right">LiveWeight</th>
+        <th data-colfilter="text">Type</th>
+        <th data-colfilter="text">Sex</th>
+        <th data-colfilter="text">Tag2</th>
+        <th data-colfilter="text">Program</th>
+        <th data-colfilter="text">Origin</th>
+        <th data-colfilter="number" class="text-right">LiveWeight</th>
         <th class="text-right" style="background:#162236;color:#9ae6b4">Side1 ✎</th>
         <th class="text-right" style="background:#162236;color:#9ae6b4">Side2 ✎</th>
         <th class="text-right" style="background:#162236;color:#9ae6b4">Hot Total</th>
-        <th style="background:#162236;color:#9ae6b4">Grade ✎</th>
-        <th style="background:#162236;color:#9ae6b4">Grade2 ✎</th>
-        <th style="background:#162236;color:#9ae6b4">HS ✎</th>
-        <th style="background:#3d1515;color:#fca5a5">Flag reason</th>
-        <th>Status</th>
+        <th style="background:#162236;color:#9ae6b4" data-colfilter="text">Grade ✎</th>
+        <th style="background:#162236;color:#9ae6b4" data-colfilter="text">Grade2 ✎</th>
+        <th style="background:#162236;color:#9ae6b4" data-colfilter="text">HS ✎</th>
+        <th style="background:#3d1515;color:#fca5a5" data-colfilter="text">Flag reason</th>
+        <th data-colfilter="text">Status</th>
         <th style="width:140px;position:sticky;right:0;background:#1e2f47;z-index:8;border-left:2px solid #162236">Actions</th>
     </tr></thead>
             <tbody id="p2-body">
@@ -817,17 +817,33 @@ function onFieldChange(tr) {
     updateP2Counts();
 }
 
-// Filter flagged rows 
+// Filter flagged rows
 function filterFlagged() {
-    var q = (document.getElementById('p2-filter')?.value || '').toLowerCase();
-    document.querySelectorAll('.p2-row').forEach(function(row) {
-        var acn    = (row.dataset.acn    || '').toLowerCase();
-        var reason = (row.dataset.reason || '').toLowerCase();
-        row.style.display = !q || acn.includes(q) || reason.includes(q) ? '' : 'none';
+    var q = (document.getElementById('p2-filter')?.value || '').trim().toLowerCase();
+
+    document.querySelectorAll('.p2-row').forEach(function (row) {
+        var searchParts = [
+            row.dataset.acn,
+            row.dataset.fileacn,
+            row.dataset.reason,
+            row.dataset.ctrlno,
+            row.querySelector('.p2-acn-cell')?.textContent,
+            row.children[2]?.textContent, // LOT
+            row.children[3]?.textContent, // BackTag
+            row.children[4]?.textContent  // Tag1
+        ]
+        .filter(function (value) { return !!value; })
+        .map(function (value) { return value.toLowerCase(); });
+
+        var matches = !q || searchParts.some(function (value) {
+            return value.indexOf(q) !== -1;
+        });
+
+        row.style.display = matches ? '' : 'none';
     });
+
     updateP2Counts();
 }
-
 // Delete a single row 
 function deleteRow(btn) {
     var tr = btn.closest('tr');
@@ -1096,15 +1112,19 @@ document.addEventListener('DOMContentLoaded', function() {
     updSel('p1');
     updSel('p2');
     updateP2Counts();
-@{
-    var openTab = ViewBag.OpenTab as int?;
-}
-@if (openTab.HasValue)
-{
-    <text>
-    if (typeof switchTab === 'function') switchTab(@openTab.Value);
-    </text>
-}
+    var flaggedTable = document.getElementById('p2-table');
+    if(flaggedTable){
+        ColumnFilter.install(flaggedTable);
+    }
+    @{
+        var openTab = ViewBag.OpenTab as int?;
+    }
+    @if (openTab.HasValue)
+    {
+        <text>
+        if (typeof switchTab === 'function') switchTab(@openTab.Value);
+        </text>
+    }
 });
 //  Candidate picker  page-level modal 
 var _modalRowId = null;

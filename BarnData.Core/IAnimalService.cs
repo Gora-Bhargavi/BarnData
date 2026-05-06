@@ -15,10 +15,13 @@ namespace BarnData.Core.Services
         Task<IEnumerable<Animal>> GetByTagsAsync(IEnumerable<string> tags);
         Task<Animal?> GetByControlNoAsync(int controlNo);
         Task<IEnumerable<Animal>> GetByTagSuffixAsync(string suffix);
-    Task<IEnumerable<Animal>> GetByTagPatternAsync(string pattern);
-    Task<IEnumerable<Animal>> GetAllPendingAsync();
-    Task<(IEnumerable<Animal> Items, int TotalCount)> GetPendingPagedAsync(int? vendorId, int page, int pageSize);
-    Task<bool> IsTagDuplicateAsync(string tag1, int vendorId, int? excludeControlNo = null);
+        Task<IEnumerable<Animal>> GetByTagPatternAsync(string pattern);
+
+        Task<IReadOnlyList<string>> GetRecentStateSuggestionsAsync(int limit = 8);
+        Task<IReadOnlyList<string>> GetRecentBuyerSuggestionsAsync(int limit = 12);
+        Task<IEnumerable<Animal>> GetAllPendingAsync();
+        Task<(IEnumerable<Animal> Items, int TotalCount)> GetPendingPagedAsync(int? vendorId, int page, int pageSize);
+        Task<bool> IsTagDuplicateAsync(string tag1, int vendorId, int? excludeControlNo = null);
 
     // fast duplicate detection during Excel upload.
         Task<HashSet<(string Tag, int VendorId)>> GetAllTagVendorKeysAsync();
@@ -67,6 +70,7 @@ namespace BarnData.Core.Services
         public DateTime? KillDate { get; set; }
 
         public decimal? LiveWeight {get; set;}
+        public decimal? LiveRate { get; set; }
 
         public string? State {get; set;}
         public string? VetName {get; set;}

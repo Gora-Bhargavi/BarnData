@@ -107,12 +107,16 @@ namespace BarnData.Web.Controllers
             ViewBag.TotalPages = (int)Math.Ceiling((double)totalCount / PageSize);
             ViewBag.TotalLiveWeight = animals.Sum(a => a.LiveWeight);
             ViewBag.TotalHotWeight  = animals.Sum(a => a.HotWeight ?? 0);
-            ViewBag.TotalCost = animals.Sum(a =>
-                (a.PurchaseType?.Contains("consignment", StringComparison.OrdinalIgnoreCase) ?? false)
-                    ? (a.HotWeight ?? 0m) * (a.ConsignmentRate ?? 0)
-                    : a.LiveWeight * a.LiveRate);
+            ViewBag.TotalCost = animals.Sum(a => a.LiveWeight * a.LiveRate);
 
             return View(animals);
+        }
+
+        private async Task PopulateCreateLookupsAsync(AnimalViewModel vm)
+        {
+            await PopulateVendorDropdown(vm);
+            ViewBag.RecentStates = await _animalService.GetRecentStateSuggestionsAsync();
+            ViewBag.RecentBuyers = await _animalService.GetRecentBuyerSuggestionsAsync();
         }
 
         //  CREATE GET - blank entry form 
@@ -124,7 +128,7 @@ namespace BarnData.Web.Controllers
                 PurchaseDate = DateTime.Today,
             };
 
-            await PopulateVendorDropdown(vm);
+            await PopulateCreateLookupsAsync(vm);
             return View(vm);
         }
 
@@ -151,7 +155,7 @@ namespace BarnData.Web.Controllers
 
             if (!ModelState.IsValid)
             {
-                await PopulateVendorDropdown(vm);
+                 await PopulateCreateLookupsAsync(vm);
                 return View(vm);
             }
 
@@ -161,7 +165,7 @@ namespace BarnData.Web.Controllers
             // If weight is out of range AND user hasn't confirmed yet - show warning
             if (vm.ShowWeightWarning && !vm.WeightWarningConfirmed)
             {
-                await PopulateVendorDropdown(vm);
+                await PopulateCreateLookupsAsync(vm);
                 ModelState.AddModelError("LiveWeight",
                     $"Live weight {vm.LiveWeight} lbs is outside the expected range (300–2,500 lbs). " +
                     "Please confirm this is correct by checking the box below.");
@@ -200,7 +204,7 @@ namespace BarnData.Web.Controllers
                 TempData["StickyVendorId"] = vm.VendorID;
                 TempData["StickyPurchaseType"] = vm.PurchaseType;
                 TempData["StickyPurchaseDate"] = vm.PurchaseDate.ToString("yyyy-MM-dd");
-                TempData["StickyLiveRate"] = vm.LiveRate.ToString();
+                //TempData["StickyLiveRate"] = vm.LiveRate.ToString();
                 TempData["StickyConsRate"] = vm.ConsignmentRate?.ToString();
                 TempData["StickyProgramCode"] = vm.ProgramCode;
                 TempData["StickyAnimalType"] = vm.AnimalType;
@@ -369,8 +373,8 @@ namespace BarnData.Web.Controllers
                 vm.PurchaseDate = purchDate;
             }
 
-            if (TempData["StickyLiveRate"] is string lr && decimal.TryParse(lr, out var liveRate))
-                vm.LiveRate = liveRate;
+            //if (TempData["StickyLiveRate"] is string lr && decimal.TryParse(lr, out var liveRate))
+             //   vm.LiveRate = liveRate;
 
             if (TempData["StickyConsRate"] is string cr && decimal.TryParse(cr, out var consRate))
                 vm.ConsignmentRate = consRate;
@@ -381,7 +385,7 @@ namespace BarnData.Web.Controllers
             // Keep StickyVendorId in TempData for the view to restore vendor search text
             TempData.Keep("StickyVendorId");
 
-            await PopulateVendorDropdown(vm);
+            await PopulateCreateLookupsAsync(vm);
             return View("Create", vm);
         }
 
@@ -392,7 +396,7 @@ namespace BarnData.Web.Controllers
             if (animal == null) return NotFound();
 
             var vm = MapToViewModel(animal);
-            await PopulateVendorDropdown(vm);
+            await PopulateCreateLookupsAsync(vm);
             return View(vm);
         }
 

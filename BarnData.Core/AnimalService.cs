@@ -340,6 +340,84 @@ namespace BarnData.Core.Services
         return (animals, total);
     }
 
+        public async Task<IReadOnlyList<string>> GetRecentStateSuggestionsAsync(int limit = 8)
+    {
+        var results = new List<string>();
+
+        using var cmd = _db.Database.GetDbConnection().CreateCommand();
+        cmd.CommandText = @"
+            SELECT TOP (@limit) src.Value
+            FROM (
+                SELECT UPPER(LTRIM(RTRIM(State))) AS Value,
+                       MAX(CreatedAt) AS LastUsed
+                FROM tbl_barn_animal_entry
+                WHERE State IS NOT NULL
+                  AND LTRIM(RTRIM(State)) <> ''
+                GROUP BY UPPER(LTRIM(RTRIM(State)))
+            ) src
+            ORDER BY src.LastUsed DESC, src.Value";
+
+        var limitParam = cmd.CreateParameter();
+        limitParam.ParameterName = "@limit";
+        limitParam.Value = limit;
+        cmd.Parameters.Add(limitParam);
+
+        if (cmd.Connection!.State != ConnectionState.Open)
+            await cmd.Connection.OpenAsync();
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (!reader.IsDBNull(0))
+            {
+                var value = reader.GetString(0).Trim();
+                if (!string.IsNullOrWhiteSpace(value))
+                    results.Add(value);
+            }
+        }
+
+        return results;
+    }
+
+    public async Task<IReadOnlyList<string>> GetRecentBuyerSuggestionsAsync(int limit = 12)
+    {
+        var results = new List<string>();
+
+        using var cmd = _db.Database.GetDbConnection().CreateCommand();
+        cmd.CommandText = @"
+            SELECT TOP (@limit) src.Value
+            FROM (
+                SELECT LTRIM(RTRIM(BuyerName)) AS Value,
+                       MAX(CreatedAt) AS LastUsed
+                FROM tbl_barn_animal_entry
+                WHERE BuyerName IS NOT NULL
+                  AND LTRIM(RTRIM(BuyerName)) <> ''
+                GROUP BY LTRIM(RTRIM(BuyerName))
+            ) src
+            ORDER BY src.LastUsed DESC, src.Value";
+
+        var limitParam = cmd.CreateParameter();
+        limitParam.ParameterName = "@limit";
+        limitParam.Value = limit;
+        cmd.Parameters.Add(limitParam);
+
+        if (cmd.Connection!.State != ConnectionState.Open)
+            await cmd.Connection.OpenAsync();
+
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (!reader.IsDBNull(0))
+            {
+                var value = reader.GetString(0).Trim();
+                if (!string.IsNullOrWhiteSpace(value))
+                    results.Add(value);
+            }
+        }
+
+        return results;
+    }
+
     // IsTagDuplicateAsync 
         public async Task<bool> IsTagDuplicateAsync(
             string tag1, int vendorId, int? excludeControlNo = null)
@@ -514,6 +592,9 @@ namespace BarnData.Core.Services
                 if(d.LiveWeight.HasValue && d.LiveWeight >0)
                     a.LiveWeight = d.LiveWeight.Value;
 
+                if (d.LiveRate.HasValue && d.LiveRate.Value >= 0)
+                    a.LiveRate = d.LiveRate.Value;
+
                 //optional: if kill date is provided on save, persist it
                 //if (d.KillDate.HasValue)
                  //   a.KillDate = d.KillDate.Value;
@@ -571,6 +652,9 @@ namespace BarnData.Core.Services
                 
                 if(d.LiveWeight.HasValue && d.LiveWeight >0)
                     a.LiveWeight = d.LiveWeight.Value;
+
+                if (d.LiveRate.HasValue && d.LiveRate.Value >= 0)
+                    a.LiveRate = d.LiveRate.Value;
             }
 
             if (animals.Any())

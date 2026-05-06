@@ -180,7 +180,7 @@ else
                         data-search="@($"{a.ControlNo} {a.AnimalType} {a.TagNumber1} {a.TagNumber2} {a.Tag3} {a.AnimalControlNumber} {a.PurchaseDate:MM/dd/yyyy} {a.PurchaseType} {a.Vendor?.VendorName} {a.LiveWeight:N1} {a.LiveRate:N4} {(a.KillDate.HasValue ? a.KillDate.Value.ToString("MM/dd/yyyy") : "")} {a.HotWeight?.ToString("N1")} {a.Grade} {a.HealthScore} {a.Comment} {a.OfficeUse2} {a.State} {a.BuyerName} {a.AnimalType2} {a.VetName} {a.FetalBlood?.ToString("N2")}".ToLowerInvariant())"
                         data-livewt="@a.LiveWeight"
                         data-hotwt="@(a.HotWeight ?? 0m)"
-                        data-cost="@((a.PurchaseType?.Contains("consignment", StringComparison.OrdinalIgnoreCase) ?? false ? (a.HotWeight ?? 0m) * (a.ConsignmentRate ?? 0m) : a.LiveWeight * a.LiveRate).ToString(System.Globalization.CultureInfo.InvariantCulture))">
+                        data-cost="@((a.LiveWeight * a.LiveRate).ToString(System.Globalization.CultureInfo.InvariantCulture))">
                         <td class="mono sticky-col" style="left:0">@a.ControlNo</td>
                         <td class="mono sticky-animalctrl">@(a.AnimalControlNumber ?? "—")</td>
                         <td class="mono sticky-tag1">@a.TagNumber1</td> 

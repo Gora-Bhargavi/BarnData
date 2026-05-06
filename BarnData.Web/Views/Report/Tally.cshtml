@@ -162,15 +162,15 @@ else
                     }
                 </tbody>
                 <tfoot>
-                    <tr class="table-total-row">
-                        <td colspan="7" class="text-right total-label">Totals</td>
-                        <td id="footLiveWt" class="text-right mono">@Model.Sum(a => a.LiveWeight).ToString("N1")</td>
-                        <td></td>
-                        <td></td>
-                        <td id="footHotWt" class="text-right mono">@Model.Sum(a => a.HotWeight ?? 0).ToString("N1")</td>
-                        <td colspan="12"></td>
-                    </tr>
-                </tfoot>
+                <tr class="table-total-row">
+                    <td colspan="7" class="text-right total-label">Totals</td>
+                    <td id="footLiveWt" class="text-right mono">@Model.Sum(a => a.LiveWeight).ToString("N1")</td>
+                    <td class="text-right mono" style="color:#15803d;font-weight:600">$@Model.Where(a => !a.IsCondemned).Sum(a => a.SaleCost).ToString("N2")</td>
+                    <td></td>
+                    <td id="footHotWt" class="text-right mono">@Model.Sum(a => a.HotWeight ?? 0).ToString("N1")</td>
+                    <td colspan="12"></td>
+                </tr>
+            </tfoot>
             </table>
         </div>
     </div>
